@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "home": "होम",
+    "collections": "वसूली",
+    "stock": "स्टॉक",
+    "notebook": "नोटबुक",
+    "more": "और",
+    "challans": "चालान",
+    "reminders": "रिमाइंडर",
+    "activity": "गतिविधि",
+    "settings": "सेटिंग्स"
+  },
+  "home": {
+    "title": "होम",
+    "updatedMinutesAgo": "{{count}} मिनट पहले अपडेट हुआ",
+    "updatedHoursAgo": "{{count}} घंटे पहले अपडेट हुआ",
+    "officePcOffline": "ऑफिस पीसी ऑफलाइन है। {{time}} का डेटा दिख रहा है।",
+    "customersOweYou": "ग्राहकों पर कुल बकाया",
+    "isOverdue": "{{amount}} ओवरड्यू है",
+    "notDue": "समय बाकी",
+    "late": "देर से",
+    "over30Days": "30 दिन से अधिक",
+    "sendReminders": "रिमाइंडर भेजें",
+    "needsAttention": "ध्यान देने योग्य",
+    "mostOverdue": "सबसे ज्यादा ओवरड्यू",
+    "seeAll": "सभी देखें",
+    "daysLate": "{{days}} दिन देर",
+    "allCompanies": "सभी कंपनियां",
+    "byCompany": "कंपनी अनुसार",
+    "vouchersSynced": "टैली ईआरपी से स्वचालित सिंक",
+    "preparingQueue": "कतार तैयार हो रही है...",
+    "remindersQueued": "{{count}} रिमाइंडर कतार में हैं"
+  },
+  "common": {
+    "search": "खोजें",
+    "save": "सेव करें",
+    "cancel": "रद्द करें",
+    "total": "कुल",
+    "all": "सभी",
+    "review": "देखें",
+    "open": "खोलें",
+    "retry": "पुनः प्रयास करें",
+    "close": "बंद करें"
+  }
+}

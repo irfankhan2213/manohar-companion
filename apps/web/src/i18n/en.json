@@ -1,0 +1,45 @@
+{
+  "nav": {
+    "home": "Home",
+    "collections": "Collections",
+    "stock": "Stock",
+    "notebook": "Notebook",
+    "more": "More",
+    "challans": "Challans",
+    "reminders": "Reminders",
+    "activity": "Activity",
+    "settings": "Settings"
+  },
+  "home": {
+    "title": "Home",
+    "updatedMinutesAgo": "Updated {{count}} min ago",
+    "updatedHoursAgo": "Last updated {{count}} hours ago",
+    "officePcOffline": "Office PC is offline. Showing data from {{time}}.",
+    "customersOweYou": "Customers owe you",
+    "isOverdue": "{{amount}} is overdue",
+    "notDue": "Not due",
+    "late": "Late",
+    "over30Days": "Over 30 days",
+    "sendReminders": "Send reminders",
+    "needsAttention": "Needs attention",
+    "mostOverdue": "Most overdue",
+    "seeAll": "See all",
+    "daysLate": "{{days}} days late",
+    "allCompanies": "All companies",
+    "byCompany": "By company",
+    "vouchersSynced": "Vouchers synced automatically from Tally ERP",
+    "preparingQueue": "Preparing queue...",
+    "remindersQueued": "{{count}} reminders queued"
+  },
+  "common": {
+    "search": "Search",
+    "save": "Save",
+    "cancel": "Cancel",
+    "total": "Total",
+    "all": "All",
+    "review": "Review",
+    "open": "Open",
+    "retry": "Retry",
+    "close": "Close"
+  }
+}

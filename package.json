@@ -1,0 +1,19 @@
+{
+  "name": "manohar-companion-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Multi-company TallyPrime companion web app and shared domain package",
+  "scripts": {
+    "dev": "pnpm --filter @saas/web dev",
+    "build": "pnpm --filter @saas/shared build && pnpm --filter @saas/web build",
+    "preview": "pnpm --filter @saas/web preview",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm --filter @saas/shared test && pnpm --filter @saas/web test",
+    "shots": "pnpm --filter @saas/web shots"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  },
+  "packageManager": "pnpm@10.25.0+sha512.5e82639027af37cf832061bcc6d639c219634488e0f2baebe785028a793de7b525ffcd3f7ff574f5e9860654e098fe852ba8ac5dd5cefe1767d23a020a92f501"
+}

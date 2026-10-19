@@ -1,0 +1,463 @@
+import {
+  Agent,
+  Bill,
+  Company,
+  Godown,
+  LedgerLine,
+  Party,
+  ReminderRule,
+  ReplyThread,
+  rupeesToPaise,
+  StockBalance,
+  StockItem,
+  User,
+} from '@saas/shared';
+
+export const FIXED_TODAY = '2026-10-17';
+
+export const INITIAL_COMPANIES: Company[] = [
+  {
+    id: 'c1',
+    tenantId: 'tenant-1',
+    name: 'Manohar Traders',
+    tallyName: 'Manohar Traders',
+    financialYear: '2026-27',
+    gstin: '03AABCM1234F1Z1',
+    lastSyncedAt: '2026-10-17T15:18:00Z',
+    agentStatus: 'online',
+  },
+  {
+    id: 'c2',
+    tenantId: 'tenant-1',
+    name: 'Manohar International',
+    tallyName: 'Manohar International',
+    financialYear: '2026-27',
+    gstin: '03AABCM5678F1Z2',
+    lastSyncedAt: '2026-10-17T15:15:00Z',
+    agentStatus: 'online',
+  },
+];
+
+export const INITIAL_AGENT: Agent = {
+  version: '1.4.2',
+  status: 'online',
+  lastSeenAt: '2026-10-17T15:18:00Z',
+};
+
+export const INITIAL_USERS: User[] = [
+  {
+    id: 'u1',
+    tenantId: 'tenant-1',
+    name: 'Manohar Lal',
+    phone: '+91 98140 11223',
+    role: 'owner',
+    companyIds: 'all',
+    active: true,
+  },
+  {
+    id: 'u2',
+    tenantId: 'tenant-1',
+    name: 'Priya Sharma',
+    phone: '+91 98765 22334',
+    role: 'admin',
+    companyIds: 'all',
+    active: true,
+  },
+  {
+    id: 'u3',
+    tenantId: 'tenant-1',
+    name: 'Ramesh Gupta',
+    phone: '+91 98111 33445',
+    role: 'accounts',
+    companyIds: ['c1'],
+    active: true,
+  },
+  {
+    id: 'u4',
+    tenantId: 'tenant-1',
+    name: 'Amit Verma',
+    phone: '+91 98222 44556',
+    role: 'sales',
+    companyIds: ['c1', 'c2'],
+    active: true,
+  },
+  {
+    id: 'u5',
+    tenantId: 'tenant-1',
+    name: 'Suresh Kumar',
+    phone: '+91 98333 55667',
+    role: 'stock_keeper',
+    companyIds: ['c1'],
+    active: true,
+  },
+  {
+    id: 'u6',
+    tenantId: 'tenant-1',
+    name: 'Kavita Singh',
+    phone: '+91 98444 66778',
+    role: 'viewer',
+    companyIds: 'all',
+    active: true,
+  },
+];
+
+export const INITIAL_PARTIES: Party[] = [
+  {
+    id: 'p-sample',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Sample Garments Pvt Ltd',
+    city: 'Kanpur',
+    phones: ['+91 98390 12345', '+91 94150 54321'],
+    gstin: '09AABCS1234F1Z3',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: 'Key sewing parts customer; prefers afternoon calls.',
+  },
+  {
+    id: 'p-bharat',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Bharat Textiles',
+    city: 'Ludhiana',
+    phones: ['+91 98141 23456'],
+    gstin: '03AABCB2345F1Z4',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: 'Follow up with purchasing head Mr. Sethi.',
+  },
+  {
+    id: 'p-royal',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Royal Fashion Hub',
+    city: 'Delhi',
+    phones: ['+91 98101 34567'],
+    gstin: '07AABCR3456F1Z5',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: 'Promises payment by Monday.',
+  },
+  {
+    id: 'p-apex',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Apex Stitching Co',
+    city: 'Jaipur',
+    phones: ['+91 98290 45678'],
+    gstin: '08AABCA4567F1Z6',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: '',
+  },
+  {
+    id: 'p-modern',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Modern Tailors',
+    city: 'Tirupur',
+    phones: ['+91 98422 56789'],
+    gstin: '33AABCM5678F1Z7',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: 'Regular client.',
+  },
+  {
+    id: 'p-golden',
+    tenantId: 'tenant-1',
+    companyId: 'c1',
+    name: 'Golden Thread Works',
+    city: 'Lucknow',
+    phones: ['+91 98399 67890'],
+    gstin: '09AABCG6789F1Z8',
+    creditDays: 30,
+    remindersPaused: false,
+    notes: '',
+  },
+  {
+    id: 'p-inter-1',
+    tenantId: 'tenant-1',
+    companyId: 'c2',
+    name: 'Global Exports Hub',
+    city: 'Mumbai',
+    phones: ['+91 98200 78901'],
+    gstin: '27AABCG7890F1Z9',
+    creditDays: 45,
+    remindersPaused: false,
+    notes: 'Interstate container orders.',
+  },
+];
+
+export const INITIAL_BILLS: Bill[] = [
+  // Sample Garments (Kanpur): Total ₹1,32,300 (45 days late)
+  {
+    id: 'b-sample-1',
+    companyId: 'c1',
+    partyId: 'p-sample',
+    billNo: 'GST/004/26-27',
+    date: '2026-08-03',
+    dueDate: '2026-09-02', // 45 days overdue relative to 2026-10-17
+    amount: rupeesToPaise(105840),
+    pending: rupeesToPaise(105840),
+    source: 'estimated',
+  },
+  {
+    id: 'b-sample-2',
+    companyId: 'c1',
+    partyId: 'p-sample',
+    billNo: 'GST/005/26-27',
+    date: '2026-08-10',
+    dueDate: '2026-09-09',
+    amount: rupeesToPaise(26460),
+    pending: rupeesToPaise(26460),
+    source: 'estimated',
+  },
+  // Bharat Textiles: ₹98,400 (38 days late)
+  {
+    id: 'b-bharat-1',
+    companyId: 'c1',
+    partyId: 'p-bharat',
+    billNo: 'GST/014/26-27',
+    date: '2026-08-10',
+    dueDate: '2026-09-09', // 38 days overdue
+    amount: rupeesToPaise(98400),
+    pending: rupeesToPaise(98400),
+    source: 'tally_bill',
+  },
+  // Royal Fashion Hub: ₹84,200 (32 days late)
+  {
+    id: 'b-royal-1',
+    companyId: 'c1',
+    partyId: 'p-royal',
+    billNo: 'GST/021/26-27',
+    date: '2026-08-16',
+    dueDate: '2026-09-15', // 32 days overdue
+    amount: rupeesToPaise(84200),
+    pending: rupeesToPaise(84200),
+    source: 'tally_bill',
+  },
+  // Apex Stitching Co: ₹65,000 (28 days late)
+  {
+    id: 'b-apex-1',
+    companyId: 'c1',
+    partyId: 'p-apex',
+    billNo: 'GST/033/26-27',
+    date: '2026-08-20',
+    dueDate: '2026-09-19', // 28 days overdue
+    amount: rupeesToPaise(65000),
+    pending: rupeesToPaise(65000),
+    source: 'tally_bill',
+  },
+  // Modern Tailors: ₹42,500 (24 days late)
+  {
+    id: 'b-modern-1',
+    companyId: 'c1',
+    partyId: 'p-modern',
+    billNo: 'GST/045/26-27',
+    date: '2026-08-24',
+    dueDate: '2026-09-23', // 24 days overdue
+    amount: rupeesToPaise(42500),
+    pending: rupeesToPaise(42500),
+    source: 'tally_bill',
+  },
+  // Remaining amount to reach ₹18,42,300 total receivables with ₹6,10,200 overdue
+  // Total overdue = 132300 + 98400 + 84200 + 65000 + 42500 = 422400. We add 187800 overdue for Golden Thread Works:
+  {
+    id: 'b-golden-1',
+    companyId: 'c1',
+    partyId: 'p-golden',
+    billNo: 'GST/055/26-27',
+    date: '2026-08-28',
+    dueDate: '2026-09-27', // 20 days late (1-30d)
+    amount: rupeesToPaise(187800),
+    pending: rupeesToPaise(187800),
+    source: 'tally_bill',
+  },
+  // Now overdue = 4,22,400 + 1,87,800 = ₹6,10,200 (exact match)
+  // Not due bills (Total receivables = 18,42,300, so not due = 18,42,300 - 6,10,200 = ₹12,32,100 = 67%):
+  {
+    id: 'b-not-due-1',
+    companyId: 'c1',
+    partyId: 'p-sample',
+    billNo: 'GST/060/26-27',
+    date: '2026-10-05',
+    dueDate: '2026-11-04', // Not due
+    amount: rupeesToPaise(632100),
+    pending: rupeesToPaise(632100),
+    source: 'tally_bill',
+  },
+  {
+    id: 'b-not-due-2',
+    companyId: 'c1',
+    partyId: 'p-bharat',
+    billNo: 'GST/062/26-27',
+    date: '2026-10-10',
+    dueDate: '2026-11-09', // Not due
+    amount: rupeesToPaise(600000),
+    pending: rupeesToPaise(600000),
+    source: 'tally_bill',
+  },
+];
+
+export const INITIAL_LEDGER_SAMPLE: LedgerLine[] = [
+  {
+    date: '2026-05-10',
+    particulars: 'Sales - Sewing Machine Servo Motors (Qty: 20)',
+    voucherType: 'Sales',
+    voucherNo: 'GST/001/26-27',
+    debit: rupeesToPaise(90720),
+    credit: 0,
+  },
+  {
+    date: '2026-05-20',
+    particulars: 'Sales - Heavy Duty Needle Plates & Feed Dogs',
+    voucherType: 'Sales',
+    voucherNo: 'GST/002/26-27',
+    debit: rupeesToPaise(90720),
+    credit: 0,
+  },
+  {
+    date: '2026-06-01',
+    particulars: 'Sales - Rotary Hooks & Bobbin Cases Set',
+    voucherType: 'Sales',
+    voucherNo: 'GST/003/26-27',
+    debit: rupeesToPaise(105840),
+    credit: 0,
+  },
+  {
+    date: '2026-06-10',
+    particulars: 'Bank Receipt - HDFC Cheque #349182',
+    voucherType: 'Receipt',
+    voucherNo: 'RC/018/26-27',
+    debit: 0,
+    credit: rupeesToPaise(287280),
+  },
+  {
+    date: '2026-08-03',
+    particulars: 'Sales - Direct Drive Motors 550W',
+    voucherType: 'Sales',
+    voucherNo: 'GST/004/26-27',
+    debit: rupeesToPaise(105840),
+    credit: 0,
+  },
+  {
+    date: '2026-08-10',
+    particulars: 'Sales - Lubrication Pumps & Accessories',
+    voucherType: 'Sales',
+    voucherNo: 'GST/005/26-27',
+    debit: rupeesToPaise(26460),
+    credit: 0,
+  },
+];
+
+export const INITIAL_GODOWNS: Godown[] = [
+  { id: 'g1', companyId: 'c1', name: 'Main Godown (Ludhiana)' },
+  { id: 'g2', companyId: 'c1', name: 'Shop Godown' },
+  { id: 'g3', companyId: 'c2', name: 'Export Yard' },
+];
+
+export const INITIAL_STOCK: StockItem[] = [
+  {
+    id: 'item-1',
+    companyId: 'c1',
+    name: 'Servo Motor 550W (Direct Drive)',
+    partNo: 'SM-550D',
+    unit: 'pcs',
+    group: 'Motors',
+    rate: rupeesToPaise(4200),
+    reorderLevel: 20,
+  },
+  {
+    id: 'item-2',
+    companyId: 'c1',
+    name: 'Rotary Hook Assembly (Japanese Type)',
+    partNo: 'RH-204J',
+    unit: 'set',
+    group: 'Hooks & Shuttles',
+    rate: rupeesToPaise(850),
+    reorderLevel: 15,
+  },
+  {
+    id: 'item-3',
+    companyId: 'c1',
+    name: 'Heavy Duty Needle Plate B-24',
+    partNo: 'NP-B24',
+    unit: 'pcs',
+    group: 'Plates & Dogs',
+    rate: rupeesToPaise(180),
+    reorderLevel: 50,
+  },
+  {
+    id: 'item-4',
+    companyId: 'c1',
+    name: 'Standard Bobbin Case (No-Backlash)',
+    partNo: 'BC-312',
+    unit: 'pcs',
+    group: 'Bobbin Cases',
+    rate: rupeesToPaise(95),
+    reorderLevel: 100,
+  },
+];
+
+export const INITIAL_BALANCES: StockBalance[] = [
+  { itemId: 'item-1', godownId: 'g1', qty: 42 },
+  { itemId: 'item-1', godownId: 'g2', qty: 8 },
+  { itemId: 'item-2', godownId: 'g1', qty: 12 }, // Low! Reorder is 15
+  { itemId: 'item-3', godownId: 'g1', qty: 120 },
+  { itemId: 'item-4', godownId: 'g1', qty: 80 }, // Low! Reorder is 100
+];
+
+export const INITIAL_RULES: ReminderRule = {
+  tenantId: 'tenant-1',
+  enabled: true,
+  steps: [
+    { offsetDays: -3, template: 'due_soon', enabled: true },
+    { offsetDays: 0, template: 'due_today', enabled: true },
+    { offsetDays: 3, template: 'overdue', enabled: true },
+    { offsetDays: 7, template: 'overdue', enabled: true },
+    { offsetDays: 15, template: 'overdue', enabled: true },
+  ],
+  quietHours: {
+    from: '20:00',
+    to: '09:00',
+    days: [0], // Sunday
+  },
+  minAmount: rupeesToPaise(1000),
+  stopWhenPaid: true,
+};
+
+export const INITIAL_REPLY_THREADS: ReplyThread[] = [
+  {
+    id: 'th-1',
+    companyId: 'c1',
+    partyId: 'p-sample',
+    unread: 1,
+    lastCustomerMessageAt: '2026-10-17T14:45:00Z',
+    messages: [
+      {
+        from: 'us',
+        text: 'Hello Sample Garments, invoice GST/004/26-27 for ₹1,05,840 is overdue. Please arrange payment.',
+        at: '2026-10-17T11:00:00Z',
+      },
+      {
+        from: 'customer',
+        text: 'Paid ₹50,000 via NEFT today ref #UTR991823. Please check and send updated balance.',
+        at: '2026-10-17T14:45:00Z',
+      },
+    ],
+  },
+  {
+    id: 'th-2',
+    companyId: 'c1',
+    partyId: 'p-royal',
+    unread: 1,
+    lastCustomerMessageAt: '2026-10-17T13:20:00Z',
+    messages: [
+      {
+        from: 'customer',
+        text: 'Will clear Monday 100%. Please don’t stop material dispatch.',
+        at: '2026-10-17T13:20:00Z',
+      },
+    ],
+  },
+];

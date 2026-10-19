@@ -1,0 +1,312 @@
+import {
+  calculateAgingSummary,
+  getAgingBucket,
+  getDaysOverdue,
+  Id,
+  Party,
+} from '@saas/shared';
+import { ApiClient, HomeSummary } from '../api/client.js';
+import {
+  FIXED_TODAY,
+  INITIAL_AGENT,
+  INITIAL_BILLS,
+  INITIAL_COMPANIES,
+  INITIAL_GODOWNS,
+  INITIAL_LEDGER_SAMPLE,
+  INITIAL_PARTIES,
+  INITIAL_REPLY_THREADS,
+  INITIAL_RULES,
+  INITIAL_STOCK,
+  INITIAL_USERS,
+} from './seed.js';
+
+interface MockDB {
+  companies: typeof INITIAL_COMPANIES;
+  agent: typeof INITIAL_AGENT;
+  users: typeof INITIAL_USERS;
+  parties: typeof INITIAL_PARTIES;
+  bills: typeof INITIAL_BILLS;
+  godowns: typeof INITIAL_GODOWNS;
+  stock: typeof INITIAL_STOCK;
+  rules: typeof INITIAL_RULES;
+  replyThreads: typeof INITIAL_REPLY_THREADS;
+}
+
+const STORAGE_KEY = 'mock-db-v1';
+
+function loadDB(): MockDB {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      return JSON.parse(raw);
+    }
+  } catch {
+    // ignore
+  }
+  return {
+    companies: INITIAL_COMPANIES,
+    agent: INITIAL_AGENT,
+    users: INITIAL_USERS,
+    parties: INITIAL_PARTIES,
+    bills: INITIAL_BILLS,
+    godowns: INITIAL_GODOWNS,
+    stock: INITIAL_STOCK,
+    rules: INITIAL_RULES,
+    replyThreads: INITIAL_REPLY_THREADS,
+  };
+}
+
+let db = loadDB();
+
+function saveDB() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  } catch {
+    // ignore
+  }
+}
+
+export function resetMockDB() {
+  localStorage.removeItem(STORAGE_KEY);
+  db = loadDB();
+}
+
+export const mockApiClient: ApiClient = {
+  companies: {
+    list: async () => [...db.companies],
+  },
+  agent: {
+    status: async () => ({ ...db.agent }),
+    createPairingCode: async () => ({
+      code: '839201',
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    }),
+  },
+  home: {
+    summary: async (companyId: Id | 'all'): Promise<HomeSummary> => {
+      const filteredBills =
+        companyId === 'all'
+          ? db.bills
+          : db.bills.filter((b) => b.companyId === companyId);
+
+      const aging = calculateAgingSummary(filteredBills, FIXED_TODAY);
+
+      const notDuePct =
+        aging.total > 0 ? Math.round((aging.notDue / aging.total) * 100) : 100;
+      const latePct =
+        aging.total > 0 ? Math.round((aging.late1to30 / aging.total) * 100) : 0;
+      const over30Pct =
+        aging.total > 0 ? Math.max(0, 100 - notDuePct - latePct) : 0;
+
+      // Group bills by party to compute most overdue
+      const partyMap = new Map<string, Party>();
+      for (const p of db.parties) {
+        partyMap.set(p.id, p);
+      }
+
+      const partyTotals = new Map<
+        string,
+        { party: Party; amount: number; maxDaysLate: number; invoiceRef?: string }
+      >();
+
+      for (const b of filteredBills) {
+        const bucket = getAgingBucket(b.dueDate, FIXED_TODAY);
+        if (bucket !== 'not_due') {
+          const daysLate = getDaysOverdue(b.dueDate, FIXED_TODAY);
+          const current = partyTotals.get(b.partyId) ?? {
+            party: partyMap.get(b.partyId)!,
+            amount: 0,
+            maxDaysLate: 0,
+            invoiceRef: b.billNo,
+          };
+          current.amount += b.pending;
+          if (daysLate > current.maxDaysLate) {
+            current.maxDaysLate = daysLate;
+            current.invoiceRef = b.billNo;
+          }
+          partyTotals.set(b.partyId, current);
+        }
+      }
+
+      const sortedMostOverdue = Array.from(partyTotals.values())
+        .filter((item) => item.party !== undefined)
+        .sort((a, b) => b.maxDaysLate - a.maxDaysLate)
+        .slice(0, 5)
+        .map((item) => ({
+          party: item.party,
+          amount: item.amount,
+          daysLate: item.maxDaysLate,
+          invoiceRef: item.invoiceRef,
+        }));
+
+      // Needs attention items
+      const needsAttention: HomeSummary['needsAttention'] = [];
+      const veryLateCount = filteredBills.filter(
+        (b) => getDaysOverdue(b.dueDate, FIXED_TODAY) >= 30
+      ).length;
+
+      if (veryLateCount > 0) {
+        needsAttention.push({
+          id: 'attn-overdue',
+          type: 'overdue',
+          title: `${veryLateCount} bills are over 30 days`,
+          subtitle: 'Urgent follow-up recommended',
+          actionLabel: 'Review',
+          actionPath: '/collections',
+        });
+      }
+
+      const unreadReplies = db.replyThreads.filter((t) => t.unread > 0).length;
+      if (unreadReplies > 0) {
+        needsAttention.push({
+          id: 'attn-replies',
+          type: 'reply',
+          title: `${unreadReplies} customer replies waiting`,
+          subtitle: 'WhatsApp payment confirmations',
+          actionLabel: 'Open',
+          actionPath: '/reminders/replies',
+        });
+      }
+
+      // Company breakdown when viewing 'all'
+      let companyBreakdown: HomeSummary['companyBreakdown'];
+      if (companyId === 'all') {
+        companyBreakdown = db.companies.map((comp) => {
+          const cBills = db.bills.filter((b) => b.companyId === comp.id);
+          const cAging = calculateAgingSummary(cBills, FIXED_TODAY);
+          return {
+            company: comp,
+            totalAmount: cAging.total,
+            overdueAmount: cAging.overdue,
+          };
+        });
+      }
+
+      return {
+        totalReceivables: aging.total,
+        totalOverdue: aging.overdue,
+        notDuePercentage: notDuePct,
+        latePercentage: latePct,
+        over30Percentage: over30Pct,
+        needsAttention,
+        mostOverdue: sortedMostOverdue,
+        companyBreakdown,
+      };
+    },
+  },
+  parties: {
+    list: async (companyId, query) => {
+      let list =
+        companyId === 'all'
+          ? db.parties
+          : db.parties.filter((p) => p.companyId === companyId);
+      if (query && query.trim() !== '') {
+        const q = query.toLowerCase();
+        list = list.filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            p.city.toLowerCase().includes(q)
+        );
+      }
+      return list;
+    },
+    get: async (id) => db.parties.find((p) => p.id === id) ?? null,
+    update: async (id, updates) => {
+      const idx = db.parties.findIndex((p) => p.id === id);
+      if (idx === -1) throw new Error('Party not found');
+      db.parties[idx] = { ...db.parties[idx]!, ...updates };
+      saveDB();
+      return db.parties[idx]!;
+    },
+  },
+  bills: {
+    list: async (companyId, partyId) => {
+      let list =
+        companyId === 'all'
+          ? db.bills
+          : db.bills.filter((b) => b.companyId === companyId);
+      if (partyId) {
+        list = list.filter((b) => b.partyId === partyId);
+      }
+      return list;
+    },
+  },
+  ledger: {
+    get: async (_partyId) => INITIAL_LEDGER_SAMPLE,
+  },
+  reminders: {
+    rules: {
+      get: async () => ({ ...db.rules }),
+      update: async (updates) => {
+        db.rules = { ...db.rules, ...updates };
+        saveDB();
+        return db.rules;
+      },
+    },
+    send: async (_partyId, _billId) => {
+      return { success: true, messageId: `msg-${Date.now()}` };
+    },
+    messages: {
+      list: async () => [],
+    },
+    replies: {
+      list: async () => db.replyThreads,
+      send: async (threadId, text) => {
+        const thread = db.replyThreads.find((t) => t.id === threadId);
+        if (thread) {
+          thread.messages.push({
+            from: 'us',
+            text,
+            at: new Date().toISOString(),
+          });
+          saveDB();
+        }
+      },
+    },
+  },
+  stock: {
+    items: {
+      list: async (companyId, query) => {
+        let list =
+          companyId === 'all'
+            ? db.stock
+            : db.stock.filter((s) => s.companyId === companyId);
+        if (query) {
+          const q = query.toLowerCase();
+          list = list.filter(
+            (s) =>
+              s.name.toLowerCase().includes(q) ||
+              s.partNo?.toLowerCase().includes(q)
+          );
+        }
+        return list;
+      },
+      get: async (id) => {
+        const item = db.stock.find((s) => s.id === id);
+        if (!item) return null;
+        return { item, balances: [] };
+      },
+    },
+    adjust: async () => {},
+  },
+  challans: {
+    list: async () => [],
+    get: async () => null,
+    create: async (data) => ({
+      ...data,
+      id: `ch-${Date.now()}`,
+      status: 'queued',
+    }),
+  },
+  notebooks: {
+    list: async () => [],
+    get: async () => null,
+    save: async (nb) => nb,
+  },
+  activity: {
+    list: async () => [],
+  },
+  users: {
+    list: async () => db.users,
+  },
+};
