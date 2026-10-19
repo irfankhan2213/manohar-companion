@@ -1,5 +1,6 @@
 import {
   calculateAgingSummary,
+  Challan,
   getAgingBucket,
   getDaysOverdue,
   Id,
@@ -13,6 +14,7 @@ import {
   INITIAL_AGENT,
   INITIAL_BALANCES,
   INITIAL_BILLS,
+  INITIAL_CHALLANS,
   INITIAL_COMPANIES,
   INITIAL_GODOWNS,
   INITIAL_LEDGER_SAMPLE,
@@ -35,9 +37,10 @@ interface MockDB {
   outbox: OutboxItem[];
   rules: typeof INITIAL_RULES;
   replyThreads: typeof INITIAL_REPLY_THREADS;
+  challans: Challan[];
 }
 
-const STORAGE_KEY = 'mock-db-v1';
+const STORAGE_KEY = 'mock-db-v2';
 
 function loadDB(): MockDB {
   try {
@@ -69,6 +72,7 @@ function loadDB(): MockDB {
     ],
     rules: INITIAL_RULES,
     replyThreads: INITIAL_REPLY_THREADS,
+    challans: INITIAL_CHALLANS,
   };
 }
 
@@ -347,13 +351,109 @@ export const mockApiClient: ApiClient = {
         : db.outbox.filter((o) => o.companyId === companyId),
   },
   challans: {
-    list: async () => [],
-    get: async () => null,
-    create: async (data) => ({
-      ...data,
-      id: `ch-${Date.now()}`,
-      status: 'queued',
-    }),
+    list: async (companyId, query, type) => {
+      let list =
+        companyId === 'all'
+          ? db.challans
+          : db.challans.filter((c) => c.companyId === companyId);
+
+      if (type && type !== 'all') {
+        list = list.filter((c) => c.type === type);
+      }
+
+      if (query && query.trim() !== '') {
+        const q = query.toLowerCase();
+        const partyMap = new Map(db.parties.map((p) => [p.id, p]));
+        list = list.filter((c) => {
+          const party = partyMap.get(c.partyId);
+          return (
+            c.number.toLowerCase().includes(q) ||
+            (party?.name.toLowerCase().includes(q) ?? false) ||
+            (c.vehicleNo?.toLowerCase().includes(q) ?? false) ||
+            (c.lrNo?.toLowerCase().includes(q) ?? false)
+          );
+        });
+      }
+
+      return list;
+    },
+    get: async (id) => db.challans.find((c) => c.id === id) ?? null,
+    create: async (data) => {
+      const newId = `ch-${Date.now()}`;
+      const prefix = data.type === 'sales' ? 'SC' : data.type === 'purchase' ? 'PC' : 'DC';
+      const count = db.challans.filter((c) => c.type === data.type).length + 1;
+      const formattedNum = `${prefix}/${String(count).padStart(3, '0')}/26-27`;
+
+      const newChallan: Challan = {
+        ...data,
+        id: newId,
+        number: data.number || formattedNum,
+      };
+
+      db.challans.unshift(newChallan);
+
+      if (newChallan.status === 'queued') {
+        const outboxItem: OutboxItem = {
+          id: `out-${Date.now()}`,
+          companyId: newChallan.companyId,
+          kind: 'challan',
+          refId: newId,
+          status: 'queued',
+          attempts: 1,
+        };
+        db.outbox.unshift(outboxItem);
+
+        // Simulate agent sync after 3.5s
+        setTimeout(() => {
+          const ch = db.challans.find((c) => c.id === newId);
+          if (ch && ch.status === 'queued') {
+            ch.status = 'synced';
+            saveDB();
+          }
+          const out = db.outbox.find((o) => o.id === outboxItem.id);
+          if (out) {
+            out.status = 'synced';
+            saveDB();
+          }
+        }, 3500);
+      }
+
+      saveDB();
+      return newChallan;
+    },
+    retry: async (id) => {
+      const idx = db.challans.findIndex((c) => c.id === id);
+      if (idx === -1) throw new Error('Challan not found');
+
+      db.challans[idx]!.status = 'queued';
+      db.challans[idx]!.failureReason = undefined;
+
+      const outboxItem: OutboxItem = {
+        id: `out-${Date.now()}`,
+        companyId: db.challans[idx]!.companyId,
+        kind: 'challan',
+        refId: id,
+        status: 'queued',
+        attempts: 2,
+      };
+      db.outbox.unshift(outboxItem);
+      saveDB();
+
+      setTimeout(() => {
+        const ch = db.challans.find((c) => c.id === id);
+        if (ch && ch.status === 'queued') {
+          ch.status = 'synced';
+          saveDB();
+        }
+        const out = db.outbox.find((o) => o.id === outboxItem.id);
+        if (out) {
+          out.status = 'synced';
+          saveDB();
+        }
+      }, 3500);
+
+      return db.challans[idx]!;
+    },
   },
   notebooks: {
     list: async () => [],

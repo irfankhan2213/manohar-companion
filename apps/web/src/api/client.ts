@@ -89,9 +89,14 @@ export interface ApiClient {
     adjust: (itemId: Id, godownId: Id, deltaQty: number, reason: string) => Promise<void>;
   };
   challans: {
-    list: (companyId: Id | 'all') => Promise<Challan[]>;
+    list: (
+      companyId: Id | 'all',
+      query?: string,
+      type?: 'sales' | 'purchase' | 'delivery' | 'all'
+    ) => Promise<Challan[]>;
     get: (id: Id) => Promise<Challan | null>;
-    create: (data: Omit<Challan, 'id' | 'status'>) => Promise<Challan>;
+    create: (data: Omit<Challan, 'id'>) => Promise<Challan>;
+    retry: (id: Id) => Promise<Challan>;
   };
   notebooks: {
     list: (companyId: Id | 'all') => Promise<Notebook[]>;

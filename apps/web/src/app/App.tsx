@@ -14,6 +14,11 @@ import { RemindersRepliesScreen } from '../features/reminders/RemindersRepliesSc
 import { RemindersTemplatesScreen } from '../features/reminders/RemindersTemplatesScreen.js';
 import { NotebookScreen } from '../features/notebook/NotebookScreen.js';
 import { MoreScreen } from '../features/more/MoreScreen.js';
+import { ChallansScreen } from '../features/challans/ChallansScreen.js';
+import { CreateChallanScreen } from '../features/challans/CreateChallanScreen.js';
+import { ChallanDetailScreen } from '../features/challans/ChallanDetailScreen.js';
+import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
+import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,12 +52,20 @@ export const App: React.FC = () => {
       <ToastProvider>
         <BrowserRouter>
           <Routes>
+            {/* Standalone Print Documents (No App chrome, Sidebar, or TabBar) */}
+            <Route path="/print/challan/:id" element={<ChallanPrintScreen />} />
+            <Route path="/print/statement/:partyId" element={<StatementPrintScreen />} />
+
+            {/* Standard App Layout */}
             <Route element={<AppLayout />}>
               <Route path="/" element={<HomeScreen />} />
               <Route path="/collections" element={<CollectionsScreen />} />
               <Route path="/collections/:partyId" element={<PartyDetailScreen />} />
               <Route path="/stock" element={<StockScreen />} />
               <Route path="/stock/:itemId" element={<StockDetailScreen />} />
+              <Route path="/challans" element={<ChallansScreen />} />
+              <Route path="/challans/new" element={<CreateChallanScreen />} />
+              <Route path="/challans/:id" element={<ChallanDetailScreen />} />
               <Route path="/reminders" element={<RemindersScreen />} />
               <Route path="/reminders/replies" element={<RemindersRepliesScreen />} />
               <Route path="/reminders/templates" element={<RemindersTemplatesScreen />} />

@@ -5,3 +5,5 @@ dist
 *.local
 coverage
 artifacts/screens/diff
+*.tsbuildinfo
+
