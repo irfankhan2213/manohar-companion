@@ -4,9 +4,11 @@ import {
   Bill,
   Challan,
   Company,
+  Godown,
   Id,
   LedgerLine,
   Notebook,
+  OutboxItem,
   Party,
   ReminderMessage,
   ReminderRule,
@@ -98,6 +100,12 @@ export interface ApiClient {
   };
   activity: {
     list: (companyId: Id | 'all') => Promise<ActivityEvent[]>;
+  };
+  godowns: {
+    list: (companyId: Id | 'all') => Promise<Godown[]>;
+  };
+  outbox: {
+    list: (companyId: Id | 'all') => Promise<OutboxItem[]>;
   };
   users: {
     list: () => Promise<User[]>;

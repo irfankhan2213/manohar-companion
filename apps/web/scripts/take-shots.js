@@ -30,28 +30,36 @@ async function main() {
     });
     const mobilePage = await mobileContext.newPage();
 
-    // Home
-    await mobilePage.goto('http://127.0.0.1:4173/', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=Customers owe you');
+    // Stock List
+    await mobilePage.goto('http://127.0.0.1:4173/stock', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Servo Motor 550W');
     await new Promise((r) => setTimeout(r, 400));
     await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'home-phone-390x844.png'),
+      path: path.join(ARTIFACT_DIR, 'stock-phone-390x844.png'),
     });
 
-    // Collections
-    await mobilePage.goto('http://127.0.0.1:4173/collections', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=Sample Garments Pvt Ltd');
+    // Stock Detail (item-1: Servo Motor)
+    await mobilePage.goto('http://127.0.0.1:4173/stock/item-1', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Available stock');
     await new Promise((r) => setTimeout(r, 400));
     await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'collections-phone-390x844.png'),
+      path: path.join(ARTIFACT_DIR, 'stock-detail-phone-390x844.png'),
     });
 
-    // Party Detail (Sample Garments)
-    await mobilePage.goto('http://127.0.0.1:4173/collections/p-sample', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=Currently owes');
+    // Reminders Screen
+    await mobilePage.goto('http://127.0.0.1:4173/reminders', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Automatic Reminders');
     await new Promise((r) => setTimeout(r, 400));
     await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'party-detail-phone-390x844.png'),
+      path: path.join(ARTIFACT_DIR, 'reminders-phone-390x844.png'),
+    });
+
+    // Reminders Templates Screen
+    await mobilePage.goto('http://127.0.0.1:4173/reminders/templates', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Due Soon Reminder');
+    await new Promise((r) => setTimeout(r, 400));
+    await mobilePage.screenshot({
+      path: path.join(ARTIFACT_DIR, 'reminders-templates-phone-390x844.png'),
     });
 
     await mobileContext.close();
@@ -64,24 +72,16 @@ async function main() {
     });
     const desktopPage = await desktopContext.newPage();
 
-    // Collections Desktop
-    await desktopPage.goto('http://127.0.0.1:4173/collections', { waitUntil: 'networkidle' });
-    await desktopPage.waitForSelector('text=Sample Garments Pvt Ltd');
+    // Stock Desktop
+    await desktopPage.goto('http://127.0.0.1:4173/stock/item-1', { waitUntil: 'networkidle' });
+    await desktopPage.waitForSelector('text=Available stock');
     await new Promise((r) => setTimeout(r, 400));
     await desktopPage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'collections-desktop-1280x800.png'),
-    });
-
-    // Party Detail Desktop
-    await desktopPage.goto('http://127.0.0.1:4173/collections/p-sample', { waitUntil: 'networkidle' });
-    await desktopPage.waitForSelector('text=Currently owes');
-    await new Promise((r) => setTimeout(r, 400));
-    await desktopPage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'party-detail-desktop-1280x800.png'),
+      path: path.join(ARTIFACT_DIR, 'stock-detail-desktop-1280x800.png'),
     });
 
     await desktopContext.close();
-    console.log('All screenshots captured successfully.');
+    console.log('Phase 3 screenshots captured successfully.');
   } finally {
     await browser.close();
     server.kill();

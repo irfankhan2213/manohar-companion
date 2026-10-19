@@ -8,6 +8,10 @@ import { HomeScreen } from '../features/home/HomeScreen.js';
 import { CollectionsScreen } from '../features/collections/CollectionsScreen.js';
 import { PartyDetailScreen } from '../features/collections/PartyDetailScreen.js';
 import { StockScreen } from '../features/stock/StockScreen.js';
+import { StockDetailScreen } from '../features/stock/StockDetailScreen.js';
+import { RemindersScreen } from '../features/reminders/RemindersScreen.js';
+import { RemindersRepliesScreen } from '../features/reminders/RemindersRepliesScreen.js';
+import { RemindersTemplatesScreen } from '../features/reminders/RemindersTemplatesScreen.js';
 import { NotebookScreen } from '../features/notebook/NotebookScreen.js';
 import { MoreScreen } from '../features/more/MoreScreen.js';
 
@@ -48,6 +52,10 @@ export const App: React.FC = () => {
               <Route path="/collections" element={<CollectionsScreen />} />
               <Route path="/collections/:partyId" element={<PartyDetailScreen />} />
               <Route path="/stock" element={<StockScreen />} />
+              <Route path="/stock/:itemId" element={<StockDetailScreen />} />
+              <Route path="/reminders" element={<RemindersScreen />} />
+              <Route path="/reminders/replies" element={<RemindersRepliesScreen />} />
+              <Route path="/reminders/templates" element={<RemindersTemplatesScreen />} />
               <Route path="/notebook" element={<NotebookScreen />} />
               <Route path="/more" element={<MoreScreen />} />
               {/* Fallbacks */}

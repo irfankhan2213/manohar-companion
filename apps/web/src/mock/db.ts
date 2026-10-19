@@ -3,12 +3,15 @@ import {
   getAgingBucket,
   getDaysOverdue,
   Id,
+  OutboxItem,
   Party,
+  StockBalance,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from '../api/client.js';
 import {
   FIXED_TODAY,
   INITIAL_AGENT,
+  INITIAL_BALANCES,
   INITIAL_BILLS,
   INITIAL_COMPANIES,
   INITIAL_GODOWNS,
@@ -28,6 +31,8 @@ interface MockDB {
   bills: typeof INITIAL_BILLS;
   godowns: typeof INITIAL_GODOWNS;
   stock: typeof INITIAL_STOCK;
+  balances: typeof INITIAL_BALANCES;
+  outbox: OutboxItem[];
   rules: typeof INITIAL_RULES;
   replyThreads: typeof INITIAL_REPLY_THREADS;
 }
@@ -51,6 +56,17 @@ function loadDB(): MockDB {
     bills: INITIAL_BILLS,
     godowns: INITIAL_GODOWNS,
     stock: INITIAL_STOCK,
+    balances: INITIAL_BALANCES,
+    outbox: [
+      {
+        id: 'out-1',
+        companyId: 'c1',
+        kind: 'stock_journal',
+        refId: 'item-1',
+        status: 'synced',
+        attempts: 1,
+      },
+    ],
     rules: INITIAL_RULES,
     replyThreads: INITIAL_REPLY_THREADS,
   };
@@ -284,10 +300,51 @@ export const mockApiClient: ApiClient = {
       get: async (id) => {
         const item = db.stock.find((s) => s.id === id);
         if (!item) return null;
-        return { item, balances: [] };
+        const balances = db.balances.filter((b: StockBalance) => b.itemId === id);
+        return { item, balances };
       },
     },
-    adjust: async () => {},
+    adjust: async (itemId, godownId, deltaQty, _reason) => {
+      const balanceIdx = db.balances.findIndex(
+        (b: StockBalance) => b.itemId === itemId && b.godownId === godownId
+      );
+      if (balanceIdx >= 0 && db.balances[balanceIdx]) {
+        db.balances[balanceIdx].qty += deltaQty;
+      } else {
+        db.balances.push({ itemId, godownId, qty: deltaQty });
+      }
+
+      const outboxItem: OutboxItem = {
+        id: `out-${Date.now()}`,
+        companyId: 'c1',
+        kind: 'stock_journal',
+        refId: itemId,
+        status: 'queued',
+        attempts: 1,
+      };
+      db.outbox.unshift(outboxItem);
+      saveDB();
+
+      setTimeout(() => {
+        const item = db.outbox.find((o) => o.id === outboxItem.id);
+        if (item) {
+          item.status = 'synced';
+          saveDB();
+        }
+      }, 4000);
+    },
+  },
+  godowns: {
+    list: async (companyId) =>
+      companyId === 'all'
+        ? db.godowns
+        : db.godowns.filter((g) => g.companyId === companyId),
+  },
+  outbox: {
+    list: async (companyId) =>
+      companyId === 'all'
+        ? db.outbox
+        : db.outbox.filter((o) => o.companyId === companyId),
   },
   challans: {
     list: async () => [],
