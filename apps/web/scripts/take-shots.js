@@ -30,12 +30,20 @@ async function main() {
     });
     const mobilePage = await mobileContext.newPage();
 
-    // Notebook Mobile View
-    await mobilePage.goto('http://127.0.0.1:4173/notebook', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('table');
-    await new Promise((r) => setTimeout(r, 800));
+    // Activity Mobile View
+    await mobilePage.goto('http://127.0.0.1:4173/activity', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Activity Log');
+    await new Promise((r) => setTimeout(r, 600));
     await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'notebook-phone-390x844.png'),
+      path: path.join(ARTIFACT_DIR, 'activity-phone-390x844.png'),
+    });
+
+    // Settings Mobile View
+    await mobilePage.goto('http://127.0.0.1:4173/settings', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('text=Office PC (Windows Agent)');
+    await new Promise((r) => setTimeout(r, 600));
+    await mobilePage.screenshot({
+      path: path.join(ARTIFACT_DIR, 'settings-phone-390x844.png'),
     });
 
     await mobileContext.close();
@@ -48,16 +56,24 @@ async function main() {
     });
     const desktopPage = await desktopContext.newPage();
 
-    // Notebook Desktop View
-    await desktopPage.goto('http://127.0.0.1:4173/notebook', { waitUntil: 'networkidle' });
-    await desktopPage.waitForSelector('table');
-    await new Promise((r) => setTimeout(r, 800));
+    // Activity Desktop View
+    await desktopPage.goto('http://127.0.0.1:4173/activity', { waitUntil: 'networkidle' });
+    await desktopPage.waitForSelector('text=Activity Log');
+    await new Promise((r) => setTimeout(r, 600));
     await desktopPage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'notebook-desktop-1280x800.png'),
+      path: path.join(ARTIFACT_DIR, 'activity-desktop-1280x800.png'),
+    });
+
+    // Settings Desktop View
+    await desktopPage.goto('http://127.0.0.1:4173/settings', { waitUntil: 'networkidle' });
+    await desktopPage.waitForSelector('text=Office PC (Windows Agent)');
+    await new Promise((r) => setTimeout(r, 600));
+    await desktopPage.screenshot({
+      path: path.join(ARTIFACT_DIR, 'settings-desktop-1280x800.png'),
     });
 
     await desktopContext.close();
-    console.log('Phase 5 screenshots captured successfully.');
+    console.log('Phase 6 screenshots captured successfully.');
   } finally {
     await browser.close();
     server.kill();

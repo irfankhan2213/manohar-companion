@@ -12,6 +12,7 @@ import {
 import { ApiClient, HomeSummary } from '../api/client.js';
 import {
   FIXED_TODAY,
+  INITIAL_ACTIVITIES,
   INITIAL_AGENT,
   INITIAL_BALANCES,
   INITIAL_BILLS,
@@ -41,9 +42,10 @@ interface MockDB {
   replyThreads: typeof INITIAL_REPLY_THREADS;
   challans: Challan[];
   notebooks: Notebook[];
+  activities: typeof INITIAL_ACTIVITIES;
 }
 
-const STORAGE_KEY = 'mock-db-v3';
+const STORAGE_KEY = 'mock-db-v4';
 
 function loadDB(): MockDB {
   try {
@@ -77,6 +79,7 @@ function loadDB(): MockDB {
     replyThreads: INITIAL_REPLY_THREADS,
     challans: INITIAL_CHALLANS,
     notebooks: INITIAL_NOTEBOOKS,
+    activities: INITIAL_ACTIVITIES,
   };
 }
 
@@ -105,6 +108,16 @@ export const mockApiClient: ApiClient = {
       code: '839201',
       expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
     }),
+    triggerSync: async () => {
+      db.agent.lastSeenAt = new Date().toISOString();
+      saveDB();
+      return {
+        success: true,
+        syncedAt: db.agent.lastSeenAt,
+        ledgersCount: db.parties.length,
+        vouchersCount: db.bills.length + db.challans.length,
+      };
+    },
   },
   home: {
     summary: async (companyId: Id | 'all'): Promise<HomeSummary> => {
@@ -477,7 +490,12 @@ export const mockApiClient: ApiClient = {
     },
   },
   activity: {
-    list: async () => [],
+    list: async (companyId) => {
+      if (companyId === 'all') return db.activities;
+      return db.activities.filter(
+        (a) => !a.companyId || a.companyId === companyId
+      );
+    },
   },
   users: {
     list: async () => db.users,

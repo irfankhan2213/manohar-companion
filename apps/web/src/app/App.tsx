@@ -13,6 +13,8 @@ import { RemindersScreen } from '../features/reminders/RemindersScreen.js';
 import { RemindersRepliesScreen } from '../features/reminders/RemindersRepliesScreen.js';
 import { RemindersTemplatesScreen } from '../features/reminders/RemindersTemplatesScreen.js';
 import { NotebookScreen } from '../features/notebook/NotebookScreen.js';
+import { ActivityScreen } from '../features/activity/ActivityScreen.js';
+import { SettingsScreen } from '../features/settings/SettingsScreen.js';
 import { MoreScreen } from '../features/more/MoreScreen.js';
 import { ChallansScreen } from '../features/challans/ChallansScreen.js';
 import { CreateChallanScreen } from '../features/challans/CreateChallanScreen.js';
@@ -70,6 +72,8 @@ export const App: React.FC = () => {
               <Route path="/reminders/replies" element={<RemindersRepliesScreen />} />
               <Route path="/reminders/templates" element={<RemindersTemplatesScreen />} />
               <Route path="/notebook" element={<NotebookScreen />} />
+              <Route path="/activity" element={<ActivityScreen />} />
+              <Route path="/settings" element={<SettingsScreen />} />
               <Route path="/more" element={<MoreScreen />} />
               {/* Fallbacks */}
               <Route path="*" element={<HomeScreen />} />

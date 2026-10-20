@@ -52,6 +52,12 @@ export interface ApiClient {
   agent: {
     status: () => Promise<Agent>;
     createPairingCode: () => Promise<{ code: string; expiresAt: string }>;
+    triggerSync: () => Promise<{
+      success: boolean;
+      syncedAt: string;
+      ledgersCount: number;
+      vouchersCount: number;
+    }>;
   };
   home: {
     summary: (companyId: Id | 'all') => Promise<HomeSummary>;
