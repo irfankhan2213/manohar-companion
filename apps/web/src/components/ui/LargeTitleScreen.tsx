@@ -12,6 +12,7 @@ interface LargeTitleScreenProps {
   headerAction?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
+  contentClassName?: string;
 }
 
 export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
@@ -22,6 +23,7 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
   headerAction,
   children,
   className,
+  contentClassName,
 }) => {
   const navigate = useNavigate();
 
@@ -60,7 +62,7 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-xl mx-auto px-5 pt-3 pb-32">
+      <main className={clsx('flex-1 w-full mx-auto px-5 pt-3 pb-32', contentClassName ?? 'max-w-xl')}>
         {/* Large Title Area */}
         <div className="flex flex-col mb-4">
           <div className="flex items-center justify-between">

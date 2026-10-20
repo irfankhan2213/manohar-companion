@@ -5,6 +5,7 @@ import {
   Company,
   Godown,
   LedgerLine,
+  Notebook,
   Party,
   ReminderRule,
   ReplyThread,
@@ -604,4 +605,121 @@ export const INITIAL_CHALLANS: Challan[] = [
     createdBy: 'u-sales',
   },
 ];
+
+export const INITIAL_NOTEBOOKS: Notebook[] = [
+  {
+    id: 'nb-1',
+    companyId: 'c1',
+    title: 'Diwali Advance Booking & Material Estimates',
+    updatedAt: '2026-10-17T15:30:00Z',
+    updatedBy: 'u-owner',
+    columns: [
+      { id: 'c-party', key: 'party', title: 'Customer', type: 'party' },
+      { id: 'c-item', key: 'item', title: 'Item Description', type: 'item' },
+      { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', decimals: 0, total: 'sum' },
+      { id: 'c-rate', key: 'rate', title: 'Rate (₹)', type: 'number', decimals: 0 },
+      { id: 'c-amount', key: 'amount', title: 'Amount (₹)', type: 'computed', formula: '{qty} * {rate}', decimals: 0, total: 'sum' },
+      { id: 'c-freight', key: 'freight', title: 'Freight (₹)', type: 'number', decimals: 0, total: 'sum' },
+      { id: 'c-net', key: 'net', title: 'Net Total (₹)', type: 'computed', formula: '{amount} + {freight}', decimals: 0, total: 'sum' },
+    ],
+    rows: [
+      {
+        id: 'r-1',
+        linkedPartyId: 'p-sample',
+        linkedItemId: 'item-1',
+        cells: {
+          party: { raw: 'Sample Garments Pvt Ltd', value: 'Sample Garments Pvt Ltd' },
+          item: { raw: 'Servo Motor 550W (Direct Drive)', value: 'Servo Motor 550W (Direct Drive)' },
+          qty: { raw: '10*2', value: '20' },
+          rate: { raw: '4200', value: '4200' },
+          amount: { raw: '{qty} * {rate}', value: '84000' },
+          freight: { raw: '1200', value: '1200' },
+          net: { raw: '{amount} + {freight}', value: '85200' },
+        },
+      },
+      {
+        id: 'r-2',
+        linkedPartyId: 'p-bharat',
+        linkedItemId: 'item-2',
+        cells: {
+          party: { raw: 'Bharat Textiles', value: 'Bharat Textiles' },
+          item: { raw: 'Rotary Hook Assembly', value: 'Rotary Hook Assembly' },
+          qty: { raw: '50+25', value: '75' },
+          rate: { raw: '850', value: '850' },
+          amount: { raw: '{qty} * {rate}', value: '63750' },
+          freight: { raw: '850', value: '850' },
+          net: { raw: '{amount} + {freight}', value: '64600' },
+        },
+      },
+      {
+        id: 'r-3',
+        linkedPartyId: 'p-royal',
+        linkedItemId: 'item-3',
+        cells: {
+          party: { raw: 'Royal Fashion Hub', value: 'Royal Fashion Hub' },
+          item: { raw: 'Heavy Duty Needle Plate B-24', value: 'Heavy Duty Needle Plate B-24' },
+          qty: { raw: '120', value: '120' },
+          rate: { raw: '180', value: '180' },
+          amount: { raw: '{qty} * {rate}', value: '21600' },
+          freight: { raw: '400', value: '400' },
+          net: { raw: '{amount} + {freight}', value: '22000' },
+        },
+      },
+      {
+        id: 'r-4',
+        linkedPartyId: 'p-apex',
+        linkedItemId: 'item-4',
+        cells: {
+          party: { raw: 'Apex Stitching Co', value: 'Apex Stitching Co' },
+          item: { raw: 'Standard Bobbin Case', value: 'Standard Bobbin Case' },
+          qty: { raw: '200', value: '200' },
+          rate: { raw: '95', value: '95' },
+          amount: { raw: '{qty} * {rate}', value: '19000' },
+          freight: { raw: '350', value: '350' },
+          net: { raw: '{amount} + {freight}', value: '19350' },
+        },
+      },
+    ],
+  },
+  {
+    id: 'nb-2',
+    companyId: 'c1',
+    title: 'Daily Logistics & Box Weight Calculations',
+    updatedAt: '2026-10-16T11:00:00Z',
+    updatedBy: 'u-owner',
+    columns: [
+      { id: 'c-date', key: 'date', title: 'Dispatch Date', type: 'date' },
+      { id: 'c-boxes', key: 'boxes', title: 'Cartons', type: 'number', decimals: 0, total: 'sum' },
+      { id: 'c-weightPerBox', key: 'weightPerBox', title: 'Weight / Box (Kg)', type: 'number', decimals: 1 },
+      { id: 'c-totalWeight', key: 'totalWeight', title: 'Total Weight (Kg)', type: 'computed', formula: '{boxes} * {weightPerBox}', decimals: 1, total: 'sum' },
+      { id: 'c-freightPerKg', key: 'freightPerKg', title: 'Rate / Kg (₹)', type: 'number', decimals: 0 },
+      { id: 'c-totalFreight', key: 'totalFreight', title: 'Total Freight (₹)', type: 'computed', formula: '{totalWeight} * {freightPerKg}', decimals: 0, total: 'sum' },
+    ],
+    rows: [
+      {
+        id: 'r-log-1',
+        cells: {
+          date: { raw: '2026-10-15', value: '2026-10-15' },
+          boxes: { raw: '12', value: '12' },
+          weightPerBox: { raw: '15.5', value: '15.5' },
+          totalWeight: { raw: '{boxes} * {weightPerBox}', value: '186' },
+          freightPerKg: { raw: '18', value: '18' },
+          totalFreight: { raw: '{totalWeight} * {freightPerKg}', value: '3348' },
+        },
+      },
+      {
+        id: 'r-log-2',
+        cells: {
+          date: { raw: '2026-10-16', value: '2026-10-16' },
+          boxes: { raw: '8*2', value: '16' },
+          weightPerBox: { raw: '12', value: '12' },
+          totalWeight: { raw: '{boxes} * {weightPerBox}', value: '192' },
+          freightPerKg: { raw: '18', value: '18' },
+          totalFreight: { raw: '{totalWeight} * {freightPerKg}', value: '3456' },
+        },
+      },
+    ],
+  },
+];
+
 

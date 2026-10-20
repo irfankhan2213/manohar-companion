@@ -4,6 +4,7 @@ import {
   getAgingBucket,
   getDaysOverdue,
   Id,
+  Notebook,
   OutboxItem,
   Party,
   StockBalance,
@@ -18,6 +19,7 @@ import {
   INITIAL_COMPANIES,
   INITIAL_GODOWNS,
   INITIAL_LEDGER_SAMPLE,
+  INITIAL_NOTEBOOKS,
   INITIAL_PARTIES,
   INITIAL_REPLY_THREADS,
   INITIAL_RULES,
@@ -38,9 +40,10 @@ interface MockDB {
   rules: typeof INITIAL_RULES;
   replyThreads: typeof INITIAL_REPLY_THREADS;
   challans: Challan[];
+  notebooks: Notebook[];
 }
 
-const STORAGE_KEY = 'mock-db-v2';
+const STORAGE_KEY = 'mock-db-v3';
 
 function loadDB(): MockDB {
   try {
@@ -73,6 +76,7 @@ function loadDB(): MockDB {
     rules: INITIAL_RULES,
     replyThreads: INITIAL_REPLY_THREADS,
     challans: INITIAL_CHALLANS,
+    notebooks: INITIAL_NOTEBOOKS,
   };
 }
 
@@ -456,9 +460,21 @@ export const mockApiClient: ApiClient = {
     },
   },
   notebooks: {
-    list: async () => [],
-    get: async () => null,
-    save: async (nb) => nb,
+    list: async (companyId) =>
+      companyId === 'all'
+        ? db.notebooks
+        : db.notebooks.filter((n) => n.companyId === companyId),
+    get: async (id) => db.notebooks.find((n) => n.id === id) ?? null,
+    save: async (nb) => {
+      const idx = db.notebooks.findIndex((n) => n.id === nb.id);
+      if (idx >= 0) {
+        db.notebooks[idx] = nb;
+      } else {
+        db.notebooks.unshift(nb);
+      }
+      saveDB();
+      return nb;
+    },
   },
   activity: {
     list: async () => [],

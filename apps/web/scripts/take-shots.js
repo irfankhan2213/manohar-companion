@@ -30,28 +30,12 @@ async function main() {
     });
     const mobilePage = await mobileContext.newPage();
 
-    // Challans List
-    await mobilePage.goto('http://127.0.0.1:4173/challans', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=DC/042/26-27');
-    await new Promise((r) => setTimeout(r, 400));
+    // Notebook Mobile View
+    await mobilePage.goto('http://127.0.0.1:4173/notebook', { waitUntil: 'networkidle' });
+    await mobilePage.waitForSelector('table');
+    await new Promise((r) => setTimeout(r, 800));
     await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'challans-phone-390x844.png'),
-    });
-
-    // Create Challan Flow
-    await mobilePage.goto('http://127.0.0.1:4173/challans/new', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=New Challan');
-    await new Promise((r) => setTimeout(r, 400));
-    await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'challan-create-phone-390x844.png'),
-    });
-
-    // Challan Detail (ch-1)
-    await mobilePage.goto('http://127.0.0.1:4173/challans/ch-1', { waitUntil: 'networkidle' });
-    await mobilePage.waitForSelector('text=DC/042/26-27');
-    await new Promise((r) => setTimeout(r, 400));
-    await mobilePage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'challan-detail-phone-390x844.png'),
+      path: path.join(ARTIFACT_DIR, 'notebook-phone-390x844.png'),
     });
 
     await mobileContext.close();
@@ -64,24 +48,16 @@ async function main() {
     });
     const desktopPage = await desktopContext.newPage();
 
-    // Challan Print View
-    await desktopPage.goto('http://127.0.0.1:4173/print/challan/ch-1', { waitUntil: 'networkidle' });
-    await desktopPage.waitForSelector('text=MANOHAR TRADERS');
-    await new Promise((r) => setTimeout(r, 400));
+    // Notebook Desktop View
+    await desktopPage.goto('http://127.0.0.1:4173/notebook', { waitUntil: 'networkidle' });
+    await desktopPage.waitForSelector('table');
+    await new Promise((r) => setTimeout(r, 800));
     await desktopPage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'challan-print-desktop-1280x800.png'),
-    });
-
-    // Statement Print View
-    await desktopPage.goto('http://127.0.0.1:4173/print/statement/p-sample', { waitUntil: 'networkidle' });
-    await desktopPage.waitForSelector('text=STATEMENT OF ACCOUNT');
-    await new Promise((r) => setTimeout(r, 400));
-    await desktopPage.screenshot({
-      path: path.join(ARTIFACT_DIR, 'statement-print-desktop-1280x800.png'),
+      path: path.join(ARTIFACT_DIR, 'notebook-desktop-1280x800.png'),
     });
 
     await desktopContext.close();
-    console.log('Phase 4 screenshots captured successfully.');
+    console.log('Phase 5 screenshots captured successfully.');
   } finally {
     await browser.close();
     server.kill();
