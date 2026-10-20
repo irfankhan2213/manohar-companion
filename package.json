@@ -5,11 +5,14 @@
   "description": "Multi-company TallyPrime companion web app and shared domain package",
   "scripts": {
     "dev": "pnpm --filter @saas/web dev",
-    "build": "pnpm --filter @saas/shared build && pnpm --filter @saas/web build",
+    "build": "pnpm --filter @saas/shared build && pnpm --filter @saas/web build && pnpm --filter @saas/agent build",
     "preview": "pnpm --filter @saas/web preview",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
-    "test": "pnpm --filter @saas/shared test && pnpm --filter @saas/web test",
+    "test": "pnpm --filter @saas/shared test && pnpm --filter @saas/web test && pnpm --filter @saas/agent test",
+    "agent": "pnpm --filter @saas/agent start",
+    "agent:status": "node apps/agent/dist/index.js status",
+    "agent:sync": "node apps/agent/dist/index.js sync --mock",
     "shots": "pnpm --filter @saas/web shots"
   },
   "devDependencies": {

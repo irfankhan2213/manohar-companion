@@ -6,4 +6,5 @@ dist
 coverage
 artifacts/screens/diff
 *.tsbuildinfo
+*agent-state*.json
 
