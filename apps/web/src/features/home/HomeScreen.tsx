@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   TrendingUp,
   RotateCw,
+  FileSpreadsheet,
+  CheckSquare,
 } from 'lucide-react';
 import { can, formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -148,6 +150,37 @@ export const HomeScreen: React.FC = () => {
             </Button>
           </div>
         )}
+      </div>
+
+      {/* Quick Operations Links */}
+      <div className="grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={() => navigate('/challans')}
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
+            <FileSpreadsheet className="w-4 h-4 stroke-[2]" />
+          </div>
+          <span className="text-subhead font-bold text-label">Delivery Challans</span>
+          <span className="text-caption text-label-2">
+            TAI &amp; SV Machine filters
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/tasks')}
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
+            <CheckSquare className="w-4 h-4 stroke-[2]" />
+          </div>
+          <span className="text-subhead font-bold text-label">Company Tasks</span>
+          <span className="text-caption text-label-2">
+            Text + Photo assignments
+          </span>
+        </button>
       </div>
 
       {/* Section: Needs Attention */}

@@ -3,8 +3,8 @@ import { NavLink } from 'react-router-dom';
 import {
   Home,
   Wallet,
-  Package,
-  BookOpen,
+  FileSpreadsheet,
+  CheckSquare,
   MoreHorizontal,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -15,9 +15,9 @@ export const TabBar: React.FC = () => {
 
   const tabs = [
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },
+    { to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet },
+    { to: '/tasks', label: t('nav.tasks', 'Tasks'), icon: CheckSquare },
     { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet },
-    { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package },
-    { to: '/notebook', label: t('nav.notebook', 'Notebook'), icon: BookOpen },
     { to: '/more', label: t('nav.more', 'More'), icon: MoreHorizontal },
   ];
 
