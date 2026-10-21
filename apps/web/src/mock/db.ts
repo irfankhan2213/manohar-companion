@@ -5,9 +5,11 @@ import {
   getDaysOverdue,
   Id,
   Notebook,
+  Notification,
   OutboxItem,
   Party,
   StockBalance,
+  Task,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from '../api/client.js';
 import {
@@ -21,10 +23,12 @@ import {
   INITIAL_GODOWNS,
   INITIAL_LEDGER_SAMPLE,
   INITIAL_NOTEBOOKS,
+  INITIAL_NOTIFICATIONS,
   INITIAL_PARTIES,
   INITIAL_REPLY_THREADS,
   INITIAL_RULES,
   INITIAL_STOCK,
+  INITIAL_TASKS,
   INITIAL_USERS,
 } from './seed.js';
 
@@ -43,9 +47,11 @@ interface MockDB {
   challans: Challan[];
   notebooks: Notebook[];
   activities: typeof INITIAL_ACTIVITIES;
+  tasks: Task[];
+  notifications: Notification[];
 }
 
-const STORAGE_KEY = 'mock-db-v4';
+const STORAGE_KEY = 'mock-db-v5';
 
 function loadDB(): MockDB {
   try {
@@ -80,6 +86,8 @@ function loadDB(): MockDB {
     challans: INITIAL_CHALLANS,
     notebooks: INITIAL_NOTEBOOKS,
     activities: INITIAL_ACTIVITIES,
+    tasks: INITIAL_TASKS,
+    notifications: INITIAL_NOTIFICATIONS,
   };
 }
 
@@ -368,7 +376,7 @@ export const mockApiClient: ApiClient = {
         : db.outbox.filter((o) => o.companyId === companyId),
   },
   challans: {
-    list: async (companyId, query, type) => {
+    list: async (companyId, query, type, itemIds) => {
       let list =
         companyId === 'all'
           ? db.challans
@@ -376,6 +384,12 @@ export const mockApiClient: ApiClient = {
 
       if (type && type !== 'all') {
         list = list.filter((c) => c.type === type);
+      }
+
+      if (itemIds && itemIds.length > 0) {
+        list = list.filter((c) =>
+          c.lines.some((line) => itemIds.includes(line.itemId))
+        );
       }
 
       if (query && query.trim() !== '') {
@@ -387,7 +401,8 @@ export const mockApiClient: ApiClient = {
             c.number.toLowerCase().includes(q) ||
             (party?.name.toLowerCase().includes(q) ?? false) ||
             (c.vehicleNo?.toLowerCase().includes(q) ?? false) ||
-            (c.lrNo?.toLowerCase().includes(q) ?? false)
+            (c.lrNo?.toLowerCase().includes(q) ?? false) ||
+            c.lines.some((l) => l.description.toLowerCase().includes(q))
           );
         });
       }
@@ -499,5 +514,96 @@ export const mockApiClient: ApiClient = {
   },
   users: {
     list: async () => db.users,
+  },
+  tasks: {
+    list: async (companyId, filter) => {
+      let list =
+        companyId === 'all'
+          ? db.tasks
+          : db.tasks.filter((t) => t.companyId === companyId);
+
+      if (filter?.challanId) {
+        list = list.filter((t) => t.challanId === filter.challanId);
+      }
+      if (filter?.assignedToUserId) {
+        list = list.filter((t) => t.assignedToUserId === filter.assignedToUserId);
+      }
+      if (filter?.status) {
+        list = list.filter((t) => t.status === filter.status);
+      }
+      return list;
+    },
+    get: async (id) => db.tasks.find((t) => t.id === id) ?? null,
+    create: async (data) => {
+      const newTask: Task = {
+        ...data,
+        id: `task-${Date.now()}`,
+        createdAt: new Date().toISOString(),
+      };
+      db.tasks.unshift(newTask);
+
+      // Automatically generate a notification for the assigned user!
+      const assigner = db.users.find((u) => u.id === data.assignedByUserId);
+      const challan = data.challanId ? db.challans.find((c) => c.id === data.challanId) : null;
+
+      const newNotif: Notification = {
+        id: `notif-${Date.now()}`,
+        userId: data.assignedToUserId,
+        companyId: data.companyId,
+        title: 'New Task Assigned',
+        body: `${assigner?.name ?? 'Team Member'} assigned: "${data.title}"${
+          challan ? ` on Challan ${challan.number}` : ''
+        }`,
+        taskId: newTask.id,
+        challanId: data.challanId,
+        photoUrl: data.photoUrl,
+        read: false,
+        createdAt: new Date().toISOString(),
+      };
+      db.notifications.unshift(newNotif);
+
+      saveDB();
+      return newTask;
+    },
+    update: async (id, updates) => {
+      const idx = db.tasks.findIndex((t) => t.id === id);
+      if (idx === -1) throw new Error('Task not found');
+      db.tasks[idx] = {
+        ...db.tasks[idx]!,
+        ...updates,
+        ...(updates.status === 'completed' && !db.tasks[idx]!.completedAt
+          ? { completedAt: new Date().toISOString() }
+          : {}),
+      };
+      saveDB();
+      return db.tasks[idx]!;
+    },
+  },
+  notifications: {
+    list: async (userId, companyId) => {
+      let list = db.notifications;
+      if (userId) {
+        list = list.filter((n) => n.userId === userId);
+      }
+      if (companyId && companyId !== 'all') {
+        list = list.filter((n) => n.companyId === companyId);
+      }
+      return list;
+    },
+    markAsRead: async (id) => {
+      const target = db.notifications.find((n) => n.id === id);
+      if (target) {
+        target.read = true;
+        saveDB();
+      }
+    },
+    markAllAsRead: async (userId) => {
+      db.notifications.forEach((n) => {
+        if (!userId || n.userId === userId) {
+          n.read = true;
+        }
+      });
+      saveDB();
+    },
   },
 };

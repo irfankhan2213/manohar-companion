@@ -7,12 +7,14 @@ import {
   Godown,
   LedgerLine,
   Notebook,
+  Notification,
   Party,
   ReminderRule,
   ReplyThread,
   rupeesToPaise,
   StockBalance,
   StockItem,
+  Task,
   User,
 } from '@saas/shared';
 
@@ -400,6 +402,46 @@ export const INITIAL_STOCK: StockItem[] = [
     rate: rupeesToPaise(95),
     reorderLevel: 100,
   },
+  {
+    id: 'item-tai',
+    companyId: 'c1',
+    name: 'TAI MACHINE',
+    partNo: 'TAI-9000-HD',
+    unit: 'set',
+    group: 'Sewing Machines',
+    rate: rupeesToPaise(38500),
+    reorderLevel: 5,
+  },
+  {
+    id: 'item-sv',
+    companyId: 'c1',
+    name: 'SV MACHINE',
+    partNo: 'SV-8700-DX',
+    unit: 'set',
+    group: 'Sewing Machines',
+    rate: rupeesToPaise(42000),
+    reorderLevel: 4,
+  },
+  {
+    id: 'item-130k',
+    companyId: 'c1',
+    name: '130K MACHINE',
+    partNo: '130K-INTERLOCK',
+    unit: 'set',
+    group: 'Sewing Machines',
+    rate: rupeesToPaise(55000),
+    reorderLevel: 3,
+  },
+  {
+    id: 'item-tai-set',
+    companyId: 'c1',
+    name: 'TAI SET MACHINE',
+    partNo: 'TAI-SET-FULL',
+    unit: 'set',
+    group: 'Sewing Machines',
+    rate: rupeesToPaise(68000),
+    reorderLevel: 2,
+  },
 ];
 
 export const INITIAL_BALANCES: StockBalance[] = [
@@ -408,11 +450,16 @@ export const INITIAL_BALANCES: StockBalance[] = [
   { itemId: 'item-2', godownId: 'g1', qty: 12 }, // Low! Reorder is 15
   { itemId: 'item-3', godownId: 'g1', qty: 120 },
   { itemId: 'item-4', godownId: 'g1', qty: 80 }, // Low! Reorder is 100
+  { itemId: 'item-tai', godownId: 'g1', qty: 14 },
+  { itemId: 'item-sv', godownId: 'g1', qty: 9 },
+  { itemId: 'item-130k', godownId: 'g1', qty: 6 },
+  { itemId: 'item-tai-set', godownId: 'g1', qty: 5 },
 ];
 
 export const INITIAL_RULES: ReminderRule = {
   tenantId: 'tenant-1',
   enabled: true,
+  defaultDueDays: 30,
   steps: [
     { offsetDays: -3, template: 'due_soon', enabled: true },
     { offsetDays: 0, template: 'due_today', enabled: true },
@@ -604,6 +651,72 @@ export const INITIAL_CHALLANS: Challan[] = [
     narration: 'Draft order awaiting lorry receipt from driver',
     status: 'draft',
     createdBy: 'u-sales',
+  },
+  {
+    id: 'ch-6',
+    companyId: 'c1',
+    type: 'delivery',
+    number: 'DC/045/26-27',
+    date: '2026-10-17',
+    partyId: 'p-sample',
+    godownId: 'g1',
+    lines: [
+      {
+        itemId: 'item-tai',
+        description: 'TAI MACHINE',
+        qty: 2,
+        unit: 'set',
+        rate: rupeesToPaise(38500),
+        amount: rupeesToPaise(77000),
+      },
+      {
+        itemId: 'item-sv',
+        description: 'SV MACHINE',
+        qty: 1,
+        unit: 'set',
+        rate: rupeesToPaise(42000),
+        amount: rupeesToPaise(42000),
+      },
+    ],
+    vehicleNo: 'PB-10-DX-5542',
+    lrNo: 'LR-99881',
+    transporter: 'Ludhiana Cargo Express',
+    narration: 'Dispatched for garment factory installation. Tested with 14-gauge needles.',
+    status: 'synced',
+    createdBy: 'u1',
+  },
+  {
+    id: 'ch-7',
+    companyId: 'c1',
+    type: 'delivery',
+    number: 'DC/046/26-27',
+    date: '2026-10-17',
+    partyId: 'p-royal',
+    godownId: 'g1',
+    lines: [
+      {
+        itemId: 'item-130k',
+        description: '130K MACHINE',
+        qty: 1,
+        unit: 'set',
+        rate: rupeesToPaise(55000),
+        amount: rupeesToPaise(55000),
+      },
+      {
+        itemId: 'item-tai-set',
+        description: 'TAI SET MACHINE',
+        qty: 1,
+        unit: 'set',
+        rate: rupeesToPaise(68000),
+        amount: rupeesToPaise(68000),
+      },
+    ],
+    vehicleNo: 'PB-10-FZ-7711',
+    lrNo: 'LR-99882',
+    transporter: 'Golden Goods Transport',
+    narration: 'Urgent machinery dispatch with complete stand & table sets.',
+    status: 'queued',
+    createdBy: 'u4',
   },
 ];
 
@@ -823,6 +936,86 @@ export const INITIAL_ACTIVITIES: ActivityEvent[] = [
     target: 'Updated calculation sheet "Diwali Advance Booking & Material Estimates"',
     at: '2026-10-16T18:30:00Z',
     device: 'Desktop',
+  },
+];
+
+export const SAMPLE_TASK_PHOTO_1 =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="#f8fafc"/><rect x="20" y="20" width="360" height="260" rx="16" fill="#e2e8f0" stroke="#cbd5e1" stroke-width="2"/><circle cx="120" cy="110" r="36" fill="#3b82f6" opacity="0.85"/><path d="M50 240 L160 140 L250 210 L310 165 L360 240 Z" fill="#0284c7"/><rect x="40" y="230" width="320" height="38" rx="8" fill="#0f172a" opacity="0.85"/><text x="200" y="254" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">TAI MACHINE #TM-9002 Inspection Mark</text></svg>'
+  );
+
+export const SAMPLE_TASK_PHOTO_2 =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="100%" height="100%" fill="#f8fafc"/><rect x="20" y="20" width="360" height="260" rx="16" fill="#fef3c7" stroke="#fde68a" stroke-width="2"/><rect x="50" y="50" width="300" height="180" rx="12" fill="#ffffff" stroke="#f59e0b" stroke-dasharray="4 4" stroke-width="2"/><text x="200" y="120" font-family="system-ui, sans-serif" font-size="16" font-weight="bold" fill="#b45309" text-anchor="middle">LORRY RECEIPT / BILTY</text><text x="200" y="150" font-family="monospace" font-size="14" fill="#78350f" text-anchor="middle">LR-99881 · SIGNED &amp; STAMPED</text><rect x="40" y="235" width="320" height="35" rx="8" fill="#b45309"/><text x="200" y="258" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#ffffff" text-anchor="middle">Verified Delivery Proof · Ludhiana Cargo</text></svg>'
+  );
+
+export const INITIAL_TASKS: Task[] = [
+  {
+    id: 'task-1',
+    companyId: 'c1',
+    title: 'Check needle plate & motor wiring on TAI MACHINE & SV MACHINE',
+    description: 'Ensure 14-gauge needle plate is installed and oil seal is verified before driver leaves for Ludhiana Cargo.',
+    assignedToUserId: 'u5', // Suresh Kumar (stock_keeper)
+    assignedByUserId: 'u1', // Manohar Lal (owner)
+    challanId: 'ch-6', // DC/045/26-27
+    photoUrl: SAMPLE_TASK_PHOTO_1,
+    status: 'pending',
+    priority: 'high',
+    createdAt: '2026-10-17T09:30:00Z',
+  },
+  {
+    id: 'task-2',
+    companyId: 'c1',
+    title: 'Collect stamped bilty receipt for 130K MACHINE delivery',
+    description: 'Customer representative will sign upon truck arrival at Focal Point godown.',
+    assignedToUserId: 'u4', // Amit Verma (sales)
+    assignedByUserId: 'u2', // Priya Sharma (admin)
+    challanId: 'ch-7', // DC/046/26-27
+    photoUrl: SAMPLE_TASK_PHOTO_2,
+    status: 'in_progress',
+    priority: 'normal',
+    createdAt: '2026-10-17T11:15:00Z',
+  },
+];
+
+export const INITIAL_NOTIFICATIONS: Notification[] = [
+  {
+    id: 'notif-1',
+    userId: 'u5', // Suresh Kumar
+    companyId: 'c1',
+    title: 'New Task Assigned',
+    body: 'Manohar Lal assigned you: "Check needle plate & motor wiring on TAI MACHINE & SV MACHINE"',
+    taskId: 'task-1',
+    challanId: 'ch-6',
+    photoUrl: SAMPLE_TASK_PHOTO_1,
+    read: false,
+    createdAt: '2026-10-17T09:30:00Z',
+  },
+  {
+    id: 'notif-2',
+    userId: 'u4', // Amit Verma
+    companyId: 'c1',
+    title: 'Delivery Task Assigned',
+    body: 'Priya Sharma assigned you: "Collect stamped bilty receipt for 130K MACHINE delivery"',
+    taskId: 'task-2',
+    challanId: 'ch-7',
+    photoUrl: SAMPLE_TASK_PHOTO_2,
+    read: false,
+    createdAt: '2026-10-17T11:15:00Z',
+  },
+  {
+    id: 'notif-3',
+    userId: 'u1', // Manohar Lal (current active user)
+    companyId: 'c1',
+    title: 'Challan Task Notification',
+    body: 'Delivery task assigned on DC/045/26-27 (TAI MACHINE & SV MACHINE) with inspection photo.',
+    taskId: 'task-1',
+    challanId: 'ch-6',
+    photoUrl: SAMPLE_TASK_PHOTO_1,
+    read: false,
+    createdAt: '2026-10-17T09:32:00Z',
   },
 ];
 

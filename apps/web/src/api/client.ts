@@ -8,6 +8,7 @@ import {
   Id,
   LedgerLine,
   Notebook,
+  Notification,
   OutboxItem,
   Party,
   ReminderMessage,
@@ -15,6 +16,7 @@ import {
   ReplyThread,
   StockBalance,
   StockItem,
+  Task,
   User,
 } from '@saas/shared';
 
@@ -98,11 +100,30 @@ export interface ApiClient {
     list: (
       companyId: Id | 'all',
       query?: string,
-      type?: 'sales' | 'purchase' | 'delivery' | 'all'
+      type?: 'sales' | 'purchase' | 'delivery' | 'all',
+      itemIds?: string[]
     ) => Promise<Challan[]>;
     get: (id: Id) => Promise<Challan | null>;
     create: (data: Omit<Challan, 'id'>) => Promise<Challan>;
     retry: (id: Id) => Promise<Challan>;
+  };
+  tasks: {
+    list: (
+      companyId: Id | 'all',
+      filter?: {
+        challanId?: string;
+        assignedToUserId?: string;
+        status?: 'pending' | 'in_progress' | 'completed';
+      }
+    ) => Promise<Task[]>;
+    get: (id: Id) => Promise<Task | null>;
+    create: (data: Omit<Task, 'id' | 'createdAt'>) => Promise<Task>;
+    update: (id: Id, updates: Partial<Task>) => Promise<Task>;
+  };
+  notifications: {
+    list: (userId?: string, companyId?: Id | 'all') => Promise<Notification[]>;
+    markAsRead: (id: string) => Promise<void>;
+    markAllAsRead: (userId?: string) => Promise<void>;
   };
   notebooks: {
     list: (companyId: Id | 'all') => Promise<Notebook[]>;

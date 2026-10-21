@@ -3,6 +3,7 @@ import { ChevronLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { CompanyMenu } from './CompanyMenu.js';
+import { NotificationBell } from './NotificationBell.js';
 
 interface LargeTitleScreenProps {
   title: string;
@@ -55,7 +56,8 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
             <CompanyMenu />
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 shrink-0">
+            <NotificationBell />
             {headerAction}
           </div>
         </div>

@@ -327,6 +327,47 @@ export const CreateChallanScreen: React.FC = () => {
       {/* STEP 2: ITEMS */}
       {step === 2 && (
         <div className="flex flex-col gap-4 pb-12">
+          {/* Quick Machinery Shortcuts */}
+          <div className="bg-surface/60 p-3 rounded-2xl border border-separator/40 flex flex-col gap-2">
+            <span className="text-footnote font-semibold text-label">
+              Quick Add Machinery:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {stockItems
+                .filter(
+                  (item) =>
+                    item.name.toUpperCase().includes('MACHINE') ||
+                    item.group.toLowerCase().includes('machine')
+                )
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setLines((prev) => [
+                        ...prev,
+                        {
+                          itemId: item.id,
+                          description: item.name,
+                          qty: 1,
+                          unit: item.unit,
+                          rate: item.rate,
+                          amount: item.rate * 1,
+                        },
+                      ]);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/60 text-footnote font-semibold text-label hover:border-accent hover:text-accent active:bg-fill/50 transition-colors flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-accent stroke-[2.5]" />
+                    <span>{item.name}</span>
+                    <span className="text-caption text-label-3">
+                      ({formatINR(item.rate)})
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </div>
+
           <InsetGroup title="Add Stock Item">
             <div className="p-4 flex flex-col gap-3">
               <div>

@@ -35,6 +35,7 @@ export const PartyDetailScreen: React.FC = () => {
   const [reminderSheetOpen, setReminderSheetOpen] = useState(false);
   const [estimatedInfoOpen, setEstimatedInfoOpen] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string>('');
+  const [reminderDueDays, setReminderDueDays] = useState<number>(30);
 
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
@@ -208,8 +209,13 @@ export const PartyDetailScreen: React.FC = () => {
                   key={bill.id}
                   title={bill.billNo}
                   subtitle={
-                    <span className="inline-flex items-center gap-1">
-                      <span>Due {bill.dueDate}</span>
+                    <span className="inline-flex items-center gap-1.5 flex-wrap">
+                      <span className="text-label-2">Inv: {bill.date}</span>
+                      <span className="text-label-3">·</span>
+                      <span className="font-semibold text-label">Due: {bill.dueDate}</span>
+                      <span className="text-caption text-label-3">
+                        ({party.creditDays}d terms)
+                      </span>
                       {isEstimated && (
                         <button
                           type="button"
@@ -217,7 +223,7 @@ export const PartyDetailScreen: React.FC = () => {
                             e.stopPropagation();
                             setEstimatedInfoOpen(true);
                           }}
-                          className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-1"
+                          className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-0.5"
                         >
                           <span>· Estimated</span>
                           <Info className="w-3.5 h-3.5" />
@@ -225,14 +231,14 @@ export const PartyDetailScreen: React.FC = () => {
                       )}
                     </span>
                   }
-                  trailing={<span className="tabular-nums">{formatINR(bill.pending)}</span>}
+                  trailing={<span className="tabular-nums font-semibold">{formatINR(bill.pending)}</span>}
                   trailingSubtitle={
                     daysLate > 0 ? (
-                      <span className="text-danger font-medium">
+                      <span className="text-danger font-semibold">
                         {daysLate} days late
                       </span>
                     ) : (
-                      <span className="text-label-2">Not due</span>
+                      <span className="text-ok font-medium">Within terms</span>
                     )
                   }
                 />
@@ -427,6 +433,34 @@ export const PartyDetailScreen: React.FC = () => {
         description="Via official WhatsApp Meta Cloud API"
       >
         <div className="flex flex-col gap-4 pt-2">
+          {/* Due Date Term Selector (Applied after X Days) */}
+          <div className="flex flex-col gap-1.5 bg-surface p-3 rounded-xl border border-separator/50">
+            <div className="flex items-center justify-between">
+              <span className="text-footnote font-semibold uppercase tracking-wider text-label-2">
+                Due Date Term (Applied after X days)
+              </span>
+              <span className="text-caption font-bold text-accent">
+                {reminderDueDays} Days Credit
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5 mt-1">
+              {[7, 15, 30, 45].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setReminderDueDays(d)}
+                  className={`py-1.5 px-2 rounded-lg text-caption font-semibold transition-all border ${
+                    reminderDueDays === d
+                      ? 'bg-accent text-white border-accent shadow-sm'
+                      : 'bg-fill/40 border-separator/40 text-label hover:bg-fill/60'
+                  }`}
+                >
+                  {d} Days
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* WhatsApp message bubble */}
           <div className="p-4 rounded-2xl bg-[#DCF8C6] border border-[#C5E1A5] text-label shadow-sm flex flex-col gap-2 relative">
             <div className="text-caption font-semibold uppercase text-[#1B5E20] flex items-center justify-between">
@@ -437,7 +471,16 @@ export const PartyDetailScreen: React.FC = () => {
               Hello <strong className="font-semibold">{party.name}</strong>, invoice{' '}
               <strong className="font-semibold">{bills[0]?.billNo ?? 'GST/004/26-27'}</strong> for{' '}
               <strong className="font-semibold">{formatINR(totalOwed)}</strong> was due on{' '}
-              <strong className="font-semibold">{bills[0]?.dueDate ?? '02-Sep-26'}</strong> and is still unpaid. Please arrange payment at the earliest, or call us on +91 98140 11223 if there is any problem. Thank you.
+              <strong className="font-semibold">
+                {bills[0]?.date
+                  ? new Date(Date.parse(bills[0].date) + reminderDueDays * 86400000).toLocaleDateString('en-IN', {
+                      day: '2-digit',
+                      month: 'short',
+                      year: 'numeric',
+                    })
+                  : '02-Sep-2026'}
+              </strong>{' '}
+              (applied after {reminderDueDays} days credit terms) and is still unpaid. Please arrange payment at the earliest, or call us on +91 98140 11223 if there is any problem. Thank you.
             </p>
             <div className="text-right text-caption text-label-2">
               Just now

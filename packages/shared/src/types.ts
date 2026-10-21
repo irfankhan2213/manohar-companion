@@ -61,6 +61,7 @@ export const BillSchema = z.object({
   billNo: z.string(),
   date: z.string(),
   dueDate: z.string(),
+  dueDays: z.number().int().optional(),
   amount: z.number().int(),
   pending: z.number().int(),
   source: z.enum(['tally_bill', 'estimated']),
@@ -194,6 +195,7 @@ export type TemplateKey = z.infer<typeof TemplateKeySchema>;
 export const ReminderRuleSchema = z.object({
   tenantId: z.string(),
   enabled: z.boolean(),
+  defaultDueDays: z.number().int().default(30),
   steps: z.array(
     z.object({
       offsetDays: z.number(),
@@ -279,3 +281,33 @@ export const AgingBucketSchema = z.enum([
   'd90_plus',
 ]);
 export type AgingBucket = z.infer<typeof AgingBucketSchema>;
+
+export const TaskSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  assignedToUserId: z.string(),
+  assignedByUserId: z.string(),
+  challanId: z.string().optional(),
+  photoUrl: z.string().optional(),
+  status: z.enum(['pending', 'in_progress', 'completed']),
+  priority: z.enum(['normal', 'high', 'urgent']).default('normal'),
+  createdAt: z.string(),
+  completedAt: z.string().optional(),
+});
+export type Task = z.infer<typeof TaskSchema>;
+
+export const NotificationSchema = z.object({
+  id: z.string(),
+  userId: z.string(),
+  companyId: z.string(),
+  title: z.string(),
+  body: z.string(),
+  taskId: z.string().optional(),
+  challanId: z.string().optional(),
+  photoUrl: z.string().optional(),
+  read: z.boolean(),
+  createdAt: z.string(),
+});
+export type Notification = z.infer<typeof NotificationSchema>;

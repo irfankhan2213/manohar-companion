@@ -34,7 +34,9 @@ export const RemindersScreen: React.FC = () => {
   const [scheduleSheetOpen, setScheduleSheetOpen] = useState(false);
   const [quietHoursSheetOpen, setQuietHoursSheetOpen] = useState(false);
   const [minAmountSheetOpen, setMinAmountSheetOpen] = useState(false);
+  const [dueDateSheetOpen, setDueDateSheetOpen] = useState(false);
   const [minRupees, setMinRupees] = useState<number>(1000);
+  const [dueDaysInput, setDueDaysInput] = useState<number>(30);
 
   // Fetch reminder rules
   const { data: rules } = useQuery({
@@ -113,6 +115,21 @@ export const RemindersScreen: React.FC = () => {
       <InsetGroup title="Configuration">
         <Row
           leading={<Calendar className="w-5 h-5 text-accent" />}
+          title="Due Date Rule"
+          subtitle="Payment due date applied after X days"
+          trailing={
+            <span className="text-subhead font-semibold text-label">
+              {rules?.defaultDueDays ?? 30} Days
+            </span>
+          }
+          chevron
+          onClick={() => {
+            setDueDaysInput(rules?.defaultDueDays ?? 30);
+            setDueDateSheetOpen(true);
+          }}
+        />
+        <Row
+          leading={<Calendar className="w-5 h-5 text-accent" />}
           title="Schedule"
           subtitle="Before, on, and after due date triggers"
           trailing={
@@ -185,6 +202,87 @@ export const RemindersScreen: React.FC = () => {
           onClick={() => navigate('/reminders/templates')}
         />
       </InsetGroup>
+
+      {/* Due Date Terms Sheet */}
+      <Sheet
+        open={dueDateSheetOpen}
+        onOpenChange={setDueDateSheetOpen}
+        title="Payment Due Date Rule"
+        description="Set how many days after the invoice date payment becomes due."
+      >
+        <div className="flex flex-col gap-4 py-2">
+          <div className="flex flex-col gap-1.5">
+            <span className="text-footnote font-semibold uppercase text-label-2">
+              Preset Credit Periods
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {[7, 15, 30, 45, 60, 90].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDueDaysInput(d)}
+                  className={`py-2 px-3 rounded-xl text-subhead font-semibold transition-all border ${
+                    dueDaysInput === d
+                      ? 'bg-accent text-white border-accent shadow-sm'
+                      : 'bg-surface border-separator/60 text-label hover:bg-fill/40'
+                  }`}
+                >
+                  {d} Days
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-footnote font-semibold uppercase text-label-2">
+              Custom Days
+            </span>
+            <div className="flex items-center h-12 bg-surface border border-separator/60 rounded-xl px-3 gap-2">
+              <input
+                type="number"
+                min="0"
+                max="365"
+                value={dueDaysInput}
+                onChange={(e) => setDueDaysInput(Math.max(0, parseInt(e.target.value) || 0))}
+                className="w-full bg-transparent text-headline font-bold text-label focus:outline-none"
+              />
+              <span className="text-subhead font-semibold text-label-2">days</span>
+            </div>
+          </div>
+
+          {/* Live Calculation Preview */}
+          <div className="p-3.5 bg-accent-soft/40 border border-accent/20 rounded-xl flex flex-col gap-1">
+            <span className="text-footnote font-bold text-accent uppercase tracking-wider">
+              Live Reminder Rule
+            </span>
+            <p className="text-footnote leading-relaxed text-label">
+              Invoices dated <strong>17-Oct-2026</strong> will have payment due date applied as{' '}
+              <strong>
+                {new Date(Date.parse('2026-10-17') + dueDaysInput * 86400000).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </strong>{' '}
+              ({dueDaysInput} days after invoice date).
+            </p>
+            <span className="text-caption text-label-2 mt-0.5">
+              WhatsApp overdue follow-ups trigger automatically relative to this due date.
+            </span>
+          </div>
+
+          <Button
+            fullWidth
+            onClick={() => {
+              updateRulesMutation.mutate({ defaultDueDays: dueDaysInput });
+              setDueDateSheetOpen(false);
+            }}
+            className="h-12 mt-2"
+          >
+            Save Due Date Rule
+          </Button>
+        </div>
+      </Sheet>
 
       {/* Schedule Sheet */}
       <Sheet

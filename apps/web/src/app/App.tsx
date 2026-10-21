@@ -19,6 +19,7 @@ import { MoreScreen } from '../features/more/MoreScreen.js';
 import { ChallansScreen } from '../features/challans/ChallansScreen.js';
 import { CreateChallanScreen } from '../features/challans/CreateChallanScreen.js';
 import { ChallanDetailScreen } from '../features/challans/ChallanDetailScreen.js';
+import { TasksScreen } from '../features/tasks/TasksScreen.js';
 import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
 import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
 
@@ -68,6 +69,7 @@ export const App: React.FC = () => {
               <Route path="/challans" element={<ChallansScreen />} />
               <Route path="/challans/new" element={<CreateChallanScreen />} />
               <Route path="/challans/:id" element={<ChallanDetailScreen />} />
+              <Route path="/tasks" element={<TasksScreen />} />
               <Route path="/reminders" element={<RemindersScreen />} />
               <Route path="/reminders/replies" element={<RemindersRepliesScreen />} />
               <Route path="/reminders/templates" element={<RemindersTemplatesScreen />} />

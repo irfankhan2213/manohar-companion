@@ -8,6 +8,10 @@ import {
   ShoppingBag,
   ArrowDownLeft,
   FileSpreadsheet,
+  Check,
+  X,
+  Camera,
+  Layers,
 } from 'lucide-react';
 import { formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -25,10 +29,16 @@ export const ChallansScreen: React.FC = () => {
   const { currentCompanyId } = useAppStore();
   const [filter, setFilter] = useState<ChallanFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
+
+  const { data: stockItems = [] } = useQuery({
+    queryKey: ['stock-items', currentCompanyId],
+    queryFn: () => api.stock.items.list(currentCompanyId),
+  });
 
   const { data: challans = [], isLoading } = useQuery({
-    queryKey: ['challans', currentCompanyId, searchQuery, filter],
-    queryFn: () => api.challans.list(currentCompanyId, searchQuery, filter),
+    queryKey: ['challans', currentCompanyId, searchQuery, filter, selectedItemIds],
+    queryFn: () => api.challans.list(currentCompanyId, searchQuery, filter, selectedItemIds),
   });
 
   const { data: parties = [] } = useQuery({
@@ -36,7 +46,29 @@ export const ChallansScreen: React.FC = () => {
     queryFn: () => api.parties.list(currentCompanyId),
   });
 
+  const { data: tasks = [] } = useQuery({
+    queryKey: ['tasks', currentCompanyId],
+    queryFn: () => api.tasks.list(currentCompanyId),
+  });
+
   const partyMap = new Map(parties.map((p) => [p.id, p]));
+
+  // Find popular machine items for quick filter chips
+  const machineItems = stockItems.filter(
+    (item) =>
+      item.name.toUpperCase().includes('MACHINE') ||
+      item.group.toLowerCase().includes('machine')
+  );
+
+  const toggleItemFilter = (itemId: string) => {
+    setSelectedItemIds((prev) =>
+      prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
+    );
+  };
+
+  const clearItemFilter = () => {
+    setSelectedItemIds([]);
+  };
 
   const getTypeIcon = (type: 'sales' | 'purchase' | 'delivery') => {
     switch (type) {
@@ -100,6 +132,53 @@ export const ChallansScreen: React.FC = () => {
         onChange={(val) => setFilter(val as ChallanFilter)}
       />
 
+      {/* Item-Specific Filter Chips (TAI MACHINE, SV MACHINE, 130K MACHINE, etc.) */}
+      <div className="flex flex-col gap-2 bg-surface/60 p-3 rounded-2xl border border-separator/40">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-footnote font-semibold text-label">
+            <Layers className="w-3.5 h-3.5 text-accent" />
+            <span>Filter by Particular Machine / Items</span>
+          </div>
+          {selectedItemIds.length > 0 && (
+            <button
+              type="button"
+              onClick={clearItemFilter}
+              className="text-caption font-semibold text-accent hover:underline flex items-center gap-1"
+            >
+              <X className="w-3 h-3" />
+              <span>Clear ({selectedItemIds.length})</span>
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {machineItems.map((item) => {
+            const isSelected = selectedItemIds.includes(item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => toggleItemFilter(item.id)}
+                className={`px-2.5 py-1.5 rounded-lg text-footnote font-semibold transition-all flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-fill/40 text-label hover:bg-fill/70 border border-separator/40'
+                }`}
+              >
+                {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
+                <span>{item.name}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {selectedItemIds.length > 0 && (
+          <span className="text-caption text-label-2 italic">
+            Showing challans containing any of the {selectedItemIds.length} selected items
+          </span>
+        )}
+      </div>
+
       {/* Challan List */}
       <InsetGroup>
         {isLoading ? (
@@ -113,18 +192,18 @@ export const ChallansScreen: React.FC = () => {
               No challans found
             </span>
             <span className="text-footnote text-label-2">
-              {searchQuery
-                ? 'Try a different search term'
+              {searchQuery || selectedItemIds.length > 0
+                ? 'Try clearing the item filter or search query'
                 : 'Create your first delivery or sales challan'}
             </span>
-            {!searchQuery && (
+            {selectedItemIds.length > 0 && (
               <Button
                 variant="tinted"
                 size="small"
-                onClick={() => navigate('/challans/new')}
+                onClick={clearItemFilter}
                 className="mt-2"
               >
-                Create Challan
+                Clear Item Filter
               </Button>
             )}
           </div>
@@ -139,12 +218,26 @@ export const ChallansScreen: React.FC = () => {
               (acc, line) => acc + line.qty,
               0
             );
+            const challanTasks = tasks.filter((t) => t.challanId === challan.id);
+            const hasPhotoTask = challanTasks.some((t) => !!t.photoUrl);
 
             return (
               <Row
                 key={challan.id}
                 leading={getTypeIcon(challan.type)}
-                title={<span className="font-semibold text-label">{challan.number}</span>}
+                title={
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-label">{challan.number}</span>
+                    {challanTasks.length > 0 && (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent-soft text-accent text-[11px] font-semibold">
+                        {hasPhotoTask ? (
+                          <Camera className="w-3 h-3" />
+                        ) : null}
+                        <span>{challanTasks.length} {challanTasks.length === 1 ? 'task' : 'tasks'}</span>
+                      </span>
+                    )}
+                  </div>
+                }
                 subtitle={
                   <span className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-medium text-label">
@@ -154,7 +247,11 @@ export const ChallansScreen: React.FC = () => {
                     <span className="text-label-2">{challan.date}</span>
                     <span className="text-label-3">·</span>
                     <span className="text-label-2">
-                      {challan.lines.length} {challan.lines.length === 1 ? 'item' : 'items'} ({totalQty} units)
+                      {challan.lines.map((l) => l.description).join(', ')}
+                    </span>
+                    <span className="text-label-3">·</span>
+                    <span className="text-label-2">
+                      ({totalQty} {totalQty === 1 ? 'unit' : 'units'})
                     </span>
                     {challan.vehicleNo && (
                       <>

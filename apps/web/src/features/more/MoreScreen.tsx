@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileSpreadsheet,
+  CheckSquare,
   BellRing,
   Activity,
   Settings,
@@ -28,6 +29,13 @@ export const MoreScreen: React.FC = () => {
           subtitle="Sales, Purchase & Delivery Challans"
           chevron
           onClick={() => navigate('/challans')}
+        />
+        <Row
+          leading={<CheckSquare className="w-5 h-5 text-accent" />}
+          title="Tasks & Instructions"
+          subtitle="Assign text & photos to team members"
+          chevron
+          onClick={() => navigate('/tasks')}
         />
         <Row
           leading={<BellRing className="w-5 h-5 text-accent" />}
