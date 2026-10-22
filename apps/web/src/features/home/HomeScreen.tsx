@@ -24,6 +24,7 @@ export const HomeScreen: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { currentCompanyId, currentRole } = useAppStore();
+  const canViewLedgers = can(currentRole, 'ledgers.view');
   const [isSending, setIsSending] = useState(false);
   const [sendSuccess, setSendSuccess] = useState(false);
 
@@ -58,7 +59,37 @@ export const HomeScreen: React.FC = () => {
       }
     >
       {/* Hero Metric Card: Apple Calm Inset Card */}
-      <div className="bg-surface rounded-ios-card p-5 border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex flex-col gap-4">
+      {!canViewLedgers ? (
+        <div className="bg-surface rounded-ios-card p-5 border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <span className="text-subhead text-label-2 font-medium">
+              Warehouse Operations Active
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full text-caption font-bold bg-amber-500/10 text-amber-600 capitalize">
+              {currentRole.replace('_', ' ')}
+            </span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-title-1 font-bold text-label tracking-tight">
+              Machinery & Dispatch Hub
+            </span>
+            <span className="text-caption text-label-2 mt-1">
+              Real-time access to stock inventory, delivery challans, and inspection tasks.
+            </span>
+          </div>
+          <div className="pt-2">
+            <Button
+              fullWidth
+              variant="primary"
+              onClick={() => navigate('/stock')}
+              className="h-[48px]"
+            >
+              Open Stock Inventory
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="bg-surface rounded-ios-card p-5 border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex flex-col gap-4">
         <div className="flex flex-col">
           <div className="flex items-center justify-between">
             <span className="text-subhead text-label-2 font-medium">
@@ -151,6 +182,7 @@ export const HomeScreen: React.FC = () => {
           </div>
         )}
       </div>
+      )}
 
       {/* Quick Operations Links */}
       <div className="grid grid-cols-2 gap-3">
@@ -233,31 +265,33 @@ export const HomeScreen: React.FC = () => {
       )}
 
       {/* Section: Most Overdue */}
-      <InsetGroup
-        title={t('home.mostOverdue', 'Most overdue')}
-        actionText={t('home.seeAll', 'See all')}
-        onActionClick={() => navigate('/collections')}
-      >
-        {summary?.mostOverdue.map((item) => (
-          <Row
-            key={item.party.id}
-            onClick={() => navigate(`/collections/${item.party.id}`)}
-            title={item.party.name}
-            subtitle={`${item.party.city} · ${item.invoiceRef ?? 'Invoice'}`}
-            trailing={<span className="tabular-nums">{formatINR(item.amount)}</span>}
-            trailingSubtitle={
-              <StatusText
-                text={t('home.daysLate', {
-                  days: item.daysLate,
-                  defaultValue: `${item.daysLate} days late`,
-                })}
-                variant={item.daysLate > 30 ? 'danger' : 'warn'}
-                dot={false}
-              />
-            }
-          />
-        ))}
-      </InsetGroup>
+      {canViewLedgers && (
+        <InsetGroup
+          title={t('home.mostOverdue', 'Most overdue')}
+          actionText={t('home.seeAll', 'See all')}
+          onActionClick={() => navigate('/collections')}
+        >
+          {summary?.mostOverdue.map((item) => (
+            <Row
+              key={item.party.id}
+              onClick={() => navigate(`/collections/${item.party.id}`)}
+              title={item.party.name}
+              subtitle={`${item.party.city} · ${item.invoiceRef ?? 'Invoice'}`}
+              trailing={<span className="tabular-nums">{formatINR(item.amount)}</span>}
+              trailingSubtitle={
+                <StatusText
+                  text={t('home.daysLate', {
+                    days: item.daysLate,
+                    defaultValue: `${item.daysLate} days late`,
+                  })}
+                  variant={item.daysLate > 30 ? 'danger' : 'warn'}
+                  dot={false}
+                />
+              }
+            />
+          ))}
+        </InsetGroup>
+      )}
 
       {/* Tally Automatic Sync Note */}
       <div className="pt-2 flex items-center justify-center gap-2 text-label-2 opacity-75">

@@ -14,6 +14,7 @@ import {
   ReminderMessage,
   ReminderRule,
   ReplyThread,
+  Role,
   StockBalance,
   StockItem,
   Task,
@@ -50,6 +51,9 @@ export interface HomeSummary {
 export interface ApiClient {
   companies: {
     list: () => Promise<Company[]>;
+    get?: (id: Id) => Promise<Company | null>;
+    create?: (data: Partial<Company>) => Promise<Company>;
+    update?: (id: Id, updates: Partial<Company>) => Promise<Company>;
   };
   agent: {
     status: () => Promise<Agent>;
@@ -141,5 +145,12 @@ export interface ApiClient {
   };
   users: {
     list: () => Promise<User[]>;
+    updateRole?: (id: Id, role: Role) => Promise<User>;
+    create?: (data: Omit<User, 'id'>) => Promise<User>;
+    login?: (phone: string, pin: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+  };
+  permissions?: {
+    get: () => Promise<Record<Role, Record<string, boolean>>>;
+    update: (perms: Record<Role, Record<string, boolean>>) => Promise<Record<Role, Record<string, boolean>>>;
   };
 }

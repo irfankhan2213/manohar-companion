@@ -139,8 +139,14 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
   },
 };
 
+export let CUSTOM_ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = { ...ROLE_PERMISSIONS };
+
+export function setCustomPermissions(perms: Record<Role, Record<PermissionKey, boolean>>) {
+  CUSTOM_ROLE_PERMISSIONS = perms;
+}
+
 export function can(role: Role, permission: PermissionKey): boolean {
-  const rolePerms = ROLE_PERMISSIONS[role];
+  const rolePerms = CUSTOM_ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[role];
   if (!rolePerms) return false;
   return rolePerms[permission] === true;
 }

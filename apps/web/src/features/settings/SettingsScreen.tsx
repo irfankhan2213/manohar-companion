@@ -13,8 +13,19 @@ import {
   CheckCircle2,
   XCircle,
   Database,
+  Edit3,
+  ShieldCheck,
+  Lock,
 } from 'lucide-react';
-import { User, Role, can, PERMISSION_KEYS, PermissionKey } from '@saas/shared';
+import {
+  User,
+  Role,
+  can,
+  PERMISSION_KEYS,
+  PermissionKey,
+  ROLE_PERMISSIONS,
+  setCustomPermissions,
+} from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -27,7 +38,8 @@ export const SettingsScreen: React.FC = () => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { currentCompanyId, setCompanyId, language, setLanguage } = useAppStore();
+  const { currentCompanyId, setCompanyId, language, setLanguage, currentRole } = useAppStore();
+  const isAdminOrOwner = currentRole === 'owner' || currentRole === 'admin';
 
   // Queries
   const { data: agent } = useQuery({
@@ -44,6 +56,107 @@ export const SettingsScreen: React.FC = () => {
     queryKey: ['companies'],
     queryFn: () => api.companies.list(),
   });
+
+  const activeCompany =
+    companies.find((c) => c.id === currentCompanyId) ||
+    companies[0] ||
+    ({
+      id: (currentCompanyId as string) || 'c1',
+      name: 'Manohar Traders',
+      tallyName: 'Manohar Traders',
+      financialYear: '2026-27',
+      agentStatus: 'online',
+    } as any);
+
+  // Company management state
+  const [editCompanyOpen, setEditCompanyOpen] = useState(false);
+  const [addCompanyOpen, setAddCompanyOpen] = useState(false);
+  const [companyName, setCompanyName] = useState('');
+  const [tallyName, setTallyName] = useState('');
+  const [financialYear, setFinancialYear] = useState('2026-27');
+  const [gstin, setGstin] = useState('');
+
+  // Role permissions matrix state
+  const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
+  const [selectedRoleForPerms, setSelectedRoleForPerms] = useState<Role>('sales');
+  const [rolePermissions, setRolePermissions] = useState<Record<Role, Record<string, boolean>>>(() => {
+    const stored = localStorage.getItem('manohar_custom_permissions');
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch {}
+    }
+    return ROLE_PERMISSIONS;
+  });
+
+  const handleOpenEditCompany = () => {
+    if (!activeCompany) return;
+    setCompanyName(activeCompany.name);
+    setTallyName(activeCompany.tallyName || activeCompany.name);
+    setFinancialYear(activeCompany.financialYear || '2026-27');
+    setGstin(activeCompany.gstin || '');
+    setEditCompanyOpen(true);
+  };
+
+  const handleSaveCompany = async () => {
+    if (!activeCompany || !companyName.trim()) return;
+    try {
+      if (api.companies.update) {
+        await api.companies.update(activeCompany.id, {
+          name: companyName,
+          tallyName: tallyName || companyName,
+          financialYear,
+          gstin,
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      showToast({ message: `Updated organization: ${companyName}` });
+      setEditCompanyOpen(false);
+    } catch (err: any) {
+      showToast({ message: 'Failed to update company: ' + err.message });
+    }
+  };
+
+  const handleCreateCompany = async () => {
+    if (!companyName.trim()) return;
+    try {
+      if (api.companies.create) {
+        const created = await api.companies.create({
+          name: companyName,
+          tallyName: tallyName || companyName,
+          financialYear,
+          gstin,
+        });
+        setCompanyId(created.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      showToast({ message: `Created new organization: ${companyName}` });
+      setAddCompanyOpen(false);
+      setCompanyName('');
+      setTallyName('');
+      setGstin('');
+    } catch (err: any) {
+      showToast({ message: 'Failed to create company: ' + err.message });
+    }
+  };
+
+  const handleTogglePermission = (role: Role, perm: PermissionKey) => {
+    const currentVal = rolePermissions[role]?.[perm] ?? false;
+    const updated = {
+      ...rolePermissions,
+      [role]: {
+        ...rolePermissions[role],
+        [perm]: !currentVal,
+      },
+    };
+    setRolePermissions(updated);
+    setCustomPermissions(updated as any);
+    localStorage.setItem('manohar_custom_permissions', JSON.stringify(updated));
+    if (api.permissions?.update) {
+      api.permissions.update(updated as any);
+    }
+    showToast({ message: `Updated permission for ${role}` });
+  };
 
   // Pairing code state
   const [pairingCode, setPairingCode] = useState<string>('839201');
@@ -336,6 +449,75 @@ export const SettingsScreen: React.FC = () => {
         </div>
       </InsetGroup>
 
+      {/* 1c. Organization & Active Company Setup */}
+      <InsetGroup
+        title={t('settings.organizationSection', 'Organization & Company Setup')}
+        actionText={isAdminOrOwner ? '+ Add Company' : undefined}
+        onActionClick={
+          isAdminOrOwner
+            ? () => {
+                setCompanyName('');
+                setTallyName('');
+                setGstin('');
+                setAddCompanyOpen(true);
+              }
+            : undefined
+        }
+      >
+        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
+                <Building className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-headline font-bold text-label">
+                    {activeCompany?.name || 'Manohar Traders'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-accent/10 text-accent">
+                    Active
+                  </span>
+                </div>
+                <span className="text-caption text-label-2">
+                  Tally: {activeCompany?.tallyName || activeCompany?.name} · FY{' '}
+                  {activeCompany?.financialYear || '2026-27'}
+                </span>
+                {activeCompany?.gstin && (
+                  <span className="text-[11px] font-mono text-label-3 mt-0.5">
+                    GSTIN: {activeCompany.gstin}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {isAdminOrOwner ? (
+              <Button
+                variant="tinted"
+                size="small"
+                onClick={handleOpenEditCompany}
+                className="flex items-center gap-1.5 h-8 px-2.5"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Edit</span>
+              </Button>
+            ) : (
+              <span className="flex items-center gap-1 text-[11px] text-label-3 bg-fill px-2 py-1 rounded-md">
+                <Lock className="w-3 h-3" />
+                <span>Admin Only</span>
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
+            <span className="text-label-2">Registered Companies:</span>
+            <span className="font-semibold text-label">
+              {companies.length} Active in System
+            </span>
+          </div>
+        </div>
+      </InsetGroup>
+
       {/* 2. Staff & Role Management */}
       <InsetGroup
         title={t('settings.staffSection', 'Staff & Role Management')}
@@ -369,6 +551,49 @@ export const SettingsScreen: React.FC = () => {
             onClick={() => setSelectedUser(u)}
           />
         ))}
+      </InsetGroup>
+
+      {/* 2b. Role Permissions Matrix */}
+      <InsetGroup
+        title={t('settings.permissionsSection', 'Role Permissions & Access Control')}
+        actionText={isAdminOrOwner ? 'Customize Matrix' : undefined}
+        onActionClick={isAdminOrOwner ? () => setPermissionsModalOpen(true) : undefined}
+      >
+        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="w-5 h-5 text-accent" />
+              <span className="text-subhead font-bold text-label">
+                Organization Access Rules
+              </span>
+            </div>
+            <span className="text-caption text-label-3">
+              {isAdminOrOwner ? 'Owner Editable' : 'Enforced'}
+            </span>
+          </div>
+          <p className="text-caption text-label-2">
+            Control which operational modules each staff role can access, create, or modify across your organization.
+          </p>
+          <div className="flex flex-wrap gap-1.5 pt-1">
+            {(['owner', 'admin', 'accounts', 'sales', 'stock_keeper'] as Role[]).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => {
+                  setSelectedRoleForPerms(r);
+                  setPermissionsModalOpen(true);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 capitalize ${
+                  selectedRoleForPerms === r
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-fill text-label-2 hover:text-label'
+                }`}
+              >
+                {r.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+        </div>
       </InsetGroup>
 
       {/* 3. Preferences & Storage */}
@@ -583,6 +808,214 @@ export const SettingsScreen: React.FC = () => {
             onClick={handleAddStaff}
           >
             Create Staff Account
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* Edit Active Company Sheet */}
+      <Sheet
+        open={editCompanyOpen}
+        onOpenChange={setEditCompanyOpen}
+        title="Edit Organization Details"
+        description="Configure active company name, Tally synchronization & GSTIN"
+      >
+        <div className="flex flex-col gap-4 pt-2">
+          <div>
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              Company / Business Name
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="e.g. Manohar Traders"
+              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              Tally Company Name (Exact Match)
+            </label>
+            <input
+              type="text"
+              value={tallyName}
+              onChange={(e) => setTallyName(e.target.value)}
+              placeholder="e.g. Manohar Traders (2026-27)"
+              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+            />
+            <span className="text-[11px] text-label-3 mt-1 block">
+              Must match the active company name in your office TallyPrime.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                Financial Year
+              </label>
+              <input
+                type="text"
+                value={financialYear}
+                onChange={(e) => setFinancialYear(e.target.value)}
+                placeholder="2026-27"
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                GSTIN Number
+              </label>
+              <input
+                type="text"
+                value={gstin}
+                onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                placeholder="03AABCM1234F1Z1"
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
+              />
+            </div>
+          </div>
+
+          <Button fullWidth onClick={handleSaveCompany} disabled={!companyName.trim()}>
+            Save Company Details
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* Add New Company Sheet */}
+      <Sheet
+        open={addCompanyOpen}
+        onOpenChange={setAddCompanyOpen}
+        title="Add New Organization"
+        description="Register a new business entity for multi-company management"
+      >
+        <div className="flex flex-col gap-4 pt-2">
+          <div>
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              Organization Name
+            </label>
+            <input
+              type="text"
+              value={companyName}
+              onChange={(e) => setCompanyName(e.target.value)}
+              placeholder="e.g. Manohar International Pvt Ltd"
+              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              Tally Company Name
+            </label>
+            <input
+              type="text"
+              value={tallyName}
+              onChange={(e) => setTallyName(e.target.value)}
+              placeholder="Matches TallyPrime company name"
+              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                Financial Year
+              </label>
+              <input
+                type="text"
+                value={financialYear}
+                onChange={(e) => setFinancialYear(e.target.value)}
+                placeholder="2026-27"
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                GSTIN Number (Optional)
+              </label>
+              <input
+                type="text"
+                value={gstin}
+                onChange={(e) => setGstin(e.target.value.toUpperCase())}
+                placeholder="03AABCM5678F1Z2"
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
+              />
+            </div>
+          </div>
+
+          <Button fullWidth onClick={handleCreateCompany} disabled={!companyName.trim()}>
+            Create Organization
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* Role Permissions Matrix Sheet */}
+      <Sheet
+        open={permissionsModalOpen}
+        onOpenChange={setPermissionsModalOpen}
+        title="Customize Role Permissions"
+        description="Fine-tune operational permissions for this staff role"
+      >
+        <div className="flex flex-col gap-4 pt-2">
+          {/* Role Selector Tabs */}
+          <div className="flex items-center gap-1.5 p-1 bg-fill rounded-xl overflow-x-auto">
+            {(['owner', 'admin', 'accounts', 'sales', 'stock_keeper'] as Role[]).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setSelectedRoleForPerms(r)}
+                className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all capitalize ${
+                  selectedRoleForPerms === r
+                    ? 'bg-surface text-label shadow-sm font-bold'
+                    : 'text-label-2 hover:text-label'
+                }`}
+              >
+                {r.replace('_', ' ')}
+              </button>
+            ))}
+          </div>
+
+          {/* Permissions Toggle List */}
+          <div className="flex flex-col rounded-2xl bg-surface border border-separator/40 divide-y divide-separator/30 max-h-[50vh] overflow-y-auto">
+            {PERMISSION_KEYS.map((perm) => {
+              const isAllowed = rolePermissions[selectedRoleForPerms]?.[perm] ?? false;
+              const isLocked = selectedRoleForPerms === 'owner'; // Owner always has all permissions
+
+              return (
+                <div
+                  key={perm}
+                  className="p-3 flex items-center justify-between text-subhead hover:bg-fill/20 transition-colors"
+                >
+                  <div className="flex flex-col pr-3">
+                    <span className="text-subhead font-medium text-label">
+                      {formatPermissionLabel(perm)}
+                    </span>
+                    <span className="text-[11px] font-mono text-label-3">
+                      {perm}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={isLocked || !isAdminOrOwner}
+                    onClick={() => handleTogglePermission(selectedRoleForPerms, perm)}
+                    className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none disabled:opacity-50 ${
+                      isAllowed ? 'bg-accent' : 'bg-fill'
+                    }`}
+                  >
+                    <span
+                      className={`block w-5 h-5 rounded-full bg-white shadow-md transform transition-transform ${
+                        isAllowed ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <Button fullWidth onClick={() => setPermissionsModalOpen(false)}>
+            Apply & Close
           </Button>
         </div>
       </Sheet>

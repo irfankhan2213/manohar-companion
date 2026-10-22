@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
 import { CompanyMenu } from './CompanyMenu.js';
 import { NotificationBell } from './NotificationBell.js';
+import { UserAuthMenu } from './UserAuthMenu.js';
 
 interface LargeTitleScreenProps {
   title: string;
@@ -58,6 +59,7 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
 
           <div className="flex items-center gap-1.5 shrink-0">
             <NotificationBell />
+            <UserAuthMenu />
             {headerAction}
           </div>
         </div>

@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import { useQuery } from '@tanstack/react-query';
 import { useAppStore } from '../../app/store.js';
-import { INITIAL_COMPANIES } from '../../mock/seed.js';
+import { api } from '../../api/index.js';
 
 export const CompanyMenu: React.FC = () => {
   const { currentCompanyId, setCompanyId } = useAppStore();
   const [open, setOpen] = useState(false);
 
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+
   const currentCompany =
     currentCompanyId === 'all'
       ? { name: 'All companies' }
-      : INITIAL_COMPANIES.find((c) => c.id === currentCompanyId) ?? {
+      : companies.find((c) => c.id === currentCompanyId) ?? {
           name: 'Manohar Traders',
         };
 
@@ -47,7 +53,7 @@ export const CompanyMenu: React.FC = () => {
           className="z-50 min-w-[220px] bg-surface rounded-ios-card p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.12)] border border-separator/50 divide-y divide-separator/30 animate-in fade-in-50 zoom-in-95"
         >
           <div className="py-1">
-            {INITIAL_COMPANIES.map((company) => {
+            {companies.map((company) => {
               const isSelected = currentCompanyId === company.id;
               return (
                 <DropdownMenu.Item

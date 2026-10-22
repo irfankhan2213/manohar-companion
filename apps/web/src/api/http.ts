@@ -14,6 +14,7 @@ import {
   ReminderMessage,
   ReminderRule,
   ReplyThread,
+  Role,
   StockBalance,
   StockItem,
   Task,
@@ -41,6 +42,11 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 export const httpApiClient: ApiClient = {
   companies: {
     list: () => fetchJSON<Company[]>('/companies'),
+    get: (id: Id) => fetchJSON<Company>(`/companies/${id}`),
+    create: (data: Partial<Company>) =>
+      fetchJSON<Company>('/companies', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: Id, updates: Partial<Company>) =>
+      fetchJSON<Company>(`/companies/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
   },
   agent: {
     status: () => fetchJSON<Agent>('/agent/status'),
@@ -169,5 +175,22 @@ export const httpApiClient: ApiClient = {
   },
   users: {
     list: () => fetchJSON<User[]>('/users'),
+    updateRole: (id: Id, role: Role) =>
+      fetchJSON<User>(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
+    create: (data: Omit<User, 'id'>) =>
+      fetchJSON<User>('/users', { method: 'POST', body: JSON.stringify(data) }),
+    login: (phone: string, pin: string) =>
+      fetchJSON<{ success: boolean; user?: User; error?: string }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ phone, pin }),
+      }),
+  },
+  permissions: {
+    get: () => fetchJSON<Record<Role, Record<string, boolean>>>('/permissions'),
+    update: (perms: Record<Role, Record<string, boolean>>) =>
+      fetchJSON<Record<Role, Record<string, boolean>>>('/permissions', {
+        method: 'PUT',
+        body: JSON.stringify(perms),
+      }),
   },
 };

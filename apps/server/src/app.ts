@@ -18,6 +18,7 @@ import {
   Notebook,
   ActivityEvent,
   Agent,
+  ROLE_PERMISSIONS,
 } from '@saas/shared';
 
 export function createApp(dbPath?: string): express.Express {
@@ -36,6 +37,69 @@ export function createApp(dbPath?: string): express.Express {
   app.get('/api/companies', (req, res) => {
     const rows = db.prepare('SELECT * FROM companies').all();
     res.json(rows);
+  });
+
+  app.get('/api/companies/:id', (req, res) => {
+    const row = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Company not found' });
+    res.json(row);
+  });
+
+  app.post('/api/companies', (req, res) => {
+    const { name, tallyName, financialYear, gstin, address, phone } = req.body;
+    const id = req.body.id || `c-${Date.now()}`;
+    const tenantId = req.body.tenantId || 'tenant-1';
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, tenantId, name, tallyName || name, financialYear || '2026-27', gstin || null, now, 'online');
+
+    const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    res.status(201).json(created);
+  });
+
+  app.put('/api/companies/:id', (req, res) => {
+    const { name, tallyName, financialYear, gstin } = req.body;
+    db.prepare(`
+      UPDATE companies
+      SET name = COALESCE(?, name),
+          tallyName = COALESCE(?, tallyName),
+          financialYear = COALESCE(?, financialYear),
+          gstin = COALESCE(?, gstin)
+      WHERE id = ?
+    `).run(name, tallyName, financialYear, gstin, req.params.id);
+
+    const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    res.json(updated);
+  });
+
+  // 2a. Auth & Login
+  app.post('/api/auth/login', (req, res) => {
+    const { phone, pin } = req.body;
+    const users = db.prepare('SELECT * FROM users').all() as any[];
+    // Normalize phone (strip spaces/dashes)
+    const cleanPhone = (p: string) => p.replace(/\D/g, '');
+    const user = users.find(u => cleanPhone(u.phone).endsWith(cleanPhone(phone)) || cleanPhone(phone).endsWith(cleanPhone(u.phone)));
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: 'Staff phone number not found' });
+    }
+
+    // Default pin is 1234 or matching
+    if (pin && pin !== '1234' && user.pin && user.pin !== pin) {
+      return res.status(401).json({ success: false, error: 'Invalid 4-digit PIN' });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        companyIds: JSON.parse(user.companyIds || '[]'),
+        active: Boolean(user.active),
+      },
+    });
   });
 
   // 2b. Parties
@@ -764,6 +828,23 @@ export function createApp(dbPath?: string): express.Express {
     `).run(id, 'tenant-1', body.name, body.phone, body.role, JSON.stringify(body.companyIds || 'all'), 1);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
     res.status(201).json({ ...u, companyIds: JSON.parse(u.companyIds), active: Boolean(u.active) });
+  });
+
+  // 14b. Role Permissions (Customizable per Organization)
+  app.get('/api/permissions', (req, res) => {
+    const row = db.prepare("SELECT value FROM agent_state WHERE key = 'custom_permissions'").get() as any;
+    if (row && row.value) {
+      try {
+        return res.json(JSON.parse(row.value));
+      } catch {}
+    }
+    res.json(ROLE_PERMISSIONS);
+  });
+
+  app.put('/api/permissions', (req, res) => {
+    const perms = req.body;
+    db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('custom_permissions', ?)").run(JSON.stringify(perms));
+    res.json(perms);
   });
 
   // 15. Tally Sync Endpoints (Agent Integration)

@@ -22,6 +22,8 @@ export const CompanySchema = z.object({
   tallyName: z.string(),
   financialYear: z.string(),
   gstin: z.string().optional(),
+  address: z.string().optional(),
+  phone: z.string().optional(),
   lastSyncedAt: z.string(),
   agentStatus: z.enum(['online', 'offline']),
 });
@@ -32,6 +34,7 @@ export const UserSchema = z.object({
   tenantId: z.string(),
   name: z.string(),
   phone: z.string(),
+  pin: z.string().optional(),
   role: RoleSchema,
   companyIds: z.union([z.array(z.string()), z.literal('all')]),
   active: z.boolean(),

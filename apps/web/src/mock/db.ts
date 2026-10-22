@@ -10,6 +10,8 @@ import {
   Party,
   StockBalance,
   Task,
+  ROLE_PERMISSIONS,
+  setCustomPermissions,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from '../api/client.js';
 import {
@@ -117,6 +119,33 @@ export function resetMockDB() {
 export const mockApiClient: ApiClient = {
   companies: {
     list: async () => [...db.companies],
+    get: async (id) => db.companies.find((c) => c.id === id) || null,
+    create: async (data) => {
+      const newCompany = {
+        id: `c-${Date.now()}`,
+        tenantId: 'tenant-1',
+        name: data.name || 'New Company',
+        tallyName: data.tallyName || data.name || 'New Company',
+        financialYear: data.financialYear || '2026-27',
+        gstin: data.gstin,
+        address: data.address,
+        phone: data.phone,
+        lastSyncedAt: new Date().toISOString(),
+        agentStatus: 'online' as const,
+      };
+      db.companies.push(newCompany);
+      saveDB();
+      return newCompany;
+    },
+    update: async (id, updates) => {
+      const idx = db.companies.findIndex((c) => c.id === id);
+      if (idx !== -1) {
+        db.companies[idx] = { ...db.companies[idx]!, ...updates };
+        saveDB();
+        return db.companies[idx]!;
+      }
+      throw new Error('Company not found');
+    },
   },
   agent: {
     status: async () => ({ ...db.agent }),
@@ -522,6 +551,53 @@ export const mockApiClient: ApiClient = {
   },
   users: {
     list: async () => db.users,
+    updateRole: async (id, role) => {
+      const u = db.users.find((user) => user.id === id);
+      if (u) {
+        u.role = role;
+        saveDB();
+        return u;
+      }
+      throw new Error('User not found');
+    },
+    create: async (data) => {
+      const newUser = {
+        id: `u-${Date.now()}`,
+        ...data,
+      };
+      db.users.push(newUser as any);
+      saveDB();
+      return newUser as any;
+    },
+    login: async (phone, pin) => {
+      const clean = (p: string) => p.replace(/\D/g, '');
+      const u = db.users.find(
+        (user) =>
+          clean(user.phone).endsWith(clean(phone)) ||
+          clean(phone).endsWith(clean(user.phone))
+      );
+      if (!u) return { success: false, error: 'Staff phone number not found' };
+      if (pin && pin !== '1234' && (u as any).pin && (u as any).pin !== pin) {
+        return { success: false, error: 'Invalid 4-digit PIN' };
+      }
+      return { success: true, user: u };
+    },
+  },
+  permissions: {
+    get: async () => {
+      const stored = localStorage.getItem('manohar_custom_permissions');
+      if (stored) {
+        try {
+          return JSON.parse(stored);
+        } catch {}
+      }
+      return ROLE_PERMISSIONS;
+    },
+    update: async (perms) => {
+      localStorage.setItem('manohar_custom_permissions', JSON.stringify(perms));
+      setCustomPermissions(perms as any);
+      return perms;
+    },
   },
   tasks: {
     list: async (companyId, filter) => {

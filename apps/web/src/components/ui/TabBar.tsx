@@ -6,20 +6,31 @@ import {
   FileSpreadsheet,
   CheckSquare,
   MoreHorizontal,
+  Package,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
+import { useAppStore } from '../../app/store.js';
+import { can } from '@saas/shared';
 
 export const TabBar: React.FC = () => {
   const { t } = useTranslation();
+  const { currentRole } = useAppStore();
+
+  const canViewLedgers = can(currentRole, 'ledgers.view');
+  const canViewStock = can(currentRole, 'stock.view');
 
   const tabs = [
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },
     { to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet },
     { to: '/tasks', label: t('nav.tasks', 'Tasks'), icon: CheckSquare },
-    { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet },
+    canViewLedgers
+      ? { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet }
+      : canViewStock
+      ? { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package }
+      : null,
     { to: '/more', label: t('nav.more', 'More'), icon: MoreHorizontal },
-  ];
+  ].filter(Boolean) as Array<{ to: string; label: string; icon: any; end?: boolean }>;
 
   return (
     <nav className="fixed bottom-0 inset-x-0 z-40 md:hidden ios-tab-blur pb-safe">
