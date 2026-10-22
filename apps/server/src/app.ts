@@ -87,8 +87,9 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(401).json({ success: false, error: 'Staff phone number not found' });
     }
 
-    // Default pin is 1234 or matching
-    if (pin && pin !== '1234' && user.pin && user.pin !== pin) {
+    // Default pin is 1234 unless user has custom pin
+    const userPin = user.pin || '1234';
+    if (pin !== userPin) {
       return res.status(401).json({ success: false, error: 'Invalid 4-digit PIN' });
     }
 

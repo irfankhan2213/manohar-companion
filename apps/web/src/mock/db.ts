@@ -577,7 +577,8 @@ export const mockApiClient: ApiClient = {
           clean(phone).endsWith(clean(user.phone))
       );
       if (!u) return { success: false, error: 'Staff phone number not found' };
-      if (pin && pin !== '1234' && (u as any).pin && (u as any).pin !== pin) {
+      const userPin = (u as any).pin || '1234';
+      if (pin !== userPin) {
         return { success: false, error: 'Invalid 4-digit PIN' };
       }
       return { success: true, user: u };

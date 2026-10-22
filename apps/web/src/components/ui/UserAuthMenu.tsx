@@ -51,7 +51,8 @@ export const UserAuthMenu: React.FC = () => {
 
   const handleConfirmPinSwitch = () => {
     if (!selectedUserToSwitch) return;
-    if (pinInput.trim() === '1234' || pinInput.trim() === selectedUserToSwitch.pin || !selectedUserToSwitch.pin) {
+    const expectedPin = selectedUserToSwitch.pin || '1234';
+    if (pinInput.trim() === expectedPin) {
       setUser(selectedUserToSwitch);
       showToast({ message: `Logged in as ${selectedUserToSwitch.name} (${selectedUserToSwitch.role})` });
       setSelectedUserToSwitch(null);
