@@ -51,13 +51,21 @@ interface MockDB {
   notifications: Notification[];
 }
 
-const STORAGE_KEY = 'mock-db-v5';
+const STORAGE_KEY = 'mock-db-v6';
 
 function loadDB(): MockDB {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (
+        parsed.stock?.some((s: any) => s.id === 'item-tai') &&
+        parsed.challans?.some((c: any) => c.id === 'ch-6') &&
+        parsed.tasks &&
+        parsed.notifications
+      ) {
+        return parsed;
+      }
     }
   } catch {
     // ignore

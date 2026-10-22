@@ -12,6 +12,7 @@ import {
   KeyRound,
   CheckCircle2,
   XCircle,
+  Database,
 } from 'lucide-react';
 import { User, Role, can, PERMISSION_KEYS, PermissionKey } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -56,6 +57,32 @@ export const SettingsScreen: React.FC = () => {
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<Role>('sales');
+
+  // Backend mode state
+  const [backendMode, setBackendMode] = useState<'real' | 'mock'>(() => {
+    return localStorage.getItem('manohar_backend_mode') === 'real' ? 'real' : 'mock';
+  });
+  const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+
+  React.useEffect(() => {
+    fetch('http://localhost:3001/api/health')
+      .then((r) => (r.ok ? setServerStatus('online') : setServerStatus('offline')))
+      .catch(() => setServerStatus('offline'));
+  }, []);
+
+  const handleToggleBackend = (mode: 'real' | 'mock') => {
+    localStorage.setItem('manohar_backend_mode', mode);
+    setBackendMode(mode);
+    showToast({
+      message:
+        mode === 'real'
+          ? 'Switched to Live SQLite Backend (Port 3001)'
+          : 'Switched to Offline Sandbox Mode',
+    });
+    setTimeout(() => {
+      window.location.reload();
+    }, 600);
+  };
 
   // Trigger sync mutation
   const syncMutation = useMutation({
@@ -239,6 +266,73 @@ export const SettingsScreen: React.FC = () => {
               'Enter this 6-digit code in the desktop agent setup'
             )}
           </span>
+        </div>
+      </InsetGroup>
+
+      {/* 1b. Backend & Database Server */}
+      <InsetGroup title={t('settings.backendSection', 'Backend & Cloud Database')}>
+        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
+                <Database className="w-5 h-5 stroke-[2.2]" />
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-headline font-bold text-label">
+                    Live SQLite API Server
+                  </span>
+                  <span
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      serverStatus === 'online'
+                        ? 'bg-ok/10 text-ok'
+                        : 'bg-danger/10 text-danger'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        serverStatus === 'online'
+                          ? 'bg-ok animate-pulse'
+                          : 'bg-danger'
+                      }`}
+                    />
+                    {serverStatus === 'online' ? 'Active (:3001)' : 'Offline'}
+                  </span>
+                </div>
+                <span className="text-caption text-label-2">
+                  High-performance persistent SQLite engine · Full relational tables
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
+            <span className="text-label-2">Data Source:</span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleToggleBackend('real')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  backendMode === 'real'
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-fill text-label-2 hover:text-label'
+                }`}
+              >
+                Live SQLite (:3001)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleBackend('mock')}
+                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                  backendMode === 'mock'
+                    ? 'bg-accent text-white shadow-sm'
+                    : 'bg-fill text-label-2 hover:text-label'
+                }`}
+              >
+                Offline Sandbox
+              </button>
+            </div>
+          </div>
         </div>
       </InsetGroup>
 
