@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
+import path from 'node:path';
 import { getDB } from './db/database.js';
 import {
   calculateAgingSummary,
@@ -826,6 +828,21 @@ export function createApp(dbPath?: string): express.Express {
     const rows = db.prepare("SELECT * FROM challans WHERE status = 'queued'").all() as any[];
     res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines || '[]') })));
   });
+
+  // Serve static web app if dist folder exists (Single-Server Unified Deployment)
+  const candidatePaths = [
+    path.resolve(process.cwd(), 'apps/web/dist'),
+    path.resolve(process.cwd(), '../web/dist'),
+    path.resolve(process.cwd(), 'dist/public'),
+  ];
+  const webDistPath = candidatePaths.find(p => fs.existsSync(p));
+  if (webDistPath) {
+    app.use(express.static(webDistPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(webDistPath, 'index.html'));
+    });
+  }
 
   return app;
 }

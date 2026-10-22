@@ -1,0 +1,15 @@
+services:
+  manohar-companion:
+    build: .
+    container_name: manohar-app
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - manohar-data:/data
+    environment:
+      - PORT=80
+      - DB_PATH=/data/manohar.sqlite
+
+volumes:
+  manohar-data:
