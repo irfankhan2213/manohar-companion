@@ -69,7 +69,13 @@ export function createApp(dbPath?: string): express.Express {
           financialYear = COALESCE(?, financialYear),
           gstin = COALESCE(?, gstin)
       WHERE id = ?
-    `).run(name, tallyName, financialYear, gstin, req.params.id);
+    `).run(
+      name ?? null,
+      tallyName ?? null,
+      financialYear ?? null,
+      gstin ?? null,
+      req.params.id
+    );
 
     const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
     res.json(updated);
@@ -642,7 +648,13 @@ export function createApp(dbPath?: string): express.Express {
           description = COALESCE(?, description),
           completedAt = COALESCE(?, completedAt)
       WHERE id = ?
-    `).run(status, photoUrl, description, completedAt, req.params.id);
+    `).run(
+      status ?? null,
+      photoUrl ?? null,
+      description ?? null,
+      completedAt ?? null,
+      req.params.id
+    );
 
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
     res.json(task);

@@ -144,4 +144,35 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(pullRes.status).toBe(200);
     expect(Array.isArray(pullRes.body)).toBe(true);
   });
+
+  it('updates company details and verifies role permissions', async () => {
+    // 1. Update company details
+    const updateRes = await request(app)
+      .put('/api/companies/c1')
+      .send({ name: 'Manohar Traders Pvt Ltd', financialYear: '2026-27' });
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.name).toBe('Manohar Traders Pvt Ltd');
+
+    // 2. Test login with correct PIN
+    const loginOk = await request(app)
+      .post('/api/auth/login')
+      .send({ phone: '9814011223', pin: '1234' });
+    expect(loginOk.status).toBe(200);
+    expect(loginOk.body.success).toBe(true);
+    expect(loginOk.body.user.role).toBe('owner');
+
+    // 3. Test login with incorrect PIN
+    const loginFail = await request(app)
+      .post('/api/auth/login')
+      .send({ phone: '9814011223', pin: '0000' });
+    expect(loginFail.status).toBe(401);
+    expect(loginFail.body.success).toBe(false);
+
+    // 4. Update custom permissions matrix
+    const permsRes = await request(app)
+      .put('/api/permissions')
+      .send({ sales: { 'stock.adjust': true } });
+    expect(permsRes.status).toBe(200);
+    expect(permsRes.body.sales['stock.adjust']).toBe(true);
+  });
 });
