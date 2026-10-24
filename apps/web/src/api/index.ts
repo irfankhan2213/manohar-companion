@@ -9,7 +9,10 @@ const isRealMode = (): boolean => {
   if (urlParam === 'mock') return false;
   const stored = localStorage.getItem('manohar_backend_mode');
   if (stored === 'real') return true;
-  return (import.meta as any).env?.VITE_USE_MOCK === 'false';
+  if (stored === 'mock') return false;
+  if ((import.meta as any).env?.VITE_USE_MOCK === 'false') return true;
+  if ((import.meta as any).env?.PROD) return true;
+  return false;
 };
 
 export const api: ApiClient = isRealMode() ? httpApiClient : mockApiClient;

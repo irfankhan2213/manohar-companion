@@ -1,0 +1,18 @@
+{
+  "name": "Manohar Traders Companion",
+  "short_name": "Manohar",
+  "description": "Tally Companion for outstanding collections, stock, challans & tasks",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F5F5F7",
+  "theme_color": "#0A84FF",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -16,6 +16,7 @@ import {
   Edit3,
   ShieldCheck,
   Lock,
+  Download,
 } from 'lucide-react';
 import {
   User,
@@ -242,6 +243,23 @@ export const SettingsScreen: React.FC = () => {
     setTimeout(() => {
       window.location.reload();
     }, 600);
+  };
+
+  const handleDownloadBackup = (format: 'sqlite' | 'json') => {
+    if (backendMode === 'real') {
+      window.open(`/api/backup/${format}`, '_blank');
+      showToast({ message: `Downloading ${format.toUpperCase()} database backup...` });
+    } else {
+      const stored = localStorage.getItem('mock-db-v4') || localStorage.getItem('mock-db-v3') || '{}';
+      const blob = new Blob([stored], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `manohar-offline-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast({ message: 'Downloaded offline JSON backup' });
+    }
   };
 
   const handleAddStaff = () => {
@@ -650,11 +668,28 @@ export const SettingsScreen: React.FC = () => {
           }
         />
 
+        {/* Database Backup Downloads */}
+        <Row
+          leading={<Download className="w-5 h-5 text-accent" />}
+          title="Download Database Backup (SQLite)"
+          subtitle="Complete server database file for offline safety & restore"
+          onClick={() => handleDownloadBackup('sqlite')}
+          chevron
+        />
+
+        <Row
+          leading={<Download className="w-5 h-5 text-accent" />}
+          title="Download Data Export (JSON)"
+          subtitle="All parties, bills, challans, stock & notebooks in JSON format"
+          onClick={() => handleDownloadBackup('json')}
+          chevron
+        />
+
         {/* Clear Local Cache */}
         <Row
           leading={<Trash2 className="w-5 h-5 text-danger" />}
           title={t('settings.clearCache', 'Clear Local Cache & Reset')}
-          subtitle="Resets mock database and reloads latest seed data"
+          subtitle="Resets local cache and reloads latest data"
           onClick={handleClearCache}
           chevron
         />

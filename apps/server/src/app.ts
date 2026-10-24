@@ -923,6 +923,49 @@ export function createApp(dbPath?: string): express.Express {
     res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines || '[]') })));
   });
 
+  // 17. Database Backups
+  app.get('/api/backup/json', (req, res) => {
+    const tables = [
+      'companies',
+      'users',
+      'parties',
+      'bills',
+      'godowns',
+      'stock_items',
+      'stock_balances',
+      'challans',
+      'tasks',
+      'notebooks',
+      'reminder_rules',
+      'reminder_messages',
+      'reminder_replies',
+      'activity_events',
+      'agent_state',
+    ];
+    const backup: Record<string, any[]> = {};
+    for (const table of tables) {
+      try {
+        backup[table] = db.prepare(`SELECT * FROM ${table}`).all();
+      } catch {
+        backup[table] = [];
+      }
+    }
+    const dateStr = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Disposition', `attachment; filename="manohar-backup-${dateStr}.json"`);
+    res.setHeader('Content-Type', 'application/json');
+    res.json(backup);
+  });
+
+  app.get('/api/backup/sqlite', (req, res) => {
+    const dbFile = process.env.DB_PATH || 'manohar.sqlite';
+    if (fs.existsSync(dbFile)) {
+      const dateStr = new Date().toISOString().slice(0, 10);
+      res.download(dbFile, `manohar-database-${dateStr}.sqlite`);
+    } else {
+      res.status(404).json({ error: 'Database file not found on disk' });
+    }
+  });
+
   // Serve static web app if dist folder exists (Single-Server Unified Deployment)
   const candidatePaths = [
     path.resolve(process.cwd(), 'apps/web/dist'),

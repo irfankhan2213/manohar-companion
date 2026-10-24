@@ -174,5 +174,11 @@ describe('Manohar Backend API & Sync Server', () => {
       .send({ sales: { 'stock.adjust': true } });
     expect(permsRes.status).toBe(200);
     expect(permsRes.body.sales['stock.adjust']).toBe(true);
+
+    // 5. Database JSON Backup export
+    const backupRes = await request(app).get('/api/backup/json');
+    expect(backupRes.status).toBe(200);
+    expect(Array.isArray(backupRes.body.companies)).toBe(true);
+    expect(Array.isArray(backupRes.body.parties)).toBe(true);
   });
 });
