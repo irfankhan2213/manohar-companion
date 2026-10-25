@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { Role, User, Tenant, INITIAL_USERS, INITIAL_TENANTS } from '@saas/shared';
+import { Role, User, Tenant } from '@saas/shared';
 import i18n from '../i18n';
+
+// Clean up legacy prototype sessions from early development
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('manohar-session-v3');
+    localStorage.removeItem('manohar-session-v2');
+    localStorage.removeItem('manohar-session-v1');
+  } catch {}
+}
 
 interface AppSessionState {
   authToken: string | null;
@@ -23,11 +32,11 @@ interface AppSessionState {
 export const useAppStore = create<AppSessionState>()(
   persist(
     (set) => ({
-      authToken: 'session-manohar-owner-init',
-      currentTenant: INITIAL_TENANTS[0] || null,
-      currentCompanyId: 'c1',
-      currentUser: INITIAL_USERS[1] || INITIAL_USERS[0]!, // Manohar Lal (Owner) default
-      currentRole: 'owner',
+      authToken: null,
+      currentTenant: null,
+      currentCompanyId: 'all',
+      currentUser: null,
+      currentRole: 'viewer',
       language: 'en',
       staySignedIn: true,
       setCompanyId: (companyId) => set({ currentCompanyId: companyId }),
@@ -52,13 +61,13 @@ export const useAppStore = create<AppSessionState>()(
           authToken: null,
           currentUser: null,
           currentTenant: null,
-          currentCompanyId: 'c1',
+          currentCompanyId: 'all',
           currentRole: 'viewer',
         });
       },
     }),
     {
-      name: 'manohar-session-v3',
+      name: 'tally-auth-session-v1',
     }
   )
 );

@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAppStore } from './store.js';
+import { api } from '../api/index.js';
 import { TabBar } from '../components/ui/TabBar.js';
 import { Sidebar } from '../components/ui/Sidebar.js';
 import { ToastProvider } from '../components/ui/Toast.js';
@@ -53,7 +54,16 @@ const AppLayout: React.FC = () => {
 };
 
 const RequireAuth: React.FC = () => {
-  const { authToken, currentUser } = useAppStore();
+  const { authToken, currentUser, logout } = useAppStore();
+
+  React.useEffect(() => {
+    if (authToken) {
+      api.auth.me().catch(() => {
+        logout();
+      });
+    }
+  }, [authToken, logout]);
+
   if (!authToken || !currentUser) {
     return <Navigate to="/login" replace />;
   }
