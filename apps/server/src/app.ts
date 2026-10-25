@@ -29,64 +29,6 @@ export function createApp(dbPath?: string): express.Express {
 
   const db = getDB();
 
-  // 1. Health check
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', time: new Date().toISOString() });
-  });
-
-  // 2. Companies
-  app.get('/api/companies', (req, res) => {
-    const user = getRequestUser(req);
-    if (user && user.role !== 'dev' && user.tenantId) {
-      const rows = db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
-      return res.json(rows);
-    }
-    const rows = db.prepare('SELECT * FROM companies').all();
-    res.json(rows);
-  });
-
-  app.get('/api/companies/:id', (req, res) => {
-    const row = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
-    if (!row) return res.status(404).json({ error: 'Company not found' });
-    res.json(row);
-  });
-
-  app.post('/api/companies', (req, res) => {
-    const { name, tallyName, financialYear, gstin, address, phone } = req.body;
-    const id = req.body.id || `c-${Date.now()}`;
-    const tenantId = req.body.tenantId || 'tenant-1';
-    const now = new Date().toISOString();
-
-    db.prepare(`
-      INSERT INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, tenantId, name, tallyName || name, financialYear || '2026-27', gstin || null, now, 'online');
-
-    const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
-    res.status(201).json(created);
-  });
-
-  app.put('/api/companies/:id', (req, res) => {
-    const { name, tallyName, financialYear, gstin } = req.body;
-    db.prepare(`
-      UPDATE companies
-      SET name = COALESCE(?, name),
-          tallyName = COALESCE(?, tallyName),
-          financialYear = COALESCE(?, financialYear),
-          gstin = COALESCE(?, gstin)
-      WHERE id = ?
-    `).run(
-      name ?? null,
-      tallyName ?? null,
-      financialYear ?? null,
-      gstin ?? null,
-      req.params.id
-    );
-
-    const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
-    res.json(updated);
-  });
-
   function safeParseCompanyIds(val: any): string[] | 'all' {
     if (!val || val === 'all') return 'all';
     try {
@@ -179,32 +121,12 @@ export function createApp(dbPath?: string): express.Express {
     return null;
   }
 
-  // Security: Cross-tenant isolation middleware to prevent cross-tenant company data leaks
-  app.use((req, res, next) => {
-    if (!req.path.startsWith('/api')) return next();
-    if (
-      req.path.startsWith('/api/auth') ||
-      req.path.startsWith('/api/health') ||
-      req.path.startsWith('/api/dev') ||
-      req.path.startsWith('/api/backup')
-    ) {
-      return next();
-    }
-
-    const companyId = (req.query.companyId as string) || req.body?.companyId;
-    if (companyId && companyId !== 'all') {
-      const user = getRequestUser(req);
-      if (user && user.role !== 'dev') {
-        const company = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(companyId) as any;
-        if (company && company.tenantId && user.tenantId && company.tenantId !== user.tenantId) {
-          return res.status(403).json({ error: 'Forbidden: Access denied to company outside your organization' });
-        }
-      }
-    }
-    next();
+  // 1. Health check (Public)
+  app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
-  // 2a. Auth & Login
+  // 2a. Auth & Login (Public endpoint)
   app.post('/api/auth/login', (req, res) => {
     const { phone, pin } = req.body;
     const cleanPhone = (p: string) => p ? p.replace(/\D/g, '') : '';
@@ -277,12 +199,106 @@ export function createApp(dbPath?: string): express.Express {
       token,
       user: {
         ...user,
+        pin: undefined,
         companyIds: safeParseCompanyIds(user.companyIds),
         active: Boolean(user.active),
       },
       tenant,
       companies,
     });
+  });
+
+  // Security Enforcement Middleware:
+  // Strictly requires valid authentication and enforces tenant isolation on all protected API routes
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api')) return next();
+    // Allow public routes & agent integration endpoints
+    if (
+      req.path === '/api/health' ||
+      req.path === '/api/auth/login' ||
+      req.path.startsWith('/api/agent') ||
+      req.path.startsWith('/api/sync')
+    ) {
+      return next();
+    }
+
+    const user = getRequestUser(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: Valid authentication token required' });
+    }
+
+    // Role-based restrictions
+    if (req.path.startsWith('/api/dev') && user.role !== 'dev') {
+      return res.status(403).json({ error: 'Forbidden: Only Dev super admin can access' });
+    }
+
+    if (req.path.startsWith('/api/backup') && user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: Admin, Owner, or Dev role required' });
+    }
+
+    // Cross-tenant company isolation
+    const companyId = (req.query.companyId as string) || req.body?.companyId;
+    if (companyId && companyId !== 'all' && user.role !== 'dev') {
+      const company = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(companyId) as any;
+      if (company && company.tenantId && user.tenantId && company.tenantId !== user.tenantId) {
+        return res.status(403).json({ error: 'Forbidden: Access denied to company outside your organization' });
+      }
+    }
+
+    next();
+  });
+
+  // 2. Companies
+  app.get('/api/companies', (req, res) => {
+    const user = getRequestUser(req);
+    if (user && user.role !== 'dev' && user.tenantId) {
+      const rows = db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
+      return res.json(rows);
+    }
+    const rows = db.prepare('SELECT * FROM companies').all();
+    res.json(rows);
+  });
+
+  app.get('/api/companies/:id', (req, res) => {
+    const row = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    if (!row) return res.status(404).json({ error: 'Company not found' });
+    res.json(row);
+  });
+
+  app.post('/api/companies', (req, res) => {
+    const { name, tallyName, financialYear, gstin, address, phone } = req.body;
+    const id = req.body.id || `c-${Date.now()}`;
+    const tenantId = req.body.tenantId || 'tenant-1';
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, tenantId, name, tallyName || name, financialYear || '2026-27', gstin || null, now, 'online');
+
+    const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
+    res.status(201).json(created);
+  });
+
+  app.put('/api/companies/:id', (req, res) => {
+    const { name, tallyName, financialYear, gstin } = req.body;
+    db.prepare(`
+      UPDATE companies
+      SET name = COALESCE(?, name),
+          tallyName = COALESCE(?, tallyName),
+          financialYear = COALESCE(?, financialYear),
+          gstin = COALESCE(?, gstin)
+      WHERE id = ?
+    `).run(
+      name ?? null,
+      tallyName ?? null,
+      financialYear ?? null,
+      gstin ?? null,
+      req.params.id
+    );
+
+    const updated = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id);
+    res.json(updated);
   });
 
   // 2b. Auth Me
@@ -319,9 +335,10 @@ export function createApp(dbPath?: string): express.Express {
       ? db.prepare('SELECT * FROM companies').all()
       : db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
 
+    const { pin: _pin, ...safeUser } = user;
     res.json({
       user: {
-        ...user,
+        ...safeUser,
         companyIds: safeParseCompanyIds(user.companyIds),
         active: Boolean(user.active),
       },
@@ -343,7 +360,7 @@ export function createApp(dbPath?: string): express.Express {
   // 2d. Dev Platform Clients Management (dev role only)
   app.get('/api/dev/clients', (req, res) => {
     const user = getRequestUser(req);
-    if (user && user.role !== 'dev') {
+    if (!user || user.role !== 'dev') {
       return res.status(403).json({ error: 'Forbidden: Only Dev super admin can access client onboarding' });
     }
 
@@ -362,7 +379,6 @@ export function createApp(dbPath?: string): express.Express {
               id: ownerUser.id,
               name: ownerUser.name,
               phone: ownerUser.phone,
-              pin: ownerUser.pin,
             }
           : {
               name: t.ownerName,
@@ -376,7 +392,7 @@ export function createApp(dbPath?: string): express.Express {
 
   app.post('/api/dev/clients', (req, res) => {
     const user = getRequestUser(req);
-    if (user && user.role !== 'dev') {
+    if (!user || user.role !== 'dev') {
       return res.status(403).json({ error: 'Forbidden: Only Dev super admin can onboard new clients' });
     }
 
@@ -445,10 +461,12 @@ export function createApp(dbPath?: string): express.Express {
     const createdOwner = db.prepare('SELECT id, tenantId, name, phone, pin, role, active FROM users WHERE id = ?').get(ownerId);
     const createdCompany = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
 
+    const { pin: _pin, ...safeCreatedOwner } = (createdOwner as any) || {};
+
     res.status(201).json({
       success: true,
       tenant: createdTenant,
-      owner: createdOwner,
+      owner: safeCreatedOwner,
       company: createdCompany,
     });
   });
@@ -1349,21 +1367,32 @@ export function createApp(dbPath?: string): express.Express {
     } else {
       rows = db.prepare('SELECT * FROM users').all() as any[];
     }
-    res.json(rows.map(r => ({
-      ...r,
-      companyIds: safeParseCompanyIds(r.companyIds),
-      active: Boolean(r.active),
-    })));
+    res.json(rows.map(r => {
+      const { pin: _pin, ...safeUser } = r;
+      return {
+        ...safeUser,
+        companyIds: safeParseCompanyIds(r.companyIds),
+        active: Boolean(r.active),
+      };
+    }));
   });
 
   app.patch('/api/users/:id/role', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden: Admin, Owner, or Dev role required to update roles' });
+    }
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(req.body.role, req.params.id);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
-    res.json({ ...u, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
+    const { pin: _pin, ...safeU } = u;
+    res.json({ ...safeU, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
   });
 
   app.post('/api/users', (req, res) => {
     const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden: Admin, Owner, or Dev role required to create users' });
+    }
     const body = req.body;
     const id = body.id || `u-${Date.now()}`;
     const tenantId = body.tenantId || (user ? user.tenantId : 'tenant-1');
@@ -1374,7 +1403,8 @@ export function createApp(dbPath?: string): express.Express {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, tenantId, body.name, body.phone, pin, body.role || 'sales', JSON.stringify(body.companyIds || 'all'), 1);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
-    res.status(201).json({ ...u, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
+    const { pin: _pin, ...safeU } = u;
+    res.status(201).json({ ...safeU, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
   });
 
   // 14b. Role Permissions (Customizable per Organization)
@@ -1389,6 +1419,10 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.put('/api/permissions', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev')) {
+      return res.status(403).json({ error: 'Forbidden: Owner or Dev role required to alter permission matrices' });
+    }
     const perms = req.body;
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('custom_permissions', ?)").run(JSON.stringify(perms));
     res.json(perms);

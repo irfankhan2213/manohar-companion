@@ -5,11 +5,18 @@ import { initDatabase } from '../src/db/database.js';
 
 describe('Manohar Backend API & Sync Server', () => {
   let app: any;
+  let authToken: string;
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // In-memory test database
     initDatabase(':memory:');
     app = createApp();
+
+    // Authenticate test suite session
+    const loginRes = await request(app)
+      .post('/api/auth/login')
+      .send({ phone: '9814011223', pin: '1234' });
+    authToken = loginRes.body.token;
   });
 
   it('responds with 200 on /api/health', async () => {
@@ -19,14 +26,18 @@ describe('Manohar Backend API & Sync Server', () => {
   });
 
   it('returns seeded companies', async () => {
-    const res = await request(app).get('/api/companies');
+    const res = await request(app)
+      .get('/api/companies')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.some((c: any) => c.name === 'Manohar Traders')).toBe(true);
   });
 
   it('returns stock items with machinery like TAI MACHINE and SV MACHINE', async () => {
-    const res = await request(app).get('/api/stock');
+    const res = await request(app)
+      .get('/api/stock')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(res.status).toBe(200);
     expect(Array.isArray(res.body)).toBe(true);
     const names = res.body.map((s: any) => s.item.name);
@@ -38,12 +49,16 @@ describe('Manohar Backend API & Sync Server', () => {
 
   it('filters challans by itemIds query parameter', async () => {
     // All challans
-    const all = await request(app).get('/api/challans');
+    const all = await request(app)
+      .get('/api/challans')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(all.status).toBe(200);
     expect(all.body.length).toBeGreaterThan(0);
 
     // Filter by item-tai
-    const tai = await request(app).get('/api/challans?itemIds=item-tai');
+    const tai = await request(app)
+      .get('/api/challans?itemIds=item-tai')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(tai.status).toBe(200);
     expect(tai.body.length).toBeGreaterThan(0);
     expect(tai.body.every((c: any) => c.lines.some((l: any) => l.itemId === 'item-tai'))).toBe(true);
@@ -60,12 +75,17 @@ describe('Manohar Backend API & Sync Server', () => {
       status: 'pending',
     };
 
-    const taskRes = await request(app).post('/api/tasks').send(taskPayload);
+    const taskRes = await request(app)
+      .post('/api/tasks')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(taskPayload);
     expect(taskRes.status).toBe(201);
     expect(taskRes.body.title).toBe(taskPayload.title);
 
     // Check notifications for u5
-    const notifs = await request(app).get('/api/notifications');
+    const notifs = await request(app)
+      .get('/api/notifications')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(notifs.status).toBe(200);
     const userNotif = notifs.body.find((n: any) => n.userId === 'u5' && n.title === 'New Task Assigned');
     expect(userNotif).toBeDefined();
@@ -75,6 +95,7 @@ describe('Manohar Backend API & Sync Server', () => {
   it('updates payment reminder due date rule', async () => {
     const updateRes = await request(app)
       .put('/api/reminders/rules')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         tenantId: 'tenant-1',
         enabled: true,
@@ -85,7 +106,9 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(updateRes.status).toBe(200);
     expect(updateRes.body.defaultDueDays).toBe(45);
 
-    const getRes = await request(app).get('/api/reminders/rules');
+    const getRes = await request(app)
+      .get('/api/reminders/rules')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(getRes.status).toBe(200);
     expect(getRes.body.defaultDueDays).toBe(45);
   });
@@ -134,7 +157,9 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(pushRes.body.partiesUpdated).toBe(1);
 
     // Verify party in collections
-    const colRes = await request(app).get('/api/collections/p-new-sync');
+    const colRes = await request(app)
+      .get('/api/collections/p-new-sync')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(colRes.status).toBe(200);
     expect(colRes.body.party.name).toBe('Amritsar Looms Corp');
     expect(colRes.body.bills.length).toBe(1);
@@ -149,6 +174,7 @@ describe('Manohar Backend API & Sync Server', () => {
     // 1. Update company details
     const updateRes = await request(app)
       .put('/api/companies/c1')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({ name: 'Manohar Traders Pvt Ltd', financialYear: '2026-27' });
     expect(updateRes.status).toBe(200);
     expect(updateRes.body.name).toBe('Manohar Traders Pvt Ltd');
@@ -171,12 +197,15 @@ describe('Manohar Backend API & Sync Server', () => {
     // 4. Update custom permissions matrix
     const permsRes = await request(app)
       .put('/api/permissions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({ sales: { 'stock.adjust': true } });
     expect(permsRes.status).toBe(200);
     expect(permsRes.body.sales['stock.adjust']).toBe(true);
 
     // 5. Database JSON Backup export
-    const backupRes = await request(app).get('/api/backup/json');
+    const backupRes = await request(app)
+      .get('/api/backup/json')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(backupRes.status).toBe(200);
     expect(Array.isArray(backupRes.body.companies)).toBe(true);
     expect(Array.isArray(backupRes.body.parties)).toBe(true);
