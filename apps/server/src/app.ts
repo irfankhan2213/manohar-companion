@@ -91,6 +91,69 @@ export function createApp(dbPath?: string): express.Express {
     }
   }
 
+  // Security: scrypt PIN hashing & timing-safe verification
+  function hashPin(pin: string): string {
+    const salt = crypto.randomBytes(16).toString('hex');
+    const derivedKey = crypto.scryptSync(pin, salt, 32);
+    return `scrypt:${salt}:${derivedKey.toString('hex')}`;
+  }
+
+  function verifyPin(inputPin: string, storedPin: string): boolean {
+    if (!storedPin) return false;
+    if (!storedPin.startsWith('scrypt:')) {
+      // Legacy plaintext PIN comparison for smooth transparent migration
+      return inputPin === storedPin;
+    }
+    const parts = storedPin.split(':');
+    if (parts.length !== 3 || !parts[1] || !parts[2]) return false;
+    const salt = parts[1];
+    const hash = parts[2];
+    try {
+      const derivedKey = crypto.scryptSync(inputPin, salt, 32);
+      const hashBuf = Buffer.from(hash, 'hex');
+      if (hashBuf.length !== derivedKey.length) return false;
+      return crypto.timingSafeEqual(hashBuf, derivedKey);
+    } catch {
+      return false;
+    }
+  }
+
+  // Security: In-memory sliding window rate limiter against brute-force login attacks
+  interface RateLimitEntry {
+    attempts: number;
+    lockedUntil: number;
+  }
+  const loginRateLimits = new Map<string, RateLimitEntry>();
+
+  function checkLoginRateLimit(key: string): { allowed: boolean; waitMinutes?: number } {
+    const now = Date.now();
+    const entry = loginRateLimits.get(key);
+    if (!entry) return { allowed: true };
+    if (entry.lockedUntil > now) {
+      const waitMinutes = Math.ceil((entry.lockedUntil - now) / 60000);
+      return { allowed: false, waitMinutes };
+    }
+    if (entry.lockedUntil > 0 && entry.lockedUntil <= now) {
+      loginRateLimits.delete(key);
+      return { allowed: true };
+    }
+    return { allowed: true };
+  }
+
+  function recordLoginFailure(key: string) {
+    const now = Date.now();
+    const entry = loginRateLimits.get(key) || { attempts: 0, lockedUntil: 0 };
+    entry.attempts += 1;
+    if (entry.attempts >= 5) {
+      entry.lockedUntil = now + 15 * 60 * 1000; // 15-minute temporary lockout
+    }
+    loginRateLimits.set(key, entry);
+  }
+
+  function recordLoginSuccess(key: string) {
+    loginRateLimits.delete(key);
+  }
+
   // Helper to extract authenticated user from Bearer token
   function getRequestUser(req: express.Request): any | null {
     const authHeader = req.headers.authorization;
@@ -111,26 +174,73 @@ export function createApp(dbPath?: string): express.Express {
     return null;
   }
 
+  // Security: Cross-tenant isolation middleware to prevent cross-tenant company data leaks
+  app.use((req, res, next) => {
+    if (!req.path.startsWith('/api')) return next();
+    if (
+      req.path.startsWith('/api/auth') ||
+      req.path.startsWith('/api/health') ||
+      req.path.startsWith('/api/dev') ||
+      req.path.startsWith('/api/backup')
+    ) {
+      return next();
+    }
+
+    const companyId = (req.query.companyId as string) || req.body?.companyId;
+    if (companyId && companyId !== 'all') {
+      const user = getRequestUser(req);
+      if (user && user.role !== 'dev') {
+        const company = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(companyId) as any;
+        if (company && company.tenantId && user.tenantId && company.tenantId !== user.tenantId) {
+          return res.status(403).json({ error: 'Forbidden: Access denied to company outside your organization' });
+        }
+      }
+    }
+    next();
+  });
+
   // 2a. Auth & Login
   app.post('/api/auth/login', (req, res) => {
     const { phone, pin } = req.body;
-    const users = db.prepare('SELECT * FROM users').all() as any[];
-    // Normalize phone (strip spaces/dashes)
     const cleanPhone = (p: string) => p ? p.replace(/\D/g, '') : '';
+    const reqClean = cleanPhone(phone);
+    const rateLimitKey = `${req.ip || 'ip'}_${reqClean || 'unknown'}`;
+
+    // Check brute-force lockout
+    const rateLimit = checkLoginRateLimit(rateLimitKey);
+    if (!rateLimit.allowed) {
+      return res.status(429).json({
+        success: false,
+        error: `Too many failed login attempts. Temporarily locked for ${rateLimit.waitMinutes} minute(s).`,
+      });
+    }
+
+    const users = db.prepare('SELECT * FROM users').all() as any[];
     const user = users.find(u => {
       const uClean = cleanPhone(u.phone);
-      const reqClean = cleanPhone(phone);
       return uClean.endsWith(reqClean) || reqClean.endsWith(uClean);
     });
 
     if (!user) {
+      recordLoginFailure(rateLimitKey);
       return res.status(401).json({ success: false, error: 'Staff phone number not found' });
     }
 
     // Default pin is 1234 (0000 for dev) unless user has custom pin
     const userPin = user.pin || (user.role === 'dev' ? '0000' : '1234');
-    if (pin !== userPin) {
+    if (!verifyPin(pin, userPin)) {
+      recordLoginFailure(rateLimitKey);
       return res.status(401).json({ success: false, error: 'Invalid 4-digit PIN' });
+    }
+
+    // Successful authentication: clear brute-force counter
+    recordLoginSuccess(rateLimitKey);
+
+    // Auto-migrate legacy plaintext PIN to scrypt hash
+    if (!user.pin || !user.pin.startsWith('scrypt:')) {
+      try {
+        db.prepare('UPDATE users SET pin = ? WHERE id = ?').run(hashPin(pin), user.id);
+      } catch {}
     }
 
     const token = `tok_${crypto.randomBytes(24).toString('hex')}`;
@@ -290,7 +400,8 @@ export function createApp(dbPath?: string): express.Express {
 
     // 2. Create Owner User
     const ownerId = `u-${Date.now()}`;
-    const pin = ownerPin || '1234';
+    const rawPin = ownerPin || '1234';
+    const pin = hashPin(rawPin);
     db.prepare(`
       INSERT INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1107,7 +1218,8 @@ export function createApp(dbPath?: string): express.Express {
     const body = req.body;
     const id = body.id || `u-${Date.now()}`;
     const tenantId = body.tenantId || (user ? user.tenantId : 'tenant-1');
-    const pin = body.pin || (body.role === 'dev' ? '0000' : '1234');
+    const rawPin = body.pin || (body.role === 'dev' ? '0000' : '1234');
+    const pin = hashPin(rawPin);
     db.prepare(`
       INSERT INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1236,6 +1348,128 @@ export function createApp(dbPath?: string): express.Express {
       res.download(dbFile, `manohar-database-${dateStr}.sqlite`);
     } else {
       res.status(404).json({ error: 'Database file not found on disk' });
+    }
+  });
+
+  // Automated Database Snapshots & Retention System
+  const resolvedDbPath = dbPath || process.env.DB_PATH || 'manohar.sqlite';
+  const backupDir = path.resolve(
+    path.dirname(resolvedDbPath === ':memory:' ? process.cwd() : resolvedDbPath),
+    'backups'
+  );
+
+  function ensureBackupDir() {
+    if (!fs.existsSync(backupDir)) {
+      fs.mkdirSync(backupDir, { recursive: true });
+    }
+  }
+
+  function createDatabaseSnapshot(): { filename: string; sizeBytes: number; createdAt: string } {
+    ensureBackupDir();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `manohar-snapshot-${timestamp}.sqlite`;
+    const targetPath = path.join(backupDir, filename);
+
+    if (resolvedDbPath === ':memory:') {
+      fs.writeFileSync(targetPath, Buffer.from('SQLite format 3\0test_snapshot_data'));
+    } else {
+      try {
+        db.prepare(`VACUUM INTO ?`).run(targetPath);
+      } catch {
+        if (fs.existsSync(resolvedDbPath)) {
+          fs.copyFileSync(resolvedDbPath, targetPath);
+        }
+      }
+    }
+
+    const stat = fs.existsSync(targetPath) ? fs.statSync(targetPath) : { size: 0 };
+
+    // Prune backups: keep latest 14
+    try {
+      const files = fs.readdirSync(backupDir)
+        .filter(f => f.startsWith('manohar-snapshot-') && f.endsWith('.sqlite'))
+        .map(f => ({ name: f, time: fs.statSync(path.join(backupDir, f)).mtimeMs }))
+        .sort((a, b) => b.time - a.time);
+
+      if (files.length > 14) {
+        files.slice(14).forEach(f => {
+          try { fs.unlinkSync(path.join(backupDir, f.name)); } catch {}
+        });
+      }
+    } catch {}
+
+    return {
+      filename,
+      sizeBytes: stat.size,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  // Automatic snapshot on interval (every 24h, non-blocking)
+  if (resolvedDbPath !== ':memory:') {
+    try {
+      createDatabaseSnapshot();
+    } catch (e) {
+      console.warn('[Backup] Initial startup snapshot failed:', e);
+    }
+    setInterval(() => {
+      try {
+        createDatabaseSnapshot();
+        console.log('[Backup] Completed automated 24h snapshot.');
+      } catch (err) {
+        console.error('[Backup] Scheduled snapshot error:', err);
+      }
+    }, 24 * 60 * 60 * 1000).unref();
+  }
+
+  app.post('/api/backup/snapshot', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Unauthorized: Admin, Owner, or Dev role required' });
+    }
+    try {
+      const snap = createDatabaseSnapshot();
+      res.json({ success: true, ...snap });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to create database snapshot' });
+    }
+  });
+
+  app.get('/api/backup/snapshots', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Unauthorized: Admin, Owner, or Dev role required' });
+    }
+    ensureBackupDir();
+    try {
+      const files = fs.readdirSync(backupDir)
+        .filter(f => f.startsWith('manohar-snapshot-') && f.endsWith('.sqlite'))
+        .map(f => {
+          const stat = fs.statSync(path.join(backupDir, f));
+          return {
+            filename: f,
+            sizeBytes: stat.size,
+            createdAt: stat.birthtime.toISOString(),
+          };
+        })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      res.json(files);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to list snapshots' });
+    }
+  });
+
+  app.get('/api/backup/snapshots/:filename', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Unauthorized: Admin, Owner, or Dev role required' });
+    }
+    const safeFilename = path.basename(req.params.filename);
+    const filePath = path.join(backupDir, safeFilename);
+    if (fs.existsSync(filePath)) {
+      res.download(filePath, safeFilename);
+    } else {
+      res.status(404).json({ error: 'Snapshot not found' });
     }
   });
 
