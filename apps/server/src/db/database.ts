@@ -180,6 +180,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     CREATE TABLE IF NOT EXISTS reminder_rules (
       tenantId TEXT PRIMARY KEY,
       enabled INTEGER,
+      whatsappEnabled INTEGER DEFAULT 0,
       defaultDueDays INTEGER,
       steps TEXT,
       quietHours TEXT,
@@ -232,6 +233,10 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       stockCount INTEGER
     );
   `);
+
+  try {
+    db.prepare('ALTER TABLE reminder_rules ADD COLUMN whatsappEnabled INTEGER DEFAULT 0').run();
+  } catch {}
 
   // 2. Check if seeded, if empty seed canonical data
   const count = db.prepare('SELECT count(*) as cnt FROM companies').get() as { cnt: number };

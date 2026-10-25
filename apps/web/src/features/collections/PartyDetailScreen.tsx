@@ -11,7 +11,7 @@ import {
   MessageSquare,
   Check,
 } from 'lucide-react';
-import { can, formatINR, getDaysOverdue } from '@saas/shared';
+import { can, formatINR, getDaysOverdue, Party } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -22,6 +22,7 @@ import { Sheet } from '../../components/ui/Sheet.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
 import { FIXED_TODAY } from '../../mock/seed.js';
+import { openWhatsAppReminderUrl } from '../reminders/whatsapp.js';
 
 export const PartyDetailScreen: React.FC = () => {
   const { partyId = '' } = useParams<{ partyId: string }>();
@@ -36,6 +37,8 @@ export const PartyDetailScreen: React.FC = () => {
   const [estimatedInfoOpen, setEstimatedInfoOpen] = useState(false);
   const [selectedPhone, setSelectedPhone] = useState<string>('');
   const [reminderDueDays, setReminderDueDays] = useState<number>(30);
+  const [newPhoneInput, setNewPhoneInput] = useState('');
+  const [addingPhone, setAddingPhone] = useState(false);
 
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
@@ -63,9 +66,9 @@ export const PartyDetailScreen: React.FC = () => {
 
   const partyThread = threads.find((t) => t.partyId === partyId);
 
-  // Update party mutation (e.g. toggle pause reminders)
+  // Update party mutation (e.g. toggle pause reminders, update phones)
   const updatePartyMutation = useMutation({
-    mutationFn: (updates: { remindersPaused?: boolean; notes?: string }) =>
+    mutationFn: (updates: Partial<Party>) =>
       api.parties.update(partyId, updates),
     onSuccess: (updated) => {
       queryClient.setQueryData(['party', partyId], updated);
@@ -97,10 +100,20 @@ export const PartyDetailScreen: React.FC = () => {
 
   const handleSendReminder = () => {
     setReminderSheetOpen(false);
-    showToast({
-      message: `Reminder sent to ${party?.name ?? 'customer'}`,
-      variant: 'success',
-    });
+    if (party) {
+      openWhatsAppReminderUrl({
+        phone: targetPhone,
+        partyName: party.name,
+        overdueAmountPaise: totalOwed,
+        oldestBillNo: bills[0]?.billNo,
+        daysLate: maxDaysLate,
+        dueDate: bills[0]?.dueDate,
+      });
+      showToast({
+        message: `Opening WhatsApp with built reminder for ${party.name}...`,
+        variant: 'success',
+      });
+    }
   };
 
   if (partyLoading || !party) {
@@ -379,9 +392,46 @@ export const PartyDetailScreen: React.FC = () => {
 
           {/* Contact Numbers */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-footnote font-semibold uppercase tracking-wider text-label-2">
-              Phone Numbers
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-footnote font-semibold uppercase tracking-wider text-label-2">
+                Phone Numbers &amp; Persons
+              </label>
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => setAddingPhone(!addingPhone)}
+                  className="text-caption font-semibold text-accent hover:underline"
+                >
+                  {addingPhone ? 'Cancel' : '+ Add Person / Phone'}
+                </button>
+              )}
+            </div>
+
+            {addingPhone && (
+              <div className="flex items-center gap-2 p-2 bg-fill/40 rounded-xl border border-separator/40">
+                <input
+                  type="tel"
+                  placeholder="+91 98140 00000"
+                  value={newPhoneInput}
+                  onChange={(e) => setNewPhoneInput(e.target.value)}
+                  className="flex-1 h-9 px-3 bg-surface rounded-lg border border-separator/50 text-subhead font-mono outline-none focus:border-accent"
+                />
+                <Button
+                  size="small"
+                  onClick={() => {
+                    if (newPhoneInput.trim()) {
+                      const updated = [...party.phones, newPhoneInput.trim()];
+                      updatePartyMutation.mutate({ phones: updated });
+                      setNewPhoneInput('');
+                      setAddingPhone(false);
+                    }
+                  }}
+                >
+                  Add
+                </Button>
+              </div>
+            )}
+
             <div className="flex flex-col gap-2">
               {party.phones.map((phone, idx) => (
                 <div

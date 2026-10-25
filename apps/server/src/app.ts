@@ -140,6 +140,34 @@ export function createApp(dbPath?: string): express.Express {
     });
   });
 
+  app.post('/api/parties', (req, res) => {
+    const body = req.body;
+    const id = body.id || `p-${Date.now()}`;
+    db.prepare(`
+      INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      body.tenantId || 'tenant-1',
+      body.companyId || 'c1',
+      body.name,
+      body.city || 'Ludhiana',
+      JSON.stringify(body.phones || []),
+      body.gstin ?? null,
+      body.creditDays || 30,
+      body.collectorId ?? null,
+      body.remindersPaused ? 1 : 0,
+      body.notes || '',
+      body.promiseToPay ?? null
+    );
+    const created = db.prepare('SELECT * FROM parties WHERE id = ?').get(id) as any;
+    res.status(201).json({
+      ...created,
+      phones: JSON.parse(created.phones || '[]'),
+      remindersPaused: Boolean(created.remindersPaused),
+    });
+  });
+
   app.patch('/api/parties/:id', (req, res) => {
     const body = req.body;
     db.prepare(`
@@ -147,13 +175,15 @@ export function createApp(dbPath?: string): express.Express {
       SET notes = COALESCE(?, notes),
           promiseToPay = COALESCE(?, promiseToPay),
           remindersPaused = COALESCE(?, remindersPaused),
-          collectorId = COALESCE(?, collectorId)
+          collectorId = COALESCE(?, collectorId),
+          phones = COALESCE(?, phones)
       WHERE id = ?
     `).run(
-      body.notes,
-      body.promiseToPay,
+      body.notes ?? null,
+      body.promiseToPay ?? null,
       body.remindersPaused !== undefined ? (body.remindersPaused ? 1 : 0) : null,
-      body.collectorId,
+      body.collectorId ?? null,
+      body.phones ? JSON.stringify(body.phones) : null,
       req.params.id
     );
     const updated = db.prepare('SELECT * FROM parties WHERE id = ?').get(req.params.id) as any;
@@ -683,6 +713,7 @@ export function createApp(dbPath?: string): express.Express {
     const rule: ReminderRule = {
       tenantId: r.tenantId,
       enabled: Boolean(r.enabled),
+      whatsappEnabled: Boolean(r.whatsappEnabled ?? 0),
       defaultDueDays: r.defaultDueDays || 30,
       steps: JSON.parse(r.steps || '[]'),
       quietHours: JSON.parse(r.quietHours || '{}'),
@@ -696,24 +727,27 @@ export function createApp(dbPath?: string): express.Express {
     const body = req.body;
     db.prepare(`
       UPDATE reminder_rules
-      SET enabled = ?,
-          defaultDueDays = ?,
-          steps = ?,
-          quietHours = ?,
-          minAmount = ?
+      SET enabled = COALESCE(?, enabled),
+          whatsappEnabled = COALESCE(?, whatsappEnabled),
+          defaultDueDays = COALESCE(?, defaultDueDays),
+          steps = COALESCE(?, steps),
+          quietHours = COALESCE(?, quietHours),
+          minAmount = COALESCE(?, minAmount)
       WHERE tenantId = ?
     `).run(
-      body.enabled ? 1 : 0,
-      body.defaultDueDays || 30,
-      JSON.stringify(body.steps || []),
-      JSON.stringify(body.quietHours || {}),
-      body.minAmount || 500000,
+      body.enabled !== undefined ? (body.enabled ? 1 : 0) : null,
+      body.whatsappEnabled !== undefined ? (body.whatsappEnabled ? 1 : 0) : null,
+      body.defaultDueDays ?? null,
+      body.steps ? JSON.stringify(body.steps) : null,
+      body.quietHours ? JSON.stringify(body.quietHours) : null,
+      body.minAmount ?? null,
       body.tenantId || 'tenant-1'
     );
     const updated = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(body.tenantId || 'tenant-1') as any;
     res.json({
       ...updated,
       enabled: Boolean(updated.enabled),
+      whatsappEnabled: Boolean(updated.whatsappEnabled ?? 0),
       steps: JSON.parse(updated.steps),
       quietHours: JSON.parse(updated.quietHours),
       stopWhenPaid: true,

@@ -198,6 +198,7 @@ export type TemplateKey = z.infer<typeof TemplateKeySchema>;
 export const ReminderRuleSchema = z.object({
   tenantId: z.string(),
   enabled: z.boolean(),
+  whatsappEnabled: z.boolean().default(false),
   defaultDueDays: z.number().int().default(30),
   steps: z.array(
     z.object({

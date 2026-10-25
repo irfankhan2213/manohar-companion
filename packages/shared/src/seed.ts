@@ -459,6 +459,7 @@ export const INITIAL_BALANCES: StockBalance[] = [
 export const INITIAL_RULES: ReminderRule = {
   tenantId: 'tenant-1',
   enabled: true,
+  whatsappEnabled: false,
   defaultDueDays: 30,
   steps: [
     { offsetDays: -3, template: 'due_soon', enabled: true },

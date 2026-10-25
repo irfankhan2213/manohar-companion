@@ -9,4 +9,5 @@ artifacts/screens/diff
 *agent-state*.json
 *.sqlite
 *.sqlite-*
+scratch/
 

@@ -71,6 +71,7 @@ export interface ApiClient {
   parties: {
     list: (companyId: Id | 'all', query?: string) => Promise<Party[]>;
     get: (id: Id) => Promise<Party | null>;
+    create: (data: Partial<Party>) => Promise<Party>;
     update: (id: Id, updates: Partial<Party>) => Promise<Party>;
   };
   bills: {

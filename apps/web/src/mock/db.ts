@@ -293,6 +293,25 @@ export const mockApiClient: ApiClient = {
       return list;
     },
     get: async (id) => db.parties.find((p) => p.id === id) ?? null,
+    create: async (data: any) => {
+      const p = {
+        id: data.id || `p-${Date.now()}`,
+        tenantId: data.tenantId || 'tenant-1',
+        companyId: data.companyId || 'c1',
+        name: data.name || '',
+        city: data.city || 'Ludhiana',
+        phones: data.phones || [],
+        gstin: data.gstin || '',
+        creditDays: data.creditDays || 30,
+        collectorId: data.collectorId || 'u1',
+        remindersPaused: Boolean(data.remindersPaused),
+        notes: data.notes || '',
+        promiseToPay: data.promiseToPay,
+      };
+      db.parties.unshift(p);
+      saveDB();
+      return p;
+    },
     update: async (id, updates) => {
       const idx = db.parties.findIndex((p) => p.id === id);
       if (idx === -1) throw new Error('Party not found');
