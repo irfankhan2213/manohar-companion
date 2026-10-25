@@ -100,7 +100,7 @@ export const DevClientsScreen: React.FC = () => {
   return (
     <LargeTitleScreen
       title="Client Organizations"
-      headerAction={
+      subtitle={
         <Button
           size="small"
           onClick={() => setOnboardOpen(true)}
