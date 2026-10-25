@@ -4,12 +4,28 @@ services:
     container_name: manohar-app
     restart: always
     ports:
-      - "80:80"
+      - "127.0.0.1:8080:80"
     volumes:
       - manohar-data:/data
     environment:
       - PORT=80
       - DB_PATH=/data/manohar.sqlite
 
+  caddy:
+    image: caddy:alpine
+    container_name: manohar-caddy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - manohar-companion
+
 volumes:
   manohar-data:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,12 @@
+{
+    email admin@evolveexpert.com
+}
+
+manohar.evolveexpert.com {
+    encode zstd gzip
+    reverse_proxy manohar-companion:80
+}
+
+http://172.198.50.109 {
+    redir https://manohar.evolveexpert.com{uri} permanent
+}
