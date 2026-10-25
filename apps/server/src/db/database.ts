@@ -57,6 +57,14 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
   const db = new DatabaseSync(dbPath);
   dbInstance = db;
 
+  // SQLite Performance Optimization Pragmas (WAL + Normal sync)
+  if (dbPath !== ':memory:') {
+    try {
+      db.exec('PRAGMA journal_mode = WAL;');
+    } catch {}
+  }
+  db.exec('PRAGMA synchronous = NORMAL;');
+
   // 1. Create Tables
   db.exec(`
     CREATE TABLE IF NOT EXISTS tenants (
@@ -253,6 +261,16 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       ledgersCount INTEGER,
       stockCount INTEGER
     );
+
+    CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
+    CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
+    CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
+    CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
+    CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);
+    CREATE INDEX IF NOT EXISTS idx_challans_company ON challans (companyId);
+    CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (companyId);
+    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
+    CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
   `);
 
   try {

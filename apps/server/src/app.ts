@@ -1719,9 +1719,19 @@ export function createApp(dbPath?: string): express.Express {
   ];
   const webDistPath = candidatePaths.find(p => fs.existsSync(p));
   if (webDistPath) {
-    app.use(express.static(webDistPath));
+    // Cache immutable hashed asset bundles for 1 year
+    app.use('/assets', express.static(path.join(webDistPath, 'assets'), {
+      maxAge: '1y',
+      immutable: true,
+    }));
+    // Serve index and public root without caching index.html
+    app.use(express.static(webDistPath, {
+      maxAge: 0,
+      etag: true,
+    }));
     app.get('*', (req, res, next) => {
       if (req.path.startsWith('/api')) return next();
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(webDistPath, 'index.html'));
     });
   }
