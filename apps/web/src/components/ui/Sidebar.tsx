@@ -10,15 +10,21 @@ import {
   BellRing,
   Activity,
   Settings,
+  ShieldCheck,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
+import { useAppStore } from '../../app/store.js';
 import { PRODUCT_CONFIG } from '../../config/product.js';
 
 export const Sidebar: React.FC = () => {
   const { t } = useTranslation();
+  const { currentRole } = useAppStore();
 
   const links = [
+    ...(currentRole === 'dev'
+      ? [{ to: '/dev/clients', label: 'Client Orgs', icon: ShieldCheck }]
+      : []),
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },
     { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet },
     { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package },

@@ -7,6 +7,7 @@ import {
   Activity,
   Settings,
   Languages,
+  ShieldCheck,
 } from 'lucide-react';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
@@ -14,7 +15,7 @@ import { useAppStore } from '../../app/store.js';
 
 export const MoreScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { language, setLanguage } = useAppStore();
+  const { language, setLanguage, currentRole } = useAppStore();
 
   const toggleLanguage = () => {
     setLanguage(language === 'en' ? 'hi' : 'en');
@@ -22,6 +23,17 @@ export const MoreScreen: React.FC = () => {
 
   return (
     <LargeTitleScreen title="More">
+      {currentRole === 'dev' && (
+        <InsetGroup title="Platform Administration">
+          <Row
+            leading={<ShieldCheck className="w-5 h-5 text-accent" />}
+            title="Client Organizations"
+            chevron
+            onClick={() => navigate('/dev/clients')}
+          />
+        </InsetGroup>
+      )}
+
       <InsetGroup title="Companion Tools">
         <Row
           leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}

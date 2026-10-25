@@ -6,6 +6,7 @@ export type ISODate = string; // YYYY-MM-DD
 export type ISODateTime = string; // ISO 8601 string
 
 export const RoleSchema = z.enum([
+  'dev',
   'owner',
   'admin',
   'accounts',
@@ -14,6 +15,16 @@ export const RoleSchema = z.enum([
   'viewer',
 ]);
 export type Role = z.infer<typeof RoleSchema>;
+
+export const TenantSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  ownerName: z.string(),
+  ownerPhone: z.string(),
+  status: z.enum(['active', 'inactive']).default('active'),
+  createdAt: z.string(),
+});
+export type Tenant = z.infer<typeof TenantSchema>;
 
 export const CompanySchema = z.object({
   id: z.string(),

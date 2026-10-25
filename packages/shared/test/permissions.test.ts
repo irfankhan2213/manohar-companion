@@ -2,9 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { can, PERMISSION_KEYS, ROLE_PERMISSIONS } from '../src/permissions.js';
 
 describe('permissions and RBAC matrix', () => {
-  it('correctly maps owner permissions', () => {
+  it('correctly maps dev permissions with full platform and client management', () => {
     for (const key of PERMISSION_KEYS) {
-      expect(can('owner', key)).toBe(true);
+      expect(can('dev', key)).toBe(true);
+    }
+  });
+
+  it('correctly maps owner permissions within organization', () => {
+    for (const key of PERMISSION_KEYS) {
+      if (key === 'clients.manage') {
+        expect(can('owner', key)).toBe(false);
+      } else {
+        expect(can('owner', key)).toBe(true);
+      }
     }
   });
 

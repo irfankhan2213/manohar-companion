@@ -1,9 +1,12 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useAppStore } from './store.js';
 import { TabBar } from '../components/ui/TabBar.js';
 import { Sidebar } from '../components/ui/Sidebar.js';
 import { ToastProvider } from '../components/ui/Toast.js';
+import { LoginScreen } from '../features/auth/LoginScreen.js';
+import { DevClientsScreen } from '../features/dev/DevClientsScreen.js';
 import { HomeScreen } from '../features/home/HomeScreen.js';
 import { CollectionsScreen } from '../features/collections/CollectionsScreen.js';
 import { PartyDetailScreen } from '../features/collections/PartyDetailScreen.js';
@@ -49,19 +52,31 @@ const AppLayout: React.FC = () => {
   );
 };
 
+const RequireAuth: React.FC = () => {
+  const { authToken, currentUser } = useAppStore();
+  if (!authToken || !currentUser) {
+    return <Navigate to="/login" replace />;
+  }
+  return <AppLayout />;
+};
+
 export const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
         <BrowserRouter>
           <Routes>
+            {/* Public Login Route */}
+            <Route path="/login" element={<LoginScreen />} />
+
             {/* Standalone Print Documents (No App chrome, Sidebar, or TabBar) */}
             <Route path="/print/challan/:id" element={<ChallanPrintScreen />} />
             <Route path="/print/statement/:partyId" element={<StatementPrintScreen />} />
 
-            {/* Standard App Layout */}
-            <Route element={<AppLayout />}>
+            {/* Protected App Layout */}
+            <Route element={<RequireAuth />}>
               <Route path="/" element={<HomeScreen />} />
+              <Route path="/dev/clients" element={<DevClientsScreen />} />
               <Route path="/collections" element={<CollectionsScreen />} />
               <Route path="/collections/:partyId" element={<PartyDetailScreen />} />
               <Route path="/stock" element={<StockScreen />} />

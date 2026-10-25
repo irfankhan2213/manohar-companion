@@ -89,10 +89,10 @@ describe('SettingsScreen Component', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText('Manohar Lal')).toBeInTheDocument();
+      expect(screen.getAllByText('Manohar Lal').length).toBeGreaterThan(0);
     });
 
-    const userRow = screen.getByText('Manohar Lal');
+    const userRow = screen.getAllByText('Manohar Lal')[1] || screen.getAllByText('Manohar Lal')[0]!;
     fireEvent.click(userRow);
 
     await waitFor(() => {

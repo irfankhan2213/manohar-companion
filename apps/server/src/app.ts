@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getDB } from './db/database.js';
@@ -81,31 +82,258 @@ export function createApp(dbPath?: string): express.Express {
     res.json(updated);
   });
 
+  function safeParseCompanyIds(val: any): string[] | 'all' {
+    if (!val || val === 'all') return 'all';
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
+  }
+
+  // Helper to extract authenticated user from Bearer token
+  function getRequestUser(req: express.Request): any | null {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7);
+      const tokenRow = db.prepare('SELECT * FROM auth_tokens WHERE token = ?').get(token) as any;
+      if (tokenRow && new Date(tokenRow.expiresAt) >= new Date()) {
+        const u = db.prepare('SELECT * FROM users WHERE id = ?').get(tokenRow.userId) as any;
+        if (u) {
+          return {
+            ...u,
+            companyIds: safeParseCompanyIds(u.companyIds),
+            active: Boolean(u.active),
+          };
+        }
+      }
+    }
+    return null;
+  }
+
   // 2a. Auth & Login
   app.post('/api/auth/login', (req, res) => {
     const { phone, pin } = req.body;
     const users = db.prepare('SELECT * FROM users').all() as any[];
     // Normalize phone (strip spaces/dashes)
-    const cleanPhone = (p: string) => p.replace(/\D/g, '');
-    const user = users.find(u => cleanPhone(u.phone).endsWith(cleanPhone(phone)) || cleanPhone(phone).endsWith(cleanPhone(u.phone)));
+    const cleanPhone = (p: string) => p ? p.replace(/\D/g, '') : '';
+    const user = users.find(u => {
+      const uClean = cleanPhone(u.phone);
+      const reqClean = cleanPhone(phone);
+      return uClean.endsWith(reqClean) || reqClean.endsWith(uClean);
+    });
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'Staff phone number not found' });
     }
 
-    // Default pin is 1234 unless user has custom pin
-    const userPin = user.pin || '1234';
+    // Default pin is 1234 (0000 for dev) unless user has custom pin
+    const userPin = user.pin || (user.role === 'dev' ? '0000' : '1234');
     if (pin !== userPin) {
       return res.status(401).json({ success: false, error: 'Invalid 4-digit PIN' });
     }
 
+    const token = `tok_${crypto.randomBytes(24).toString('hex')}`;
+    const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+    const createdAt = new Date().toISOString();
+
+    try {
+      db.prepare(`
+        INSERT INTO auth_tokens (token, userId, tenantId, role, expiresAt, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(token, user.id, user.tenantId, user.role, expiresAt, createdAt);
+    } catch {}
+
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(user.tenantId) || {
+      id: user.tenantId,
+      name: user.role === 'dev' ? 'Platform Management' : 'Manohar Traders Group',
+      ownerName: user.name,
+      ownerPhone: user.phone,
+      status: 'active',
+      createdAt,
+    };
+
+    const companies = user.role === 'dev'
+      ? db.prepare('SELECT * FROM companies').all()
+      : db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
+
     res.json({
       success: true,
+      token,
       user: {
         ...user,
-        companyIds: JSON.parse(user.companyIds || '[]'),
+        companyIds: safeParseCompanyIds(user.companyIds),
         active: Boolean(user.active),
       },
+      tenant,
+      companies,
+    });
+  });
+
+  // 2b. Auth Me
+  app.get('/api/auth/me', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'No authorization token provided' });
+    }
+    const token = authHeader.slice(7);
+    const tokenRow = db.prepare('SELECT * FROM auth_tokens WHERE token = ?').get(token) as any;
+    if (!tokenRow) {
+      return res.status(401).json({ error: 'Invalid or expired session token' });
+    }
+    if (new Date(tokenRow.expiresAt) < new Date()) {
+      db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
+      return res.status(401).json({ error: 'Session token expired' });
+    }
+
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(tokenRow.userId) as any;
+    if (!user) {
+      return res.status(404).json({ error: 'User account not found' });
+    }
+
+    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(user.tenantId) || {
+      id: user.tenantId,
+      name: user.role === 'dev' ? 'Platform Management' : 'Manohar Traders Group',
+      ownerName: user.name,
+      ownerPhone: user.phone,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+    };
+
+    const companies = user.role === 'dev'
+      ? db.prepare('SELECT * FROM companies').all()
+      : db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
+
+    res.json({
+      user: {
+        ...user,
+        companyIds: safeParseCompanyIds(user.companyIds),
+        active: Boolean(user.active),
+      },
+      tenant,
+      companies,
+    });
+  });
+
+  // 2c. Auth Logout
+  app.post('/api/auth/logout', (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.slice(7);
+      db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
+    }
+    res.json({ success: true, message: 'Logged out successfully' });
+  });
+
+  // 2d. Dev Platform Clients Management (dev role only)
+  app.get('/api/dev/clients', (req, res) => {
+    const user = getRequestUser(req);
+    if (user && user.role !== 'dev') {
+      return res.status(403).json({ error: 'Forbidden: Only Dev super admin can access client onboarding' });
+    }
+
+    const tenants = db.prepare('SELECT * FROM tenants ORDER BY createdAt DESC').all() as any[];
+    const companies = db.prepare('SELECT * FROM companies').all() as any[];
+    const users = db.prepare("SELECT * FROM users WHERE role = 'owner'").all() as any[];
+
+    const result = tenants.map((t) => {
+      const tenantCompanies = companies.filter((c) => c.tenantId === t.id);
+      const ownerUser = users.find((u) => u.tenantId === t.id);
+      return {
+        ...t,
+        companies: tenantCompanies,
+        owner: ownerUser
+          ? {
+              id: ownerUser.id,
+              name: ownerUser.name,
+              phone: ownerUser.phone,
+              pin: ownerUser.pin,
+            }
+          : {
+              name: t.ownerName,
+              phone: t.ownerPhone,
+            },
+      };
+    });
+
+    res.json(result);
+  });
+
+  app.post('/api/dev/clients', (req, res) => {
+    const user = getRequestUser(req);
+    if (user && user.role !== 'dev') {
+      return res.status(403).json({ error: 'Forbidden: Only Dev super admin can onboard new clients' });
+    }
+
+    const {
+      name,
+      ownerName,
+      ownerPhone,
+      ownerPin,
+      tallyCompanyName,
+      financialYear,
+    } = req.body;
+
+    if (!name || !ownerName || !ownerPhone) {
+      return res.status(400).json({ error: 'Missing required fields: name, ownerName, ownerPhone' });
+    }
+
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'client';
+    const tenantId = `tenant-${slug}-${Date.now().toString().slice(-4)}`;
+    const now = new Date().toISOString();
+
+    // 1. Create Tenant
+    db.prepare(`
+      INSERT INTO tenants (id, name, ownerName, ownerPhone, status, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(tenantId, name, ownerName, ownerPhone, 'active', now);
+
+    // 2. Create Owner User
+    const ownerId = `u-${Date.now()}`;
+    const pin = ownerPin || '1234';
+    db.prepare(`
+      INSERT INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(ownerId, tenantId, ownerName, ownerPhone, pin, 'owner', JSON.stringify('all'), 1);
+
+    // 3. Create initial Company for this client
+    const companyId = `c-${Date.now()}`;
+    const compName = tallyCompanyName || name;
+    db.prepare(`
+      INSERT INTO companies (id, tenantId, name, tallyName, financialYear, lastSyncedAt, agentStatus)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(companyId, tenantId, compName, compName, financialYear || '2026-27', now, 'offline');
+
+    // 4. Create default reminder rules for this tenant
+    db.prepare(`
+      INSERT INTO reminder_rules (tenantId, enabled, defaultDueDays, steps, quietHours, minAmount, stopWhenPaid, whatsappEnabled)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      tenantId,
+      1,
+      30,
+      JSON.stringify([
+        { offsetDays: -3, template: 'due_soon', enabled: true },
+        { offsetDays: 0, template: 'due_today', enabled: true },
+        { offsetDays: 3, template: 'overdue', enabled: true },
+        { offsetDays: 7, template: 'overdue', enabled: true },
+        { offsetDays: 15, template: 'overdue', enabled: true },
+      ]),
+      JSON.stringify({ from: '20:00', to: '09:00', days: [0] }),
+      100000,
+      1,
+      0
+    );
+
+    const createdTenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId);
+    const createdOwner = db.prepare('SELECT id, tenantId, name, phone, pin, role, active FROM users WHERE id = ?').get(ownerId);
+    const createdCompany = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
+
+    res.status(201).json({
+      success: true,
+      tenant: createdTenant,
+      owner: createdOwner,
+      company: createdCompany,
     });
   });
 
@@ -852,10 +1080,18 @@ export function createApp(dbPath?: string): express.Express {
 
   // 14. Users / Staff
   app.get('/api/users', (req, res) => {
-    const rows = db.prepare('SELECT * FROM users').all() as any[];
+    const user = getRequestUser(req);
+    let rows: any[];
+    if (req.query.tenantId) {
+      rows = db.prepare('SELECT * FROM users WHERE tenantId = ?').all(req.query.tenantId) as any[];
+    } else if (user && user.role !== 'dev') {
+      rows = db.prepare('SELECT * FROM users WHERE tenantId = ?').all(user.tenantId) as any[];
+    } else {
+      rows = db.prepare('SELECT * FROM users').all() as any[];
+    }
     res.json(rows.map(r => ({
       ...r,
-      companyIds: JSON.parse(r.companyIds || '[]'),
+      companyIds: safeParseCompanyIds(r.companyIds),
       active: Boolean(r.active),
     })));
   });
@@ -863,18 +1099,21 @@ export function createApp(dbPath?: string): express.Express {
   app.patch('/api/users/:id/role', (req, res) => {
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(req.body.role, req.params.id);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
-    res.json({ ...u, companyIds: JSON.parse(u.companyIds), active: Boolean(u.active) });
+    res.json({ ...u, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
   });
 
   app.post('/api/users', (req, res) => {
+    const user = getRequestUser(req);
     const body = req.body;
     const id = body.id || `u-${Date.now()}`;
+    const tenantId = body.tenantId || (user ? user.tenantId : 'tenant-1');
+    const pin = body.pin || (body.role === 'dev' ? '0000' : '1234');
     db.prepare(`
-      INSERT INTO users (id, tenantId, name, phone, role, companyIds, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(id, 'tenant-1', body.name, body.phone, body.role, JSON.stringify(body.companyIds || 'all'), 1);
+      INSERT INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, tenantId, body.name, body.phone, pin, body.role || 'sales', JSON.stringify(body.companyIds || 'all'), 1);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
-    res.status(201).json({ ...u, companyIds: JSON.parse(u.companyIds), active: Boolean(u.active) });
+    res.status(201).json({ ...u, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
   });
 
   // 14b. Role Permissions (Customizable per Organization)

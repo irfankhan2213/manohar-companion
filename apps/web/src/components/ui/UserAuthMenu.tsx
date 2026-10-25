@@ -63,7 +63,7 @@ export const UserAuthMenu: React.FC = () => {
     }
   };
 
-  const user = currentUser || users[0];
+  const user = currentUser || users.find((u) => u.role === 'owner') || users[0];
   if (!user) return null;
 
   return (

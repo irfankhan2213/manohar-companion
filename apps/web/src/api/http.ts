@@ -18,21 +18,32 @@ import {
   StockBalance,
   StockItem,
   Task,
+  Tenant,
   User,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from './client.js';
+import { useAppStore } from '../app/store.js';
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api';
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const token = useAppStore.getState().authToken;
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   const res = await fetch(`${API_BASE}${url}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
   if (!res.ok) {
+    if (res.status === 401 && !url.includes('/auth/login')) {
+      useAppStore.getState().logout();
+    }
     const errorText = await res.text();
     throw new Error(`API Error ${res.status}: ${errorText}`);
   }
@@ -194,5 +205,41 @@ export const httpApiClient: ApiClient = {
         method: 'PUT',
         body: JSON.stringify(perms),
       }),
+  },
+  auth: {
+    login: (phone: string, pin: string) =>
+      fetchJSON<{
+        success: boolean;
+        token?: string;
+        user?: User;
+        tenant?: Tenant;
+        companies?: Company[];
+        error?: string;
+      }>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ phone, pin }),
+      }),
+    me: () => fetchJSON<{ user: User; tenant: Tenant; companies: Company[] }>('/auth/me'),
+    logout: () => fetchJSON<{ success: boolean }>('/auth/logout', { method: 'POST' }),
+  },
+  dev: {
+    clients: {
+      list: () => fetchJSON<Array<Tenant & { companies: Company[]; owner: any }>>('/dev/clients'),
+      create: (data: {
+        name: string;
+        ownerName: string;
+        ownerPhone: string;
+        ownerPin?: string;
+        tallyCompanyName?: string;
+        financialYear?: string;
+      }) =>
+        fetchJSON<{ success: boolean; tenant: Tenant; owner: User; company: Company }>(
+          '/dev/clients',
+          {
+            method: 'POST',
+            body: JSON.stringify(data),
+          }
+        ),
+    },
   },
 };

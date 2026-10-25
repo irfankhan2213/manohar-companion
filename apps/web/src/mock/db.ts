@@ -619,6 +619,105 @@ export const mockApiClient: ApiClient = {
       return perms;
     },
   },
+  auth: {
+    login: async (phone, pin) => {
+      const clean = (p: string) => p ? p.replace(/\D/g, '') : '';
+      const u = db.users.find(
+        (user) =>
+          clean(user.phone).endsWith(clean(phone)) ||
+          clean(phone).endsWith(clean(user.phone))
+      );
+      if (!u) return { success: false, error: 'Staff phone number not found' };
+      const userPin = (u as any).pin || (u.role === 'dev' ? '0000' : '1234');
+      if (pin !== userPin) {
+        return { success: false, error: 'Invalid 4-digit PIN' };
+      }
+      const tenant = {
+        id: u.tenantId || 'tenant-1',
+        name: u.role === 'dev' ? 'Platform Management' : 'Manohar Traders Group',
+        ownerName: u.name,
+        ownerPhone: u.phone,
+        status: 'active' as const,
+        createdAt: new Date().toISOString(),
+      };
+      return {
+        success: true,
+        token: `mock_tok_${Date.now()}`,
+        user: u,
+        tenant,
+        companies: db.companies,
+      };
+    },
+    me: async () => {
+      const user = db.users[0]!;
+      return {
+        user,
+        tenant: {
+          id: user.tenantId || 'tenant-1',
+          name: 'Manohar Traders Group',
+          ownerName: user.name,
+          ownerPhone: user.phone,
+          status: 'active' as const,
+          createdAt: new Date().toISOString(),
+        },
+        companies: db.companies,
+      };
+    },
+    logout: async () => ({ success: true }),
+  },
+  dev: {
+    clients: {
+      list: async () => [
+        {
+          id: 'tenant-1',
+          name: 'Manohar Traders Group',
+          ownerName: 'Manohar Lal',
+          ownerPhone: '+91 98140 11223',
+          status: 'active' as const,
+          createdAt: '2026-04-01T00:00:00Z',
+          companies: db.companies,
+          owner: {
+            id: 'u1',
+            name: 'Manohar Lal',
+            phone: '+91 98140 11223',
+            pin: '1234',
+          },
+        },
+      ],
+      create: async (data: any) => {
+        const tenant = {
+          id: `tenant-${Date.now()}`,
+          name: data.name,
+          ownerName: data.ownerName,
+          ownerPhone: data.ownerPhone,
+          status: 'active' as const,
+          createdAt: new Date().toISOString(),
+        };
+        const owner = {
+          id: `u-${Date.now()}`,
+          tenantId: tenant.id,
+          name: data.ownerName,
+          phone: data.ownerPhone,
+          pin: data.ownerPin || '1234',
+          role: 'owner' as const,
+          companyIds: 'all' as const,
+          active: true,
+        };
+        const company = {
+          id: `c-${Date.now()}`,
+          tenantId: tenant.id,
+          name: data.tallyCompanyName || data.name,
+          tallyName: data.tallyCompanyName || data.name,
+          financialYear: data.financialYear || '2026-27',
+          lastSyncedAt: new Date().toISOString(),
+          agentStatus: 'offline' as const,
+        };
+        db.users.push(owner as any);
+        db.companies.push(company);
+        return { success: true, tenant, owner, company };
+      },
+    },
+  },
   tasks: {
     list: async (companyId, filter) => {
       let list =

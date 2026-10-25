@@ -18,11 +18,32 @@ export const PERMISSION_KEYS = [
   'tally.write.stock',
   'settings.manage',
   'users.manage',
+  'clients.manage',
 ] as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[number];
 
 export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
+  dev: {
+    'dashboard.view': true,
+    'ledgers.view': true,
+    'reminders.view': true,
+    'reminders.send': true,
+    'reminders.configure': true,
+    'party.edit': true,
+    'stock.view': true,
+    'stock.adjust': true,
+    'challan.view': true,
+    'challan.create': true,
+    'notebook.view': true,
+    'notebook.edit': true,
+    'activity.view': true,
+    'tally.write': true,
+    'tally.write.stock': true,
+    'settings.manage': true,
+    'users.manage': true,
+    'clients.manage': true,
+  },
   owner: {
     'dashboard.view': true,
     'ledgers.view': true,
@@ -41,6 +62,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': true,
     'settings.manage': true,
     'users.manage': true,
+    'clients.manage': false,
   },
   admin: {
     'dashboard.view': true,
@@ -60,6 +82,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': true,
     'settings.manage': true,
     'users.manage': false,
+    'clients.manage': false,
   },
   accounts: {
     'dashboard.view': true,
@@ -79,6 +102,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': false,
     'settings.manage': false,
     'users.manage': false,
+    'clients.manage': false,
   },
   sales: {
     'dashboard.view': true,
@@ -98,6 +122,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': false,
     'settings.manage': false,
     'users.manage': false,
+    'clients.manage': false,
   },
   stock_keeper: {
     'dashboard.view': true,
@@ -117,6 +142,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': true,
     'settings.manage': false,
     'users.manage': false,
+    'clients.manage': false,
   },
   viewer: {
     'dashboard.view': true,
@@ -136,6 +162,7 @@ export const ROLE_PERMISSIONS: Record<Role, Record<PermissionKey, boolean>> = {
     'tally.write.stock': false,
     'settings.manage': false,
     'users.manage': false,
+    'clients.manage': false,
   },
 };
 

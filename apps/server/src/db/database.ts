@@ -3,6 +3,7 @@ const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');
 import {
   FIXED_TODAY,
+  INITIAL_TENANTS,
   INITIAL_COMPANIES,
   INITIAL_AGENT,
   INITIAL_USERS,
@@ -19,6 +20,7 @@ import {
   INITIAL_TASKS,
   INITIAL_NOTIFICATIONS,
   INITIAL_LEDGER_SAMPLE,
+  Tenant,
   Company,
   User,
   Party,
@@ -57,6 +59,24 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   // 1. Create Tables
   db.exec(`
+    CREATE TABLE IF NOT EXISTS tenants (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      ownerName TEXT,
+      ownerPhone TEXT,
+      status TEXT DEFAULT 'active',
+      createdAt TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+      token TEXT PRIMARY KEY,
+      userId TEXT,
+      tenantId TEXT,
+      role TEXT,
+      expiresAt TEXT,
+      createdAt TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS companies (
       id TEXT PRIMARY KEY,
       tenantId TEXT,
@@ -73,6 +93,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       tenantId TEXT,
       name TEXT,
       phone TEXT,
+      pin TEXT DEFAULT '1234',
       role TEXT,
       companyIds TEXT,
       active INTEGER
@@ -238,6 +259,26 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare('ALTER TABLE reminder_rules ADD COLUMN whatsappEnabled INTEGER DEFAULT 0').run();
   } catch {}
 
+  try {
+    db.prepare("ALTER TABLE users ADD COLUMN pin TEXT DEFAULT '1234'").run();
+  } catch {}
+
+  // Ensure dev user and initial tenant exist in existing databases
+  try {
+    const insTenant = db.prepare(`
+      INSERT OR IGNORE INTO tenants (id, name, ownerName, ownerPhone, status, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const t of INITIAL_TENANTS) {
+      insTenant.run(t.id, t.name, t.ownerName, t.ownerPhone, t.status, t.createdAt);
+    }
+
+    db.prepare(`
+      INSERT OR IGNORE INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run('u-dev', 'platform', 'Dev Admin', '+91 99999 00000', '0000', 'dev', 'all', 1);
+  } catch {}
+
   // 2. Check if seeded, if empty seed canonical data
   const count = db.prepare('SELECT count(*) as cnt FROM companies').get() as { cnt: number };
   if (count.cnt === 0) {
@@ -248,9 +289,18 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 }
 
 export function seedDatabase(db: any) {
+  // Tenants
+  const insertTenant = db.prepare(`
+    INSERT OR IGNORE INTO tenants (id, name, ownerName, ownerPhone, status, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  for (const t of INITIAL_TENANTS) {
+    insertTenant.run(t.id, t.name, t.ownerName, t.ownerPhone, t.status, t.createdAt);
+  }
+
   // Companies
   const insertCompany = db.prepare(`
-    INSERT INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
+    INSERT OR IGNORE INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const c of INITIAL_COMPANIES) {
@@ -259,11 +309,20 @@ export function seedDatabase(db: any) {
 
   // Users
   const insertUser = db.prepare(`
-    INSERT INTO users (id, tenantId, name, phone, role, companyIds, active)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const u of INITIAL_USERS) {
-    insertUser.run(u.id, u.tenantId, u.name, u.phone, u.role, JSON.stringify(u.companyIds), u.active ? 1 : 0);
+    insertUser.run(
+      u.id,
+      u.tenantId,
+      u.name,
+      u.phone,
+      u.pin || (u.role === 'dev' ? '0000' : '1234'),
+      u.role,
+      JSON.stringify(u.companyIds),
+      u.active ? 1 : 0
+    );
   }
 
   // Parties

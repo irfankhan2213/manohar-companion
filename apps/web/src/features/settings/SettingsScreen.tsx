@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -18,6 +19,7 @@ import {
   Lock,
   Download,
   Smartphone,
+  LogOut,
 } from 'lucide-react';
 import {
   User,
@@ -38,10 +40,29 @@ import { useToast } from '../../components/ui/Toast.js';
 
 export const SettingsScreen: React.FC = () => {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { currentCompanyId, setCompanyId, language, setLanguage, currentRole } = useAppStore();
-  const isAdminOrOwner = currentRole === 'owner' || currentRole === 'admin';
+  const {
+    currentCompanyId,
+    setCompanyId,
+    language,
+    setLanguage,
+    currentRole,
+    currentUser,
+    currentTenant,
+    logout,
+  } = useAppStore();
+  const isAdminOrOwner = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'dev';
+
+  const handleSignOut = async () => {
+    try {
+      await api.auth.logout();
+    } catch {}
+    logout();
+    showToast({ message: 'Signed out successfully' });
+    navigate('/login');
+  };
 
   // Queries
   const { data: agent } = useQuery({
@@ -325,12 +346,47 @@ export const SettingsScreen: React.FC = () => {
       'tally.write.stock': 'Post Stock Journals to TallyPrime',
       'settings.manage': 'Manage Office PC & Global Settings',
       'users.manage': 'Manage Staff Accounts & Security Roles',
+      'clients.manage': 'Manage Platform Clients & Tenancy',
     };
     return map[key] || key;
   };
 
   return (
     <LargeTitleScreen title={t('settings.title', 'Settings')}>
+      {/* 0. Signed In User Profile */}
+      <InsetGroup title="Account & Organization">
+        <div className="p-4 bg-surface rounded-2xl flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-2xl bg-accent text-white flex items-center justify-center font-bold text-title-medium shadow-sm shrink-0">
+              {currentUser?.name?.charAt(0) || 'U'}
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2">
+                <span className="text-headline font-bold text-label">
+                  {currentUser?.name || 'Staff User'}
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-accent-soft text-accent">
+                  {currentUser?.role || currentRole}
+                </span>
+              </div>
+              <span className="text-caption text-label-2">
+                {currentUser?.phone} · {currentTenant?.name || 'Manohar Traders'}
+              </span>
+            </div>
+          </div>
+
+          <Button
+            variant="tinted"
+            size="small"
+            onClick={handleSignOut}
+            className="flex items-center gap-1.5 text-danger border border-danger/30 hover:bg-danger/10"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </Button>
+        </div>
+      </InsetGroup>
+
       {/* 1. Office PC & Tally Sync Connection */}
       <InsetGroup title={t('settings.officePcSection', 'Office PC & Tally Sync')}>
         <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">

@@ -18,6 +18,7 @@ import {
   StockBalance,
   StockItem,
   Task,
+  Tenant,
   User,
 } from '@saas/shared';
 
@@ -153,5 +154,30 @@ export interface ApiClient {
   permissions?: {
     get: () => Promise<Record<Role, Record<string, boolean>>>;
     update: (perms: Record<Role, Record<string, boolean>>) => Promise<Record<Role, Record<string, boolean>>>;
+  };
+  auth: {
+    login: (phone: string, pin: string) => Promise<{
+      success: boolean;
+      token?: string;
+      user?: User;
+      tenant?: Tenant;
+      companies?: Company[];
+      error?: string;
+    }>;
+    me: () => Promise<{ user: User; tenant: Tenant; companies: Company[] }>;
+    logout: () => Promise<{ success: boolean }>;
+  };
+  dev: {
+    clients: {
+      list: () => Promise<Array<Tenant & { companies: Company[]; owner: any }>>;
+      create: (data: {
+        name: string;
+        ownerName: string;
+        ownerPhone: string;
+        ownerPin?: string;
+        tallyCompanyName?: string;
+        financialYear?: string;
+      }) => Promise<{ success: boolean; tenant: Tenant; owner: User; company: Company }>;
+    };
   };
 }

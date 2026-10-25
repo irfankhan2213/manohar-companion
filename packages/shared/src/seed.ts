@@ -14,11 +14,23 @@ import {
   StockBalance,
   StockItem,
   Task,
+  Tenant,
   User,
 } from './types.js';
 import { rupeesToPaise } from './money.js';
 
 export const FIXED_TODAY = '2026-10-17';
+
+export const INITIAL_TENANTS: Tenant[] = [
+  {
+    id: 'tenant-1',
+    name: 'Manohar Traders Group',
+    ownerName: 'Manohar Lal',
+    ownerPhone: '+91 98140 11223',
+    status: 'active',
+    createdAt: '2026-04-01T00:00:00Z',
+  },
+];
 
 export const INITIAL_COMPANIES: Company[] = [
   {
@@ -51,10 +63,21 @@ export const INITIAL_AGENT: Agent = {
 
 export const INITIAL_USERS: User[] = [
   {
+    id: 'u-dev',
+    tenantId: 'platform',
+    name: 'Dev Admin',
+    phone: '+91 99999 00000',
+    pin: '0000',
+    role: 'dev',
+    companyIds: 'all',
+    active: true,
+  },
+  {
     id: 'u1',
     tenantId: 'tenant-1',
     name: 'Manohar Lal',
     phone: '+91 98140 11223',
+    pin: '1234',
     role: 'owner',
     companyIds: 'all',
     active: true,
@@ -64,6 +87,7 @@ export const INITIAL_USERS: User[] = [
     tenantId: 'tenant-1',
     name: 'Priya Sharma',
     phone: '+91 98765 22334',
+    pin: '1234',
     role: 'admin',
     companyIds: 'all',
     active: true,
@@ -73,6 +97,7 @@ export const INITIAL_USERS: User[] = [
     tenantId: 'tenant-1',
     name: 'Ramesh Gupta',
     phone: '+91 98111 33445',
+    pin: '1234',
     role: 'accounts',
     companyIds: ['c1'],
     active: true,
@@ -82,6 +107,7 @@ export const INITIAL_USERS: User[] = [
     tenantId: 'tenant-1',
     name: 'Amit Verma',
     phone: '+91 98222 44556',
+    pin: '1234',
     role: 'sales',
     companyIds: ['c1', 'c2'],
     active: true,
@@ -91,6 +117,7 @@ export const INITIAL_USERS: User[] = [
     tenantId: 'tenant-1',
     name: 'Suresh Kumar',
     phone: '+91 98333 55667',
+    pin: '1234',
     role: 'stock_keeper',
     companyIds: ['c1'],
     active: true,
@@ -100,6 +127,7 @@ export const INITIAL_USERS: User[] = [
     tenantId: 'tenant-1',
     name: 'Kavita Singh',
     phone: '+91 98444 66778',
+    pin: '1234',
     role: 'viewer',
     companyIds: 'all',
     active: true,
