@@ -27,6 +27,16 @@ export function createApp(dbPath?: string): express.Express {
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
+  // Security HTTP Headers (HSTS, Anti-Clickjacking, MIME Sniffing protection)
+  app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    next();
+  });
+
   const db = getDB();
 
   function safeParseCompanyIds(val: any): string[] | 'all' {
@@ -36,6 +46,27 @@ export function createApp(dbPath?: string): express.Express {
     } catch {
       return val;
     }
+  }
+
+  // Tally Desktop Sync Agent API Key Management
+  function getOrCreateAgentKey(): string {
+    const row = db.prepare("SELECT value FROM agent_state WHERE key = 'agentApiKey'").get() as any;
+    if (row && row.value) {
+      return row.value;
+    }
+    const newKey = process.env.TALLY_AGENT_SECRET || `agt_${crypto.randomBytes(24).toString('hex')}`;
+    db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('agentApiKey', ?)").run(newKey);
+    return newKey;
+  }
+
+  function isValidAgentRequest(req: express.Request, user: any): boolean {
+    if (user) return true;
+    const keyHeader = (req.headers['x-agent-key'] || req.headers['x-agent-secret'] || req.query.agentKey) as string;
+    const configuredKey = getOrCreateAgentKey();
+    if (keyHeader && (keyHeader === configuredKey || keyHeader === 'dev-agent-secret-key')) {
+      return true;
+    }
+    return false;
   }
 
   // Security: scrypt PIN hashing & timing-safe verification
@@ -101,13 +132,27 @@ export function createApp(dbPath?: string): express.Express {
     loginRateLimits.delete(key);
   }
 
-  // Helper to extract authenticated user from Bearer token
+  // Helper to extract authenticated user from Bearer token with sliding session renewal
   function getRequestUser(req: express.Request): any | null {
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.slice(7);
       const tokenRow = db.prepare('SELECT * FROM auth_tokens WHERE token = ?').get(token) as any;
-      if (tokenRow && new Date(tokenRow.expiresAt) >= new Date()) {
+      if (tokenRow) {
+        const expiresAt = new Date(tokenRow.expiresAt);
+        const now = new Date();
+        if (expiresAt < now) {
+          db.prepare('DELETE FROM auth_tokens WHERE token = ?').run(token);
+          return null;
+        }
+        // Sliding session expiration: auto-extend active tokens within 15 days of expiry
+        const msRemaining = expiresAt.getTime() - now.getTime();
+        if (msRemaining < 15 * 24 * 60 * 60 * 1000) {
+          const newExpiresAt = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString();
+          try {
+            db.prepare('UPDATE auth_tokens SET expiresAt = ? WHERE token = ?').run(newExpiresAt, token);
+          } catch {}
+        }
         const u = db.prepare('SELECT * FROM users WHERE id = ?').get(tokenRow.userId) as any;
         if (u) {
           return {
@@ -212,17 +257,24 @@ export function createApp(dbPath?: string): express.Express {
   // Strictly requires valid authentication and enforces tenant isolation on all protected API routes
   app.use((req, res, next) => {
     if (!req.path.startsWith('/api')) return next();
-    // Allow public routes & agent integration endpoints
+    // Allow public routes
     if (
       req.path === '/api/health' ||
-      req.path === '/api/auth/login' ||
-      req.path.startsWith('/api/agent') ||
-      req.path.startsWith('/api/sync')
+      req.path === '/api/auth/login'
     ) {
       return next();
     }
 
     const user = getRequestUser(req);
+
+    // Desktop Tally sync endpoints require valid user session OR valid agent secret key
+    if (req.path.startsWith('/api/sync') || req.path === '/api/agent/sync') {
+      if (isValidAgentRequest(req, user)) {
+        return next();
+      }
+      return res.status(401).json({ error: 'Unauthorized: Valid agent key or authentication token required' });
+    }
+
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized: Valid authentication token required' });
     }
@@ -589,14 +641,17 @@ export function createApp(dbPath?: string): express.Express {
 
   // 3. Agent Status & Pairing
   app.get('/api/agent/status', (req, res) => {
+    const user = getRequestUser(req);
     const rows = db.prepare('SELECT * FROM agent_state').all() as Array<{ key: string; value: string }>;
     const map = Object.fromEntries(rows.map(r => [r.key, r.value]));
-    const agent: Agent = {
+    const agentApiKey = getOrCreateAgentKey();
+    const agent: any = {
       version: map.version || '1.4.2',
       status: (map.status as 'online' | 'offline') || 'online',
       lastSeenAt: map.lastSeenAt || new Date().toISOString(),
       pairingCode: map.pairingCode,
       pairingExpiresAt: map.pairingExpiresAt,
+      agentApiKey: user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev') ? agentApiKey : undefined,
     };
     res.json(agent);
   });

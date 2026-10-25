@@ -151,7 +151,10 @@ describe('Manohar Backend API & Sync Server', () => {
       ],
     };
 
-    const pushRes = await request(app).post('/api/sync/push').send(pushPayload);
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(pushPayload);
     expect(pushRes.status).toBe(200);
     expect(pushRes.body.success).toBe(true);
     expect(pushRes.body.partiesUpdated).toBe(1);
@@ -165,7 +168,9 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(colRes.body.bills.length).toBe(1);
 
     // Pull queued challans
-    const pullRes = await request(app).get('/api/sync/pull');
+    const pullRes = await request(app)
+      .get('/api/sync/pull')
+      .set('Authorization', `Bearer ${authToken}`);
     expect(pullRes.status).toBe(200);
     expect(Array.isArray(pullRes.body)).toBe(true);
   });

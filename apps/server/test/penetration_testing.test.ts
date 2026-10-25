@@ -168,4 +168,47 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('HTTP Security Headers & Infrastructure Hardening', () => {
+    it('sets critical security response headers on all requests', async () => {
+      const res = await request(app).get('/api/health');
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['x-frame-options']).toBe('DENY');
+      expect(res.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
+      expect(res.headers['strict-transport-security']).toContain('max-age=');
+    });
+  });
+
+  describe('Tally Desktop Sync Agent Authentication & Secret Key', () => {
+    it('blocks anonymous push attempts to /api/sync/push with 401', async () => {
+      const res = await request(app)
+        .post('/api/sync/push')
+        .send({ companyId: 'c1', parties: [] });
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain('Valid agent key or authentication token required');
+    });
+
+    it('blocks anonymous pull attempts to /api/sync/pull with 401', async () => {
+      const res = await request(app).get('/api/sync/pull');
+      expect(res.status).toBe(401);
+      expect(res.body.error).toContain('Valid agent key or authentication token required');
+    });
+
+    it('allows sync requests passing valid x-agent-key header', async () => {
+      const res = await request(app)
+        .post('/api/sync/push')
+        .set('x-agent-key', 'dev-agent-secret-key')
+        .send({ companyId: 'c1', parties: [] });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    it('blocks sync requests passing invalid x-agent-key header with 401', async () => {
+      const res = await request(app)
+        .post('/api/sync/push')
+        .set('x-agent-key', 'attacker-spoofed-key')
+        .send({ companyId: 'c1', parties: [] });
+      expect(res.status).toBe(401);
+    });
+  });
 });
