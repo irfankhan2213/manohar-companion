@@ -3,7 +3,6 @@ import { NavLink } from 'react-router-dom';
 import {
   Home,
   Wallet,
-  FileSpreadsheet,
   CheckSquare,
   MoreHorizontal,
   Package,
@@ -17,17 +16,17 @@ export const TabBar: React.FC = () => {
   const { t } = useTranslation();
   const { currentRole } = useAppStore();
 
-  const canViewLedgers = can(currentRole, 'ledgers.view');
   const canViewStock = can(currentRole, 'stock.view');
+  const canViewLedgers = can(currentRole, 'ledgers.view');
 
   const tabs = [
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },
-    { to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet },
+    canViewStock
+      ? { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package }
+      : null,
     { to: '/tasks', label: t('nav.tasks', 'Tasks'), icon: CheckSquare },
     canViewLedgers
       ? { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet }
-      : canViewStock
-      ? { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package }
       : null,
     { to: '/more', label: t('nav.more', 'More'), icon: MoreHorizontal },
   ].filter(Boolean) as Array<{ to: string; label: string; icon: any; end?: boolean }>;

@@ -11,6 +11,8 @@ import {
   RotateCw,
   FileSpreadsheet,
   CheckSquare,
+  Package,
+  BookOpen,
 } from 'lucide-react';
 import { can, formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -188,6 +190,20 @@ export const HomeScreen: React.FC = () => {
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
+          onClick={() => navigate('/stock')}
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
+            <Package className="w-4 h-4 stroke-[2]" />
+          </div>
+          <span className="text-subhead font-bold text-label">Stock Inventory</span>
+          <span className="text-caption text-label-2 truncate">
+            Machinery &amp; spare units
+          </span>
+        </button>
+
+        <button
+          type="button"
           onClick={() => navigate('/challans')}
           className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
         >
@@ -195,7 +211,7 @@ export const HomeScreen: React.FC = () => {
             <FileSpreadsheet className="w-4 h-4 stroke-[2]" />
           </div>
           <span className="text-subhead font-bold text-label">Delivery Challans</span>
-          <span className="text-caption text-label-2">
+          <span className="text-caption text-label-2 truncate">
             TAI &amp; SV Machine filters
           </span>
         </button>
@@ -209,8 +225,22 @@ export const HomeScreen: React.FC = () => {
             <CheckSquare className="w-4 h-4 stroke-[2]" />
           </div>
           <span className="text-subhead font-bold text-label">Company Tasks</span>
-          <span className="text-caption text-label-2">
+          <span className="text-caption text-label-2 truncate">
             Text + Photo assignments
+          </span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate('/notebook')}
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+        >
+          <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
+            <BookOpen className="w-4 h-4 stroke-[2]" />
+          </div>
+          <span className="text-subhead font-bold text-label">Notebook</span>
+          <span className="text-caption text-label-2 truncate">
+            Multi-sheet ledger (10*2)
           </span>
         </button>
       </div>

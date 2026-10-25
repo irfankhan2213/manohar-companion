@@ -2,7 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FileSpreadsheet,
-  CheckSquare,
+  BookOpen,
   BellRing,
   Activity,
   Settings,
@@ -22,45 +22,45 @@ export const MoreScreen: React.FC = () => {
 
   return (
     <LargeTitleScreen title="More">
-      <InsetGroup>
+      <InsetGroup title="Companion Tools">
         <Row
           leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}
-          title="Challans"
-          subtitle="Sales, Purchase & Delivery Challans"
+          title="Delivery Challans"
+          subtitle="Sales, Purchase & Delivery Challans (TAI & SV Machine filters)"
           chevron
           onClick={() => navigate('/challans')}
         />
         <Row
-          leading={<CheckSquare className="w-5 h-5 text-accent" />}
-          title="Tasks & Instructions"
-          subtitle="Assign text & photos to team members"
+          leading={<BookOpen className="w-5 h-5 text-accent" />}
+          title="Notebook / Scratchpad"
+          subtitle="Multi-sheet accounting ledger with auto-evaluating math (10*2)"
           chevron
-          onClick={() => navigate('/tasks')}
+          onClick={() => navigate('/notebook')}
         />
         <Row
           leading={<BellRing className="w-5 h-5 text-accent" />}
-          title="Reminders"
-          subtitle="Schedules, quiet hours & message templates"
+          title="Payment Reminders"
+          subtitle="Follow-up queue, 30d rules & WhatsApp templates"
           chevron
           onClick={() => navigate('/reminders')}
         />
         <Row
           leading={<Activity className="w-5 h-5 text-accent" />}
           title="Activity Log"
-          subtitle="Audit trail of syncs and reminders"
+          subtitle="Audit trail of syncs, bills, and user actions"
           chevron
           onClick={() => navigate('/activity')}
         />
+      </InsetGroup>
+
+      <InsetGroup title="System & Preferences">
         <Row
           leading={<Settings className="w-5 h-5 text-accent" />}
-          title="Settings"
-          subtitle="Office PC, companies & staff roles"
+          title="Settings & Backups"
+          subtitle="Office PC sync, SQLite/JSON backups & role matrix"
           chevron
           onClick={() => navigate('/settings')}
         />
-      </InsetGroup>
-
-      <InsetGroup title="Preferences">
         <Row
           leading={<Languages className="w-5 h-5 text-label-2" />}
           title="Language"
