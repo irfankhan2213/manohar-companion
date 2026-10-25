@@ -198,7 +198,7 @@ export const HomeScreen: React.FC = () => {
           </div>
           <span className="text-subhead font-bold text-label">Stock Inventory</span>
           <span className="text-caption text-label-2 truncate">
-            Machinery &amp; spare units
+            Available units &amp; reorders
           </span>
         </button>
 
@@ -212,7 +212,7 @@ export const HomeScreen: React.FC = () => {
           </div>
           <span className="text-subhead font-bold text-label">Delivery Challans</span>
           <span className="text-caption text-label-2 truncate">
-            TAI &amp; SV Machine filters
+            Material &amp; dispatch vouchers
           </span>
         </button>
 
@@ -226,7 +226,7 @@ export const HomeScreen: React.FC = () => {
           </div>
           <span className="text-subhead font-bold text-label">Company Tasks</span>
           <span className="text-caption text-label-2 truncate">
-            Text + Photo assignments
+            Team assignments &amp; photos
           </span>
         </button>
 
@@ -240,7 +240,7 @@ export const HomeScreen: React.FC = () => {
           </div>
           <span className="text-subhead font-bold text-label">Notebook</span>
           <span className="text-caption text-label-2 truncate">
-            Multi-sheet ledger (10*2)
+            Spreadsheets &amp; calculations
           </span>
         </button>
       </div>

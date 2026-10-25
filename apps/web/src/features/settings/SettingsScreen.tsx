@@ -517,33 +517,35 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
-            <span className="text-label-2">Data Source:</span>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handleToggleBackend('real')}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  backendMode === 'real'
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'bg-fill text-label-2 hover:text-label'
-                }`}
-              >
-                Live SQLite (:3001)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleToggleBackend('mock')}
-                className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                  backendMode === 'mock'
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'bg-fill text-label-2 hover:text-label'
-                }`}
-              >
-                Offline Sandbox
-              </button>
+          {currentUser?.role === 'dev' && (
+            <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
+              <span className="text-label-2">Data Source:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleToggleBackend('real')}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    backendMode === 'real'
+                      ? 'bg-accent text-white shadow-sm'
+                      : 'bg-fill text-label-2 hover:text-label'
+                  }`}
+                >
+                  Live Server
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleBackend('mock')}
+                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
+                    backendMode === 'mock'
+                      ? 'bg-accent text-white shadow-sm'
+                      : 'bg-fill text-label-2 hover:text-label'
+                  }`}
+                >
+                  Offline Sandbox
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </InsetGroup>
 
@@ -571,14 +573,14 @@ export const SettingsScreen: React.FC = () => {
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
                   <span className="text-headline font-bold text-label">
-                    {activeCompany?.name || 'Manohar Traders'}
+                    {activeCompany?.name || 'Active Company'}
                   </span>
                   <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-accent/10 text-accent">
                     Active
                   </span>
                 </div>
                 <span className="text-caption text-label-2">
-                  Tally: {activeCompany?.tallyName || activeCompany?.name} · FY{' '}
+                  Tally: {activeCompany?.tallyName || activeCompany?.name || 'Default'} · FY{' '}
                   {activeCompany?.financialYear || '2026-27'}
                 </span>
                 {activeCompany?.gstin && (
@@ -636,7 +638,7 @@ export const SettingsScreen: React.FC = () => {
                 <span className="text-label-2">{u.phone}</span>
                 <span className="text-label-3">·</span>
                 <span className="text-[11px] font-mono text-label-3 uppercase">
-                  {u.companyIds === 'all' ? 'All Companies' : 'Manohar Traders'}
+                  {u.companyIds === 'all' ? 'All Companies' : (activeCompany?.name || 'Primary Company')}
                 </span>
               </div>
             }
@@ -958,7 +960,7 @@ export const SettingsScreen: React.FC = () => {
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="e.g. Manohar Traders"
+              placeholder="e.g. Apex Industries"
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
           </div>
@@ -971,7 +973,7 @@ export const SettingsScreen: React.FC = () => {
               type="text"
               value={tallyName}
               onChange={(e) => setTallyName(e.target.value)}
-              placeholder="e.g. Manohar Traders (2026-27)"
+              placeholder="e.g. Apex Industries (2026-27)"
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
             <span className="text-[11px] text-label-3 mt-1 block">
@@ -1028,7 +1030,7 @@ export const SettingsScreen: React.FC = () => {
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
-              placeholder="e.g. Manohar International Pvt Ltd"
+              placeholder="e.g. Apex Global Exports Ltd"
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
           </div>

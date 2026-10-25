@@ -45,25 +45,21 @@ describe('Login and Dev Clients Screens', () => {
       </QueryClientProvider>
     );
 
-  it('renders LoginScreen with form controls and quick demo buttons', async () => {
+  it('renders LoginScreen with form controls and dev console access', async () => {
     renderLogin();
 
-    expect(screen.getByText('Manohar Companion')).toBeInTheDocument();
+    expect(screen.getByText('Tally Companion')).toBeInTheDocument();
     expect(screen.getByText('Registered Phone Number')).toBeInTheDocument();
     expect(screen.getByText('4-Digit PIN')).toBeInTheDocument();
     expect(screen.getByText('Stay signed in on this device')).toBeInTheDocument();
-    expect(screen.getByText('Quick 1-Tap Demo Accounts')).toBeInTheDocument();
-
-    // Check quick pills
-    expect(screen.getByText('Dev Super Admin')).toBeInTheDocument();
-    expect(screen.getByText('Manohar Lal')).toBeInTheDocument();
+    expect(screen.getByText('Dev Platform Admin Console')).toBeInTheDocument();
   });
 
-  it('populates fields when a quick demo login button is tapped', async () => {
+  it('populates dev credentials when dev platform admin console is tapped', async () => {
     renderLogin();
 
-    const devPill = screen.getByText('Dev Super Admin');
-    fireEvent.click(devPill);
+    const devButton = screen.getByText('Dev Platform Admin Console');
+    fireEvent.click(devButton);
 
     const phoneInput = screen.getByDisplayValue('+91 99999 00000');
     expect(phoneInput).toBeInTheDocument();
@@ -75,8 +71,8 @@ describe('Login and Dev Clients Screens', () => {
   it('submits login and signs the user into store', async () => {
     renderLogin();
 
-    const devPill = screen.getByText('Dev Super Admin');
-    fireEvent.click(devPill);
+    const devButton = screen.getByText('Dev Platform Admin Console');
+    fireEvent.click(devButton);
 
     const signInBtn = screen.getByRole('button', { name: /Sign In/i });
     fireEvent.click(signInBtn);

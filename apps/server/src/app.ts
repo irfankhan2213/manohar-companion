@@ -36,6 +36,11 @@ export function createApp(dbPath?: string): express.Express {
 
   // 2. Companies
   app.get('/api/companies', (req, res) => {
+    const user = getRequestUser(req);
+    if (user && user.role !== 'dev' && user.tenantId) {
+      const rows = db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId);
+      return res.json(rows);
+    }
     const rows = db.prepare('SELECT * FROM companies').all();
     res.json(rows);
   });
@@ -450,11 +455,15 @@ export function createApp(dbPath?: string): express.Express {
 
   // 2b. Parties
   app.get('/api/parties', (req, res) => {
+    const user = getRequestUser(req);
     let query = 'SELECT * FROM parties WHERE 1=1';
     const params: any[] = [];
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
+      params.push(user.tenantId, user.tenantId);
     }
     const rows = db.prepare(query).all(...params) as any[];
     let parties: Party[] = rows.map(p => ({
@@ -480,17 +489,19 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/parties', (req, res) => {
+    const user = getRequestUser(req);
     const body = req.body;
     const id = body.id || `p-${Date.now()}`;
+    const tenantId = body.tenantId || user?.tenantId || 'tenant-1';
     db.prepare(`
       INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      body.tenantId || 'tenant-1',
-      body.companyId || 'c1',
+      tenantId,
+      body.companyId || (user?.tenantId ? `${tenantId}-c1` : 'c1'),
       body.name,
-      body.city || 'Ludhiana',
+      body.city || '',
       JSON.stringify(body.phones || []),
       body.gstin ?? null,
       body.creditDays || 30,
@@ -535,11 +546,15 @@ export function createApp(dbPath?: string): express.Express {
 
   // 2c. Bills
   app.get('/api/bills', (req, res) => {
+    const user = getRequestUser(req);
     let query = 'SELECT * FROM bills WHERE 1=1';
     const params: any[] = [];
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      params.push(user.tenantId);
     }
     if (req.query.partyId) {
       query += ' AND partyId = ?';
@@ -602,8 +617,28 @@ export function createApp(dbPath?: string): express.Express {
 
   // 4. Home Summary
   app.get('/api/home/summary', (req, res) => {
-    const bills = db.prepare('SELECT * FROM bills').all() as any[];
-    const parties = db.prepare('SELECT * FROM parties').all() as any[];
+    const user = getRequestUser(req);
+    const companyId = req.query.companyId as string | undefined;
+
+    let billsQuery = 'SELECT * FROM bills WHERE 1=1';
+    let partiesQuery = 'SELECT * FROM parties WHERE 1=1';
+    const billsParams: any[] = [];
+    const partiesParams: any[] = [];
+
+    if (companyId && companyId !== 'all') {
+      billsQuery += ' AND companyId = ?';
+      partiesQuery += ' AND companyId = ?';
+      billsParams.push(companyId);
+      partiesParams.push(companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      billsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
+      billsParams.push(user.tenantId);
+      partiesParams.push(user.tenantId, user.tenantId);
+    }
+
+    const bills = db.prepare(billsQuery).all(...billsParams) as any[];
+    const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
     const partyMap = new Map(parties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
 
     const today = '2026-10-17'; // reference anchor
@@ -639,38 +674,89 @@ export function createApp(dbPath?: string): express.Express {
 
     overdueList.sort((a, b) => b.amount - a.amount);
 
+    // Dynamic attention items computed from live data
+    const needsAttention: Array<{
+      id: string;
+      type: 'overdue' | 'stock' | 'reply' | 'outbox';
+      title: string;
+      subtitle: string;
+      actionLabel: string;
+      actionPath: string;
+    }> = [];
+
+    const overdueOver30 = overdueList.filter(o => o.daysLate > 30);
+    if (overdueOver30.length > 0) {
+      const sum = overdueOver30.reduce((acc, curr) => acc + curr.amount, 0);
+      const sumLakhs = (sum / 10000000).toFixed(1);
+      needsAttention.push({
+        id: 'attn-overdue',
+        type: 'overdue',
+        title: `${overdueOver30.length} account${overdueOver30.length > 1 ? 's' : ''} overdue > 30 days`,
+        subtitle: `₹ ${sumLakhs}L total pending across ${overdueOver30.length} parties`,
+        actionLabel: 'Send Reminders',
+        actionPath: '/reminders',
+      });
+    }
+
+    let stockQuery = 'SELECT s.*, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId WHERE 1=1';
+    const stockParams: any[] = [];
+    if (companyId && companyId !== 'all') {
+      stockQuery += ' AND s.companyId = ? GROUP BY s.id';
+      stockParams.push(companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      stockQuery += ' AND s.companyId IN (SELECT id FROM companies WHERE tenantId = ?) GROUP BY s.id';
+      stockParams.push(user.tenantId);
+    } else {
+      stockQuery += ' GROUP BY s.id';
+    }
+    const stockRows = db.prepare(stockQuery).all(...stockParams) as any[];
+    const lowStockItems = stockRows.filter((s: any) => s.reorderLevel > 0 && (s.totalQty === null || s.totalQty < s.reorderLevel));
+    if (lowStockItems.length > 0) {
+      needsAttention.push({
+        id: 'attn-stock',
+        type: 'stock',
+        title: `${lowStockItems.length} item${lowStockItems.length > 1 ? 's' : ''} below reorder level`,
+        subtitle: `${lowStockItems.slice(0, 2).map((i: any) => i.name).join(', ')} running low`,
+        actionLabel: 'View Stock',
+        actionPath: '/stock',
+      });
+    }
+
     res.json({
       totalReceivables,
       totalOverdue,
       notDuePercentage: totalReceivables ? Math.round((notDue / totalReceivables) * 100) : 0,
       latePercentage: totalReceivables ? Math.round((late1_30 / totalReceivables) * 100) : 0,
       over30Percentage: totalReceivables ? Math.round((late30Plus / totalReceivables) * 100) : 0,
-      needsAttention: [
-        {
-          id: 'attn-1',
-          type: 'overdue',
-          title: '3 accounts overdue > 45 days',
-          subtitle: '₹ 10.9L total pending across 3 parties',
-          actionLabel: 'Send Reminders',
-          actionPath: '/reminders',
-        },
-        {
-          id: 'attn-2',
-          type: 'stock',
-          title: '2 items below reorder level',
-          subtitle: 'SV MACHINE, 130K MACHINE running low',
-          actionLabel: 'View Stock',
-          actionPath: '/stock',
-        },
-      ],
+      needsAttention,
       mostOverdue: overdueList.slice(0, 5),
     });
   });
 
   // 5. Collections
   app.get('/api/collections', (req, res) => {
-    const rawParties = db.prepare('SELECT * FROM parties').all() as any[];
-    const rawBills = db.prepare('SELECT * FROM bills').all() as any[];
+    const user = getRequestUser(req);
+    const companyId = req.query.companyId as string | undefined;
+
+    let partiesQuery = 'SELECT * FROM parties WHERE 1=1';
+    let billsQuery = 'SELECT * FROM bills WHERE 1=1';
+    const partiesParams: any[] = [];
+    const billsParams: any[] = [];
+
+    if (companyId && companyId !== 'all') {
+      partiesQuery += ' AND companyId = ?';
+      billsQuery += ' AND companyId = ?';
+      partiesParams.push(companyId);
+      billsParams.push(companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
+      billsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      partiesParams.push(user.tenantId, user.tenantId);
+      billsParams.push(user.tenantId);
+    }
+
+    const rawParties = db.prepare(partiesQuery).all(...partiesParams) as any[];
+    const rawBills = db.prepare(billsQuery).all(...billsParams) as any[];
     const today = '2026-10-17';
 
     const billsByParty = new Map<string, any[]>();
@@ -765,7 +851,20 @@ export function createApp(dbPath?: string): express.Express {
 
   // 6. Stock Items & Balances
   app.get('/api/stock', (req, res) => {
-    const items = db.prepare('SELECT * FROM stock_items').all() as any[];
+    const user = getRequestUser(req);
+    const companyId = req.query.companyId as string | undefined;
+
+    let itemsQuery = 'SELECT * FROM stock_items WHERE 1=1';
+    const itemsParams: any[] = [];
+    if (companyId && companyId !== 'all') {
+      itemsQuery += ' AND companyId = ?';
+      itemsParams.push(companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      itemsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      itemsParams.push(user.tenantId);
+    }
+
+    const items = db.prepare(itemsQuery).all(...itemsParams) as any[];
     const balances = db.prepare('SELECT * FROM stock_balances').all() as any[];
 
     const balancesByItem = new Map<string, any[]>();
@@ -846,13 +945,34 @@ export function createApp(dbPath?: string): express.Express {
 
   // 7. Godowns
   app.get('/api/godowns', (req, res) => {
-    const rows = db.prepare('SELECT * FROM godowns').all();
+    const user = getRequestUser(req);
+    let query = 'SELECT * FROM godowns WHERE 1=1';
+    const params: any[] = [];
+    if (req.query.companyId && req.query.companyId !== 'all') {
+      query += ' AND companyId = ?';
+      params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      params.push(user.tenantId);
+    }
+    const rows = db.prepare(query).all(...params);
     res.json(rows);
   });
 
   // 8. Delivery Challans
   app.get('/api/challans', (req, res) => {
-    const rows = db.prepare('SELECT * FROM challans ORDER BY date DESC').all() as any[];
+    const user = getRequestUser(req);
+    let query = 'SELECT * FROM challans WHERE 1=1';
+    const params: any[] = [];
+    if (req.query.companyId && req.query.companyId !== 'all') {
+      query += ' AND companyId = ?';
+      params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      params.push(user.tenantId);
+    }
+    query += ' ORDER BY date DESC';
+    const rows = db.prepare(query).all(...params) as any[];
     let challans: Challan[] = rows.map(r => ({
       ...r,
       lines: JSON.parse(r.lines || '[]'),
@@ -934,8 +1054,17 @@ export function createApp(dbPath?: string): express.Express {
 
   // 9. Tasks & Photos
   app.get('/api/tasks', (req, res) => {
+    const user = getRequestUser(req);
     let query = 'SELECT * FROM tasks WHERE 1=1';
     const params: any[] = [];
+
+    if (req.query.companyId && req.query.companyId !== 'all') {
+      query += ' AND companyId = ?';
+      params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      params.push(user.tenantId);
+    }
 
     if (req.query.status) {
       query += ' AND status = ?';
@@ -1047,7 +1176,14 @@ export function createApp(dbPath?: string): express.Express {
 
   // 11. Reminders & Due Date Rules
   app.get('/api/reminders/rules', (req, res) => {
-    const r = db.prepare('SELECT * FROM reminder_rules').get() as any;
+    const user = getRequestUser(req);
+    let r: any = null;
+    if (user && user.role !== 'dev' && user.tenantId) {
+      r = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(user.tenantId);
+    }
+    if (!r) {
+      r = db.prepare('SELECT * FROM reminder_rules LIMIT 1').get() as any;
+    }
     if (!r) return res.status(404).json({ error: 'Rules not found' });
     const rule: ReminderRule = {
       tenantId: r.tenantId,
@@ -1063,7 +1199,9 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.put('/api/reminders/rules', (req, res) => {
+    const user = getRequestUser(req);
     const body = req.body;
+    const targetTenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || 'tenant-1');
     db.prepare(`
       UPDATE reminder_rules
       SET enabled = COALESCE(?, enabled),
@@ -1080,9 +1218,10 @@ export function createApp(dbPath?: string): express.Express {
       body.steps ? JSON.stringify(body.steps) : null,
       body.quietHours ? JSON.stringify(body.quietHours) : null,
       body.minAmount ?? null,
-      body.tenantId || 'tenant-1'
+      targetTenantId
     );
-    const updated = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(body.tenantId || 'tenant-1') as any;
+    const updated = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(targetTenantId) as any
+      || db.prepare('SELECT * FROM reminder_rules LIMIT 1').get() as any;
     res.json({
       ...updated,
       enabled: Boolean(updated.enabled),
@@ -1123,7 +1262,17 @@ export function createApp(dbPath?: string): express.Express {
 
   // 12. Notebooks
   app.get('/api/notebooks', (req, res) => {
-    const rows = db.prepare('SELECT * FROM notebooks').all() as any[];
+    const user = getRequestUser(req);
+    let query = 'SELECT * FROM notebooks WHERE 1=1';
+    const params: any[] = [];
+    if (req.query.companyId && req.query.companyId !== 'all') {
+      query += ' AND companyId = ?';
+      params.push(req.query.companyId);
+    } else if (user && user.role !== 'dev' && user.tenantId) {
+      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      params.push(user.tenantId);
+    }
+    const rows = db.prepare(query).all(...params) as any[];
     res.json(rows.map(r => ({
       ...r,
       columns: JSON.parse(r.columns || '[]'),

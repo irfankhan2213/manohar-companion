@@ -67,6 +67,7 @@ describe('RemindersScreen Component', () => {
       oldestBillNo: 'GST/001/26-27',
       daysLate: 38,
       dueDate: '2026-06-09',
+      companyName: 'Manohar Traders',
     });
 
     expect(text).toContain('Dear *Bharat Textiles*');

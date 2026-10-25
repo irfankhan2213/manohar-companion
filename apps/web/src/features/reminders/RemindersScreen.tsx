@@ -65,12 +65,19 @@ export const RemindersScreen: React.FC = () => {
   // Add new party state
   const [isCreatingNewParty, setIsCreatingNewParty] = useState(false);
   const [newPartyName, setNewPartyName] = useState('');
-  const [newPartyCity, setNewPartyCity] = useState('Ludhiana');
+  const [newPartyCity, setNewPartyCity] = useState('');
   const [newPartyTerms, setNewPartyTerms] = useState(30);
 
   // Permission checks
   const canView = can(currentRole, 'reminders.view');
   const canConfigure = can(currentRole, 'reminders.configure');
+
+  // Queries
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const activeCompany = companies.find(c => c.id === currentCompanyId);
 
   // Queries
   const { data: rules } = useQuery({
@@ -273,6 +280,7 @@ export const RemindersScreen: React.FC = () => {
       oldestBillNo: item.oldestBill?.billNo,
       daysLate: item.maxDaysLate,
       dueDate: item.oldestBill?.dueDate,
+      companyName: activeCompany?.name,
     });
     showToast({
       message: `Opening WhatsApp with built reminder for ${item.party.name}...`,

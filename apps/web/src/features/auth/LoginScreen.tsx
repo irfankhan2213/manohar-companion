@@ -8,7 +8,6 @@ import {
   EyeOff,
   ShieldCheck,
   Building2,
-  UserCheck,
   ArrowRight,
 } from 'lucide-react';
 import { api } from '../../api/index.js';
@@ -21,8 +20,8 @@ export const LoginScreen: React.FC = () => {
   const { showToast } = useToast();
   const { login, staySignedIn, setStaySignedIn } = useAppStore();
 
-  const [phone, setPhone] = useState('+91 98140 11223');
-  const [pin, setPin] = useState('1234');
+  const [phone, setPhone] = useState('');
+  const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -53,9 +52,9 @@ export const LoginScreen: React.FC = () => {
     },
   });
 
-  const handleQuickLogin = (p: string, code: string) => {
-    setPhone(p);
-    setPin(code);
+  const handleQuickDevLogin = () => {
+    setPhone('+91 99999 00000');
+    setPin('0000');
     setErrorMessage(null);
   };
 
@@ -77,7 +76,7 @@ export const LoginScreen: React.FC = () => {
             <Building2 className="w-9 h-9 stroke-[2.2]" />
           </div>
           <h1 className="text-large-title font-bold text-label tracking-tight">
-            Manohar Companion
+            Tally Companion
           </h1>
           <p className="text-footnote text-label-2 max-w-[280px]">
             Tally-connected mobile & desktop companion for real-time stock, challans & collections
@@ -110,7 +109,7 @@ export const LoginScreen: React.FC = () => {
                   setPhone(e.target.value);
                   setErrorMessage(null);
                 }}
-                placeholder="+91 98140 11223"
+                placeholder="Enter 10-digit mobile number"
                 className="w-full bg-transparent text-subhead font-semibold text-label focus:outline-none"
                 required
               />
@@ -178,60 +177,16 @@ export const LoginScreen: React.FC = () => {
           </Button>
         </form>
 
-        {/* Quick Demo Switcher */}
-        <div className="flex flex-col gap-2">
-          <span className="text-[11px] font-bold text-center text-label-3 uppercase tracking-wider">
-            Quick 1-Tap Demo Accounts
-          </span>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('+91 99999 00000', '0000')}
-              className="p-2.5 rounded-xl bg-surface border border-separator/40 hover:border-accent flex flex-col text-left transition-all active:scale-95"
-            >
-              <div className="flex items-center gap-1.5 text-accent">
-                <ShieldCheck className="w-3.5 h-3.5" />
-                <span className="text-caption font-bold">Dev Super Admin</span>
-              </div>
-              <span className="text-[11px] text-label-2 mt-0.5">Onboard Clients (PIN: 0000)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('+91 98140 11223', '1234')}
-              className="p-2.5 rounded-xl bg-surface border border-separator/40 hover:border-accent flex flex-col text-left transition-all active:scale-95"
-            >
-              <div className="flex items-center gap-1.5 text-ok">
-                <UserCheck className="w-3.5 h-3.5" />
-                <span className="text-caption font-bold">Manohar Lal</span>
-              </div>
-              <span className="text-[11px] text-label-2 mt-0.5">Client Owner (PIN: 1234)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('+91 98765 22334', '1234')}
-              className="p-2.5 rounded-xl bg-surface border border-separator/40 hover:border-accent flex flex-col text-left transition-all active:scale-95"
-            >
-              <div className="flex items-center gap-1.5 text-label">
-                <span className="w-2 h-2 rounded-full bg-accent" />
-                <span className="text-caption font-bold">Priya Sharma</span>
-              </div>
-              <span className="text-[11px] text-label-2 mt-0.5">Admin Staff (PIN: 1234)</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('+91 98222 44556', '1234')}
-              className="p-2.5 rounded-xl bg-surface border border-separator/40 hover:border-accent flex flex-col text-left transition-all active:scale-95"
-            >
-              <div className="flex items-center gap-1.5 text-label">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
-                <span className="text-caption font-bold">Amit Verma</span>
-              </div>
-              <span className="text-[11px] text-label-2 mt-0.5">Sales Staff (PIN: 1234)</span>
-            </button>
-          </div>
+        {/* Discreet Dev Console Quick Fill */}
+        <div className="flex justify-center pt-1">
+          <button
+            type="button"
+            onClick={handleQuickDevLogin}
+            className="text-[12px] text-label-3 hover:text-accent flex items-center gap-1.5 transition-colors py-1 px-2.5 rounded-lg hover:bg-fill"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" />
+            <span>Dev Platform Admin Console</span>
+          </button>
         </div>
       </div>
     </div>

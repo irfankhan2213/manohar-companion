@@ -20,6 +20,12 @@ export const StatementPrintScreen: React.FC = () => {
     queryFn: () => api.ledger.get(partyId),
   });
 
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const company = companies.find((c) => c.id === party?.companyId) || companies[0];
+
   if (partyLoading || ledgerLoading || !party) {
     return (
       <div className="p-10 text-center text-label-2 text-subhead">
@@ -81,17 +87,15 @@ export const StatementPrintScreen: React.FC = () => {
           {/* Header */}
           <div className="p-4 border-b border-black text-center flex flex-col items-center">
             <h1 className="text-2xl font-black uppercase tracking-tight">
-              MANOHAR TRADERS
+              {company?.name || 'STATEMENT OF ACCOUNT'}
             </h1>
             <p className="text-xs text-gray-700 mt-0.5">
-              Industrial Sewing Machinery, Spares & Accessories
+              {company?.tallyName && company.tallyName !== company.name ? company.tallyName : 'Customer Account Statement'}
             </p>
-            <p className="text-xs text-gray-700">
-              G.T. Road, Ludhiana - 141003 (Punjab) · GSTIN: 03AABCM1234F1Z1
-            </p>
-            <p className="text-xs text-gray-700">
-              Ph: +91 98140 11223 · Email: accounts@manohartraders.com
-            </p>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 text-xs font-semibold text-center">
+              {company?.gstin && <span>GSTIN: {company.gstin}</span>}
+              {company?.financialYear && <span>• FY {company.financialYear}</span>}
+            </div>
           </div>
 
           {/* Statement Banner */}

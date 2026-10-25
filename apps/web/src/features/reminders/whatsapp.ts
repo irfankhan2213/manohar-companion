@@ -7,18 +7,22 @@ export interface WhatsAppReminderData {
   oldestBillNo?: string;
   daysLate?: number;
   dueDate?: string;
+  companyName?: string;
+  senderPhone?: string;
 }
 
 export function buildWhatsAppReminderMessage(data: WhatsAppReminderData): string {
   const amountStr = formatINR(data.overdueAmountPaise);
-  let msg = `Dear *${data.partyName}*,\n\nGreetings from *Manohar Traders*.\n\nThis is a gentle payment reminder regarding your pending balance of *${amountStr}* which is currently overdue`;
+  const company = data.companyName ? `*${data.companyName}*` : 'our accounts department';
+  let msg = `Dear *${data.partyName}*,\n\nGreetings from ${company}.\n\nThis is a gentle payment reminder regarding your pending balance of *${amountStr}* which is currently overdue`;
   if (data.daysLate && data.daysLate > 0) {
     msg += ` by ${data.daysLate} days`;
   }
   if (data.oldestBillNo) {
     msg += ` (Invoice: ${data.oldestBillNo}${data.dueDate ? `, due on ${data.dueDate}` : ''})`;
   }
-  msg += `.\n\nKindly arrange for the payment clearance at your earliest convenience. If the payment has already been remitted or for any clarifications, please reach us at +91 98140 11223.\n\nThank you for your business,\n*Manohar Traders, Ludhiana*`;
+  const contactText = data.senderPhone ? `at ${data.senderPhone}` : 'with our office';
+  msg += `.\n\nKindly arrange for the payment clearance at your earliest convenience. If the payment has already been remitted or for any clarifications, please reach us ${contactText}.\n\nThank you for your business,\n${data.companyName ? `*${data.companyName}*` : 'Accounts Team'}`;
   return msg;
 }
 

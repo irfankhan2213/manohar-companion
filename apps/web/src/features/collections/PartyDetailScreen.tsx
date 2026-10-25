@@ -64,6 +64,12 @@ export const PartyDetailScreen: React.FC = () => {
     queryFn: () => api.reminders.replies.list(currentCompanyId),
   });
 
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const activeCompany = companies.find((c) => c.id === currentCompanyId);
+
   const partyThread = threads.find((t) => t.partyId === partyId);
 
   // Update party mutation (e.g. toggle pause reminders, update phones)
@@ -108,6 +114,7 @@ export const PartyDetailScreen: React.FC = () => {
         oldestBillNo: bills[0]?.billNo,
         daysLate: maxDaysLate,
         dueDate: bills[0]?.dueDate,
+        companyName: activeCompany?.name,
       });
       showToast({
         message: `Opening WhatsApp with built reminder for ${party.name}...`,
@@ -528,9 +535,9 @@ export const PartyDetailScreen: React.FC = () => {
                       month: 'short',
                       year: 'numeric',
                     })
-                  : '02-Sep-2026'}
+                  : '—'}
               </strong>{' '}
-              (applied after {reminderDueDays} days credit terms) and is still unpaid. Please arrange payment at the earliest, or call us on +91 98140 11223 if there is any problem. Thank you.
+              (applied after {reminderDueDays} days credit terms) and is still unpaid. Please arrange payment at the earliest, or reach out to our office if there is any clarification needed. Thank you.
             </p>
             <div className="text-right text-caption text-label-2">
               Just now

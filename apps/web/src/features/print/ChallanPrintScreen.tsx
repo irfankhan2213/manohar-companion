@@ -21,6 +21,12 @@ export const ChallanPrintScreen: React.FC = () => {
     enabled: !!challan,
   });
 
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const company = companies.find((c) => c.id === challan?.companyId) || companies[0];
+
   if (isLoading || !challan) {
     return (
       <div className="p-10 text-center text-label-2 text-subhead">
@@ -82,20 +88,14 @@ export const ChallanPrintScreen: React.FC = () => {
               Issued under Rule 55 of CGST Rules, 2017
             </span>
             <h1 className="text-2xl font-black uppercase tracking-tight">
-              MANOHAR TRADERS
+              {company?.name || 'DELIVERY CHALLAN'}
             </h1>
             <p className="text-xs text-gray-700 mt-0.5">
-              Industrial Sewing Machines, Motors, Spare Parts & Accessories
-            </p>
-            <p className="text-xs text-gray-700">
-              G.T. Road, Near Clock Tower, Ludhiana - 141003 (Punjab)
+              {company?.tallyName && company.tallyName !== company.name ? company.tallyName : 'Material & Goods Dispatch'}
             </p>
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 text-xs font-semibold text-center">
-              <span>GSTIN: 03AABCM1234F1Z1</span>
-              <span>•</span>
-              <span>Ph: +91 98140 11223</span>
-              <span>•</span>
-              <span>Email: info@manohartraders.com</span>
+              {company?.gstin && <span>GSTIN: {company.gstin}</span>}
+              {company?.financialYear && <span>• FY {company.financialYear}</span>}
             </div>
           </div>
 

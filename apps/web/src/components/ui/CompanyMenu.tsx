@@ -18,7 +18,7 @@ export const CompanyMenu: React.FC = () => {
     currentCompanyId === 'all'
       ? { name: 'All companies' }
       : companies.find((c) => c.id === currentCompanyId) ?? {
-          name: 'Manohar Traders',
+          name: companies[0]?.name || 'My Company',
         };
 
   return (
