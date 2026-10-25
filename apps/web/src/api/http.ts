@@ -24,7 +24,16 @@ import {
 import { ApiClient, HomeSummary } from './client.js';
 import { useAppStore } from '../app/store.js';
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3001/api';
+const getApiBase = (): string => {
+  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  if (envUrl) return envUrl;
+  if (typeof window !== 'undefined') {
+    return '/api';
+  }
+  return 'http://localhost:3001/api';
+};
+
+const API_BASE = getApiBase();
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const token = useAppStore.getState().authToken;
