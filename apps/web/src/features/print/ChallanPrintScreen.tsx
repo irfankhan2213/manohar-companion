@@ -90,7 +90,7 @@ export const ChallanPrintScreen: React.FC = () => {
             <p className="text-xs text-gray-700">
               G.T. Road, Near Clock Tower, Ludhiana - 141003 (Punjab)
             </p>
-            <div className="flex gap-4 mt-1 text-xs font-semibold">
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 text-xs font-semibold text-center">
               <span>GSTIN: 03AABCM1234F1Z1</span>
               <span>•</span>
               <span>Ph: +91 98140 11223</span>

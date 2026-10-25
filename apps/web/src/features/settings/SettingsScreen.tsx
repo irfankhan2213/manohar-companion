@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Lock,
   Download,
+  Smartphone,
 } from 'lucide-react';
 import {
   User,
@@ -89,6 +90,41 @@ export const SettingsScreen: React.FC = () => {
     }
     return ROLE_PERMISSIONS;
   });
+
+  // PWA install state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
+
+  React.useEffect(() => {
+    const checkStandalone =
+      (typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(display-mode: standalone)').matches) ||
+      (typeof window !== 'undefined' && (window.navigator as any)?.standalone === true);
+    setIsStandalone(Boolean(checkStandalone));
+
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+      return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+    }
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult.outcome === 'accepted') {
+        showToast({ message: 'App install accepted! Adding to home screen...', variant: 'success' });
+      }
+      setDeferredPrompt(null);
+    } else {
+      setInstallHelpOpen(true);
+    }
+  };
 
   const handleOpenEditCompany = () => {
     if (!activeCompany) return;
@@ -695,6 +731,34 @@ export const SettingsScreen: React.FC = () => {
         />
       </InsetGroup>
 
+      {/* App Installation */}
+      <InsetGroup title="App Installation & Mobile Access">
+        <Row
+          leading={<Smartphone className="w-5 h-5 text-accent" />}
+          title={isStandalone ? 'Installed as App' : 'Install on Phone / Desktop'}
+          subtitle={
+            isStandalone
+              ? 'Running in full-screen standalone application mode'
+              : deferredPrompt
+              ? 'Tap to install as native app on home screen'
+              : 'Tap for Android Chrome, iOS Safari & Desktop setup'
+          }
+          trailing={
+            isStandalone ? (
+              <span className="text-ok font-semibold text-footnote flex items-center gap-1">
+                <CheckCircle2 className="w-4 h-4" /> Installed
+              </span>
+            ) : deferredPrompt ? (
+              <Button size="small" onClick={handleInstallClick}>
+                Install
+              </Button>
+            ) : undefined
+          }
+          onClick={isStandalone ? undefined : handleInstallClick}
+          chevron={!isStandalone && !deferredPrompt}
+        />
+      </InsetGroup>
+
       {/* 4. System Info */}
       <InsetGroup title={t('settings.systemInfo', 'System Information')}>
         <Row
@@ -1051,6 +1115,46 @@ export const SettingsScreen: React.FC = () => {
 
           <Button fullWidth onClick={() => setPermissionsModalOpen(false)}>
             Apply & Close
+          </Button>
+        </div>
+      </Sheet>
+
+      {/* Install Help Sheet */}
+      <Sheet
+        open={installHelpOpen}
+        onOpenChange={setInstallHelpOpen}
+        title="Install Manohar Traders App"
+        description="Add the app to your home screen for fast offline access."
+      >
+        <div className="flex flex-col gap-4 py-2 text-subhead">
+          <div className="p-3.5 bg-fill/40 rounded-xl border border-separator/30 flex flex-col gap-2">
+            <span className="font-bold text-label text-headline">🤖 Android Phone (Google Chrome)</span>
+            <ol className="list-decimal pl-5 text-label-2 text-subhead flex flex-col gap-1.5">
+              <li>Open Chrome menu by tapping the <strong>3 dots (⋮)</strong> in the top-right corner.</li>
+              <li>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</li>
+              <li>If the notification stops or says "cannot be installed", go to <em>Phone Settings &gt; Apps &gt; Chrome &gt; Install unknown apps</em> and toggle it to <strong>Allowed</strong>.</li>
+            </ol>
+          </div>
+
+          <div className="p-3.5 bg-fill/40 rounded-xl border border-separator/30 flex flex-col gap-2">
+            <span className="font-bold text-label text-headline">🍎 iPhone / iPad (Safari)</span>
+            <ol className="list-decimal pl-5 text-label-2 text-subhead flex flex-col gap-1.5">
+              <li>Tap the <strong>Share</strong> button (the square box with an arrow pointing up at the bottom).</li>
+              <li>Scroll down and tap <strong>"Add to Home Screen"</strong>.</li>
+              <li>Tap <strong>Add</strong> in the top-right corner.</li>
+            </ol>
+          </div>
+
+          <div className="p-3.5 bg-fill/40 rounded-xl border border-separator/30 flex flex-col gap-2">
+            <span className="font-bold text-label text-headline">💻 Computer (Chrome / Edge)</span>
+            <ol className="list-decimal pl-5 text-label-2 text-subhead flex flex-col gap-1.5">
+              <li>Click the <strong>Install</strong> icon in the address bar (next to the star icon).</li>
+              <li>Click <strong>Install</strong> to add it to your desktop taskbar.</li>
+            </ol>
+          </div>
+
+          <Button fullWidth onClick={() => setInstallHelpOpen(false)} className="mt-2">
+            Done
           </Button>
         </div>
       </Sheet>
