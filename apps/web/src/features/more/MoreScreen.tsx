@@ -26,28 +26,24 @@ export const MoreScreen: React.FC = () => {
         <Row
           leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}
           title="Delivery Challans"
-          subtitle="Sales, Purchase & Delivery Challans (TAI & SV Machine filters)"
           chevron
           onClick={() => navigate('/challans')}
         />
         <Row
           leading={<BookOpen className="w-5 h-5 text-accent" />}
-          title="Notebook / Scratchpad"
-          subtitle="Multi-sheet accounting ledger with auto-evaluating math (10*2)"
+          title="Notebook"
           chevron
           onClick={() => navigate('/notebook')}
         />
         <Row
           leading={<BellRing className="w-5 h-5 text-accent" />}
           title="Payment Reminders"
-          subtitle="Follow-up queue, 30d rules & WhatsApp templates"
           chevron
           onClick={() => navigate('/reminders')}
         />
         <Row
           leading={<Activity className="w-5 h-5 text-accent" />}
           title="Activity Log"
-          subtitle="Audit trail of syncs, bills, and user actions"
           chevron
           onClick={() => navigate('/activity')}
         />
@@ -57,7 +53,6 @@ export const MoreScreen: React.FC = () => {
         <Row
           leading={<Settings className="w-5 h-5 text-accent" />}
           title="Settings & Backups"
-          subtitle="Office PC sync, SQLite/JSON backups & role matrix"
           chevron
           onClick={() => navigate('/settings')}
         />

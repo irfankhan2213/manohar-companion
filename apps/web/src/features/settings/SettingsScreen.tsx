@@ -351,9 +351,6 @@ export const SettingsScreen: React.FC = () => {
                       : t('settings.offline', 'Offline')}
                   </span>
                 </div>
-                <span className="text-caption text-label-2">
-                  TallyPrime Port 9000 XML · Agent {agent?.version ?? 'v1.4.2'}
-                </span>
               </div>
             </div>
           </div>
@@ -361,14 +358,14 @@ export const SettingsScreen: React.FC = () => {
           <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
             <span className="text-label-2">
               {t('settings.lastSynced', 'Last synced')}:{' '}
-              <strong className="text-label">2 min ago (17 Oct, 3:18 PM)</strong>
+              <strong className="text-label">2 min ago</strong>
             </span>
             <Button
               variant="tinted"
               size="small"
               onClick={() => syncMutation.mutate()}
               disabled={syncMutation.isPending}
-              className="flex items-center gap-1.5 h-8 px-3"
+              className="flex items-center gap-1.5 h-8 px-3 whitespace-nowrap shrink-0"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 ${syncMutation.isPending ? 'animate-spin' : ''}`}
@@ -388,7 +385,7 @@ export const SettingsScreen: React.FC = () => {
             <div className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-accent" />
               <span className="text-subhead font-semibold text-label">
-                {t('settings.pairingCodeTitle', 'Pairing Code for Windows Agent')}
+                {t('settings.pairingCodeTitle', 'Pairing Code')}
               </span>
             </div>
             <button
@@ -405,14 +402,14 @@ export const SettingsScreen: React.FC = () => {
               <span className="font-mono text-title-large font-bold tracking-widest text-label">
                 {pairingCode}
               </span>
-              <span className="text-caption text-label-3">Expires in 9 mins</span>
+              <span className="text-caption text-label-3">Expires in 9m</span>
             </div>
 
             <Button
               size="small"
               variant="tinted"
               onClick={handleCopyCode}
-              className="flex items-center gap-1.5 h-8 px-2.5"
+              className="flex items-center gap-1.5 h-8 px-2.5 whitespace-nowrap shrink-0"
             >
               {copiedCode ? (
                 <>
@@ -422,17 +419,11 @@ export const SettingsScreen: React.FC = () => {
               ) : (
                 <>
                   <Copy className="w-3.5 h-3.5" />
-                  <span>{t('settings.copyCode', 'Copy')}</span>
+                  <span>{t('settings.copyCode', 'Copy Code')}</span>
                 </>
               )}
             </Button>
           </div>
-          <span className="text-caption text-label-2">
-            {t(
-              'settings.pairingCodeSubtitle',
-              'Enter this 6-digit code in the desktop agent setup'
-            )}
-          </span>
         </div>
       </InsetGroup>
 
@@ -466,9 +457,6 @@ export const SettingsScreen: React.FC = () => {
                     {serverStatus === 'online' ? 'Active (:3001)' : 'Offline'}
                   </span>
                 </div>
-                <span className="text-caption text-label-2">
-                  High-performance persistent SQLite engine · Full relational tables
-                </span>
               </div>
             </div>
           </div>
@@ -625,9 +613,6 @@ export const SettingsScreen: React.FC = () => {
               {isAdminOrOwner ? 'Owner Editable' : 'Enforced'}
             </span>
           </div>
-          <p className="text-caption text-label-2">
-            Control which operational modules each staff role can access, create, or modify across your organization.
-          </p>
           <div className="flex flex-wrap gap-1.5 pt-1">
             {(['owner', 'admin', 'accounts', 'sales', 'stock_keeper'] as Role[]).map((r) => (
               <button
@@ -708,7 +693,6 @@ export const SettingsScreen: React.FC = () => {
         <Row
           leading={<Download className="w-5 h-5 text-accent" />}
           title="Download Database Backup (SQLite)"
-          subtitle="Complete server database file for offline safety & restore"
           onClick={() => handleDownloadBackup('sqlite')}
           chevron
         />
@@ -716,7 +700,6 @@ export const SettingsScreen: React.FC = () => {
         <Row
           leading={<Download className="w-5 h-5 text-accent" />}
           title="Download Data Export (JSON)"
-          subtitle="All parties, bills, challans, stock & notebooks in JSON format"
           onClick={() => handleDownloadBackup('json')}
           chevron
         />
@@ -725,7 +708,6 @@ export const SettingsScreen: React.FC = () => {
         <Row
           leading={<Trash2 className="w-5 h-5 text-danger" />}
           title={t('settings.clearCache', 'Clear Local Cache & Reset')}
-          subtitle="Resets local cache and reloads latest data"
           onClick={handleClearCache}
           chevron
         />
@@ -736,13 +718,6 @@ export const SettingsScreen: React.FC = () => {
         <Row
           leading={<Smartphone className="w-5 h-5 text-accent" />}
           title={isStandalone ? 'Installed as App' : 'Install on Phone / Desktop'}
-          subtitle={
-            isStandalone
-              ? 'Running in full-screen standalone application mode'
-              : deferredPrompt
-              ? 'Tap to install as native app on home screen'
-              : 'Tap for Android Chrome, iOS Safari & Desktop setup'
-          }
           trailing={
             isStandalone ? (
               <span className="text-ok font-semibold text-footnote flex items-center gap-1">
