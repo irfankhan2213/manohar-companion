@@ -1,21 +1,12 @@
 import { ApiClient } from './client.js';
-import { mockApiClient } from '../mock/db.js';
 import { httpApiClient } from './http.js';
+import { mockApiClient } from '../mock/db.js';
 
-const isRealMode = (): boolean => {
-  if (typeof window === 'undefined') return false;
-  const urlParam = new URLSearchParams(window.location.search).get('backend');
-  if (urlParam === 'real') return true;
-  if (urlParam === 'mock') return false;
-  const stored = localStorage.getItem('manohar_backend_mode');
-  if (stored === 'real') return true;
-  if (stored === 'mock') return false;
-  if ((import.meta as any).env?.VITE_USE_MOCK === 'false') return true;
-  if ((import.meta as any).env?.PROD) return true;
-  return false;
-};
+// Production & browser runtime always use real httpApiClient (no mock backdoor).
+// Only Vitest test runner uses mockApiClient for offline component unit tests.
+const isTestEnv = (import.meta as any).env?.MODE === 'test';
 
-export const api: ApiClient = isRealMode() ? httpApiClient : mockApiClient;
-export { mockApiClient } from '../mock/db.js';
+export const api: ApiClient = isTestEnv ? mockApiClient : httpApiClient;
 export { httpApiClient } from './http.js';
+export { mockApiClient } from '../mock/db.js';
 export * from './client.js';

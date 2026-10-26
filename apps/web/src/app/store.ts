@@ -53,7 +53,7 @@ export const useAppStore = create<AppSessionState>()(
           currentUser: user,
           currentRole: user.role,
           currentTenant: tenant || null,
-          currentCompanyId: defaultCompanyId || (user.companyIds === 'all' || !user.companyIds[0] ? 'c1' : user.companyIds[0]),
+          currentCompanyId: defaultCompanyId || (user.companyIds === 'all' || !user.companyIds[0] ? 'all' : user.companyIds[0]),
         });
       },
       logout: () => {

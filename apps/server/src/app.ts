@@ -318,9 +318,10 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/companies', (req, res) => {
+    const user = getRequestUser(req);
     const { name, tallyName, financialYear, gstin, address, phone } = req.body;
     const id = req.body.id || `c-${Date.now()}`;
-    const tenantId = req.body.tenantId || 'tenant-1';
+    const tenantId = req.body.tenantId || user?.tenantId || 'platform';
     const now = new Date().toISOString();
 
     db.prepare(`
@@ -562,14 +563,16 @@ export function createApp(dbPath?: string): express.Express {
     const user = getRequestUser(req);
     const body = req.body;
     const id = body.id || `p-${Date.now()}`;
-    const tenantId = body.tenantId || user?.tenantId || 'tenant-1';
+    const tenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
+    const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+    const companyId = body.companyId || defaultComp?.id || 'comp-default';
     db.prepare(`
       INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       tenantId,
-      body.companyId || (user?.tenantId ? `${tenantId}-c1` : 'c1'),
+      companyId,
       body.name,
       body.city || '',
       JSON.stringify(body.phones || []),
@@ -667,6 +670,7 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/agent/sync', (req, res) => {
+    const user = getRequestUser(req);
     const now = new Date().toISOString();
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
     
@@ -674,10 +678,12 @@ export function createApp(dbPath?: string): express.Express {
     const vouchersCount = (db.prepare('SELECT count(*) as cnt FROM bills').get() as any).cnt;
     const stockCount = (db.prepare('SELECT count(*) as cnt FROM stock_items').get() as any).cnt;
 
+    const companyId = req.body?.companyId || (user?.tenantId ? (db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any)?.id : null) || (db.prepare('SELECT id FROM companies LIMIT 1').get() as any)?.id || 'default';
+
     db.prepare(`
       INSERT INTO sync_batches (companyId, syncedAt, alterId, vouchersCount, ledgersCount, stockCount)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run('c1', now, 10542, vouchersCount, ledgersCount, stockCount);
+    `).run(companyId, now, 10542, vouchersCount, ledgersCount, stockCount);
 
     res.json({
       success: true,
@@ -1000,6 +1006,7 @@ export function createApp(dbPath?: string): express.Express {
 
   // 6b. Stock Adjust
   app.post('/api/stock/adjust', (req, res) => {
+    const user = getRequestUser(req);
     const { itemId, godownId, deltaQty, reason } = req.body;
     db.prepare(`
       INSERT INTO stock_balances (itemId, godownId, qty)
@@ -1008,10 +1015,13 @@ export function createApp(dbPath?: string): express.Express {
     `).run(itemId, godownId, deltaQty, deltaQty);
 
     // Audit log
+    const tenantId = user?.tenantId || 'platform';
+    const compId = req.body.companyId || (user?.companyIds === 'all' ? 'all' : user?.companyIds?.[0]) || 'default';
+    const actorId = user?.id || 'staff';
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, 'tenant-1', 'c1', 'u1', 'stock_adjusted', `${itemId} (${deltaQty > 0 ? '+' : ''}${deltaQty})`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}`, tenantId, compId, actorId, 'stock_adjusted', `${itemId} (${deltaQty > 0 ? '+' : ''}${deltaQty})`, new Date().toISOString(), 'Desktop');
 
     res.json({ success: true });
   });
@@ -1073,8 +1083,13 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/challans', (req, res) => {
+    const user = getRequestUser(req);
     const body = req.body;
     const id = body.id || `ch-${Date.now()}`;
+    const tenantId = user?.tenantId || 'platform';
+    const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+    const companyId = body.companyId || defaultComp?.id || 'comp-default';
+    const actorId = user?.id || body.createdBy || 'staff';
     const insert = db.prepare(`
       INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1082,10 +1097,10 @@ export function createApp(dbPath?: string): express.Express {
 
     insert.run(
       id,
-      body.companyId || 'c1',
+      companyId,
       body.type || 'delivery',
       body.number || `DC/${Math.floor(100 + Math.random() * 900)}/26-27`,
-      body.date || '2026-10-17',
+      body.date || new Date().toISOString().split('T')[0],
       body.partyId,
       body.godownId || null,
       JSON.stringify(body.lines || []),
@@ -1095,14 +1110,14 @@ export function createApp(dbPath?: string): express.Express {
       body.narration || null,
       body.status || 'queued',
       null,
-      body.createdBy || 'u1'
+      actorId
     );
 
     // Audit log
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, 'tenant-1', body.companyId || 'c1', body.createdBy || 'u1', 'created_challan', id, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}`, tenantId, companyId, actorId, 'created_challan', id, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM challans WHERE id = ?').get(id) as any;
     res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]') });
@@ -1164,20 +1179,25 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/tasks', (req, res) => {
+    const user = getRequestUser(req);
     const body = req.body;
     const id = body.id || `task-${Date.now()}`;
     const createdAt = new Date().toISOString();
+    const tenantId = user?.tenantId || 'platform';
+    const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+    const companyId = body.companyId || defaultComp?.id || 'comp-default';
+    const assignedByUserId = user?.id || body.assignedByUserId || 'staff';
 
     db.prepare(`
       INSERT INTO tasks (id, companyId, title, description, assignedToUserId, assignedByUserId, challanId, photoUrl, status, priority, createdAt, completedAt)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
-      body.companyId || 'c1',
+      companyId,
       body.title,
       body.description || null,
       body.assignedToUserId,
-      body.assignedByUserId || 'u1',
+      assignedByUserId,
       body.challanId || null,
       body.photoUrl || null,
       body.status || 'pending',
@@ -1194,7 +1214,7 @@ export function createApp(dbPath?: string): express.Express {
     `).run(
       notifId,
       body.assignedToUserId,
-      body.companyId || 'c1',
+      companyId,
       'New Task Assigned',
       body.title,
       id,
@@ -1274,7 +1294,7 @@ export function createApp(dbPath?: string): express.Express {
   app.put('/api/reminders/rules', (req, res) => {
     const user = getRequestUser(req);
     const body = req.body;
-    const targetTenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || 'tenant-1');
+    const targetTenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
     db.prepare(`
       UPDATE reminder_rules
       SET enabled = COALESCE(?, enabled),
@@ -1365,16 +1385,7 @@ export function createApp(dbPath?: string): express.Express {
 
   // 12b. Outbox
   app.get('/api/outbox', (req, res) => {
-    res.json([
-      {
-        id: 'out-1',
-        companyId: 'c1',
-        kind: 'stock_journal',
-        refId: 'item-tai',
-        status: 'synced',
-        attempts: 1,
-      },
-    ]);
+    res.json([]);
   });
 
   // 12. Notebook
@@ -1389,6 +1400,7 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.put('/api/notebook', (req, res) => {
+    const user = getRequestUser(req);
     const nb = req.body;
     db.prepare(`
       UPDATE notebooks
@@ -1399,7 +1411,7 @@ export function createApp(dbPath?: string): express.Express {
       JSON.stringify(nb.columns),
       JSON.stringify(nb.rows),
       new Date().toISOString(),
-      nb.updatedBy || 'u1',
+      nb.updatedBy || user?.id || 'staff',
       nb.id
     );
     res.json({ success: true, notebook: nb });
@@ -1450,7 +1462,7 @@ export function createApp(dbPath?: string): express.Express {
     }
     const body = req.body;
     const id = body.id || `u-${Date.now()}`;
-    const tenantId = body.tenantId || (user ? user.tenantId : 'tenant-1');
+    const tenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
     const rawPin = body.pin || (body.role === 'dev' ? '0000' : '1234');
     const pin = hashPin(rawPin);
     db.prepare(`
@@ -1487,6 +1499,8 @@ export function createApp(dbPath?: string): express.Express {
   app.post('/api/sync/push', (req, res) => {
     const { companyId, alterId, parties, bills, stockItems } = req.body;
     const now = new Date().toISOString();
+    const compRow = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(companyId) as any;
+    const defaultTenantId = compRow?.tenantId || (getRequestUser(req)?.tenantId) || 'platform';
 
     let partiesUpdated = 0;
     let billsUpdated = 0;
@@ -1498,7 +1512,7 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
-        stmt.run(p.id, p.tenantId || 'tenant-1', companyId, p.name, p.city || '', JSON.stringify(p.phones || []), p.gstin || null, p.creditDays || 30, null, 0, p.notes || '', null);
+        stmt.run(p.id, p.tenantId || defaultTenantId, companyId, p.name, p.city || '', JSON.stringify(p.phones || []), p.gstin || null, p.creditDays || 30, null, 0, p.notes || '', null);
         partiesUpdated++;
       }
     }

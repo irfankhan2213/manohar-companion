@@ -21,15 +21,15 @@ import { useToast } from '../../components/ui/Toast.js';
 export const CreateChallanScreen: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Step 1: Details
   const [challanType, setChallanType] = useState<'sales' | 'purchase' | 'delivery'>('delivery');
-  const [date, setDate] = useState('2026-10-17');
-  const [selectedGodownId, setSelectedGodownId] = useState('g1');
+  const [date, setDate] = useState<string>(() => new Date().toISOString().split('T')[0] ?? '');
+  const [selectedGodownId, setSelectedGodownId] = useState('');
   const [selectedPartyId, setSelectedPartyId] = useState('');
   const [partySearch, setPartySearch] = useState('');
 
@@ -44,6 +44,12 @@ export const CreateChallanScreen: React.FC = () => {
   const [lrNo, setLrNo] = useState('');
   const [transporter, setTransporter] = useState('');
   const [narration, setNarration] = useState('');
+
+  // Fetch companies
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
 
   // Fetch parties
   const { data: parties = [] } = useQuery({
@@ -62,6 +68,12 @@ export const CreateChallanScreen: React.FC = () => {
     queryKey: ['godowns', currentCompanyId],
     queryFn: () => api.godowns.list(currentCompanyId),
   });
+
+  React.useEffect(() => {
+    if (!selectedGodownId && godowns.length > 0 && godowns[0]) {
+      setSelectedGodownId(godowns[0].id);
+    }
+  }, [godowns, selectedGodownId]);
 
   const selectedParty = parties.find((p) => p.id === selectedPartyId);
 
@@ -109,8 +121,9 @@ export const CreateChallanScreen: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: async (status: 'draft' | 'queued') => {
+      const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
       return api.challans.create({
-        companyId: currentCompanyId === 'all' ? 'c1' : currentCompanyId,
+        companyId: targetCompanyId,
         type: challanType,
         number: '',
         date,
@@ -122,7 +135,7 @@ export const CreateChallanScreen: React.FC = () => {
         transporter: transporter.trim() ? transporter.trim() : undefined,
         narration: narration.trim() ? narration.trim() : undefined,
         status,
-        createdBy: 'u-owner',
+        createdBy: currentUser?.id || 'staff',
       });
     },
     onSuccess: (newChallan) => {

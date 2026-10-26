@@ -236,11 +236,12 @@ export const RemindersScreen: React.FC = () => {
         showToast({ message: 'Please enter customer name' });
         return;
       }
+      const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
       createPartyMutation.mutate({
-        companyId: currentCompanyId === 'all' ? 'c1' : currentCompanyId,
+        companyId: targetCompanyId,
         name: newPartyName.trim(),
         city: newPartyCity.trim(),
-        phones: newPersonPhone.trim() ? [newPersonPhone.trim()] : ['+91 98140 00000'],
+        phones: newPersonPhone.trim() ? [newPersonPhone.trim()] : [],
         creditDays: newPartyTerms,
         collectorId: selectedCollectorId,
         remindersPaused: false,

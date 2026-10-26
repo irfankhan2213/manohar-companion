@@ -16,10 +16,17 @@ export const CompanyMenu: React.FC = () => {
 
   const currentCompany =
     currentCompanyId === 'all'
-      ? { name: 'All companies' }
+      ? { name: 'All companies', agentStatus: companies.some((c) => c.agentStatus === 'online') ? 'online' : 'offline' }
       : companies.find((c) => c.id === currentCompanyId) ?? {
           name: companies[0]?.name || 'My Company',
+          agentStatus: companies[0]?.agentStatus || 'offline',
         };
+
+  const isOnline = currentCompany.agentStatus === 'online';
+  const syncLabel = isOnline ? 'Tally Online' : 'Tally Offline';
+  const dotColor = isOnline
+    ? 'bg-ok shadow-[0_0_5px_rgba(46,125,79,0.8)]'
+    : 'bg-label-3/60';
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={setOpen}>
@@ -37,9 +44,9 @@ export const CompanyMenu: React.FC = () => {
               <ChevronDown className="w-4 h-4 text-label-2 shrink-0" />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-ok shadow-[0_0_5px_rgba(46,125,79,0.8)]" />
+              <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
               <span className="text-caption text-label-2 font-medium">
-                Tally Synced · 2m ago
+                {syncLabel}
               </span>
             </div>
           </div>

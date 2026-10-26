@@ -29,8 +29,14 @@ import { useToast } from '../../components/ui/Toast.js';
 
 export const NotebookScreen: React.FC = () => {
   const queryClient = useQueryClient();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const { showToast } = useToast();
+
+  // Fetch companies
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
 
   // Fetch list of notebooks
   const { data: notebooks = [], isLoading } = useQuery({
@@ -39,7 +45,7 @@ export const NotebookScreen: React.FC = () => {
   });
 
   // Current active notebook state
-  const [activeNotebookId, setActiveNotebookId] = useState<string>('nb-1');
+  const [activeNotebookId, setActiveNotebookId] = useState<string>('');
   const [notebook, setNotebook] = useState<Notebook | null>(null);
 
   // Undo / Redo history
@@ -341,12 +347,13 @@ export const NotebookScreen: React.FC = () => {
   const handleCreateWorksheet = () => {
     if (!newTitle.trim()) return;
 
+    const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
     const newNb: Notebook = {
       id: `nb-${Date.now()}`,
-      companyId: currentCompanyId === 'all' ? 'c1' : currentCompanyId,
+      companyId: targetCompanyId,
       title: newTitle.trim(),
       updatedAt: new Date().toISOString(),
-      updatedBy: 'u-owner',
+      updatedBy: currentUser?.id || 'staff',
       columns: [
         { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
         { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },

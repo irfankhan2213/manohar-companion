@@ -84,11 +84,11 @@ export const SettingsScreen: React.FC = () => {
     companies.find((c) => c.id === currentCompanyId) ||
     companies[0] ||
     ({
-      id: (currentCompanyId as string) || 'c1',
-      name: 'Manohar Traders',
-      tallyName: 'Manohar Traders',
+      id: (currentCompanyId as string) || '',
+      name: currentTenant?.name || 'Primary Company',
+      tallyName: currentTenant?.name || 'Primary Company',
       financialYear: '2026-27',
-      agentStatus: 'online',
+      agentStatus: 'offline',
     } as any);
 
   // Company management state
@@ -229,31 +229,13 @@ export const SettingsScreen: React.FC = () => {
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<Role>('sales');
 
-  // Backend mode state
-  const [backendMode, setBackendMode] = useState<'real' | 'mock'>(() => {
-    return localStorage.getItem('manohar_backend_mode') === 'real' ? 'real' : 'mock';
-  });
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
   React.useEffect(() => {
-    fetch('http://localhost:3001/api/health')
+    fetch('/api/health')
       .then((r) => (r.ok ? setServerStatus('online') : setServerStatus('offline')))
       .catch(() => setServerStatus('offline'));
   }, []);
-
-  const handleToggleBackend = (mode: 'real' | 'mock') => {
-    localStorage.setItem('manohar_backend_mode', mode);
-    setBackendMode(mode);
-    showToast({
-      message:
-        mode === 'real'
-          ? 'Switched to Live SQLite Backend (Port 3001)'
-          : 'Switched to Offline Sandbox Mode',
-    });
-    setTimeout(() => {
-      window.location.reload();
-    }, 600);
-  };
 
   // Trigger sync mutation
   const syncMutation = useMutation({
@@ -303,20 +285,8 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handleDownloadBackup = (format: 'sqlite' | 'json') => {
-    if (backendMode === 'real') {
-      window.open(`/api/backup/${format}`, '_blank');
-      showToast({ message: `Downloading ${format.toUpperCase()} database backup...` });
-    } else {
-      const stored = localStorage.getItem('mock-db-v4') || localStorage.getItem('mock-db-v3') || '{}';
-      const blob = new Blob([stored], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `manohar-offline-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast({ message: 'Downloaded offline JSON backup' });
-    }
+    window.open(`/api/backup/${format}`, '_blank');
+    showToast({ message: `Downloading ${format.toUpperCase()} database backup...` });
   };
 
   const handleAddStaff = () => {
@@ -370,7 +340,7 @@ export const SettingsScreen: React.FC = () => {
                 </span>
               </div>
               <span className="text-caption text-label-2">
-                {currentUser?.phone} · {currentTenant?.name || 'Manohar Traders'}
+                {currentUser?.phone} · {currentTenant?.name || 'Organization'}
               </span>
             </div>
           </div>
@@ -517,35 +487,6 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
 
-          {currentUser?.role === 'dev' && (
-            <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
-              <span className="text-label-2">Data Source:</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleToggleBackend('real')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                    backendMode === 'real'
-                      ? 'bg-accent text-white shadow-sm'
-                      : 'bg-fill text-label-2 hover:text-label'
-                  }`}
-                >
-                  Live Server
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleToggleBackend('mock')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-lg transition-colors ${
-                    backendMode === 'mock'
-                      ? 'bg-accent text-white shadow-sm'
-                      : 'bg-fill text-label-2 hover:text-label'
-                  }`}
-                >
-                  Offline Sandbox
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </InsetGroup>
 
@@ -796,11 +737,11 @@ export const SettingsScreen: React.FC = () => {
       <InsetGroup title={t('settings.systemInfo', 'System Information')}>
         <Row
           title={t('settings.client', 'Client')}
-          trailing="Manohar Traders / International"
+          trailing={currentTenant?.name || 'Connected Client'}
         />
         <Row
           title={t('settings.environment', 'Environment')}
-          trailing="PWA Production Prototype"
+          trailing="Production Cloud (Azure)"
         />
         <Row
           title={t('settings.version', 'Version')}
@@ -837,7 +778,7 @@ export const SettingsScreen: React.FC = () => {
                 <span className="text-label font-semibold">
                   {selectedUser.companyIds === 'all'
                     ? 'All Companies'
-                    : 'Manohar Traders'}
+                    : (activeCompany?.name || 'Primary Company')}
                 </span>
               </div>
             </div>
@@ -1156,7 +1097,7 @@ export const SettingsScreen: React.FC = () => {
       <Sheet
         open={installHelpOpen}
         onOpenChange={setInstallHelpOpen}
-        title="Install Manohar Traders App"
+        title={`Install ${currentTenant?.name || 'Companion'} App`}
         description="Add the app to your home screen for fast offline access."
       >
         <div className="flex flex-col gap-4 py-2 text-subhead">
