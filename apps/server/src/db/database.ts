@@ -281,15 +281,13 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare("ALTER TABLE users ADD COLUMN pin TEXT DEFAULT '1234'").run();
   } catch {}
 
-  // Ensure dev user and initial tenant exist in existing databases
+  // Ensure dev user and platform tenant exist in database
   try {
     const insTenant = db.prepare(`
       INSERT OR IGNORE INTO tenants (id, name, ownerName, ownerPhone, status, createdAt)
       VALUES (?, ?, ?, ?, ?, ?)
     `);
-    for (const t of INITIAL_TENANTS) {
-      insTenant.run(t.id, t.name, t.ownerName, t.ownerPhone, t.status, t.createdAt);
-    }
+    insTenant.run('platform', 'Platform Management', 'Dev Admin', '+91 99999 00000', 'active', '2026-04-01T00:00:00Z');
 
     db.prepare(`
       INSERT OR IGNORE INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
@@ -297,10 +295,12 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     `).run('u-dev', 'platform', 'Dev Admin', '+91 99999 00000', '0000', 'dev', 'all', 1);
   } catch {}
 
-  // 2. Check if seeded, if empty seed canonical data
-  const count = db.prepare('SELECT count(*) as cnt FROM companies').get() as { cnt: number };
-  if (count.cnt === 0) {
-    seedDatabase(db);
+  // 2. In automated test environment, populate test fixtures if empty
+  if (process.env.NODE_ENV === 'test') {
+    const count = db.prepare('SELECT count(*) as cnt FROM companies').get() as { cnt: number };
+    if (count.cnt === 0) {
+      seedDatabase(db);
+    }
   }
 
   return db;
