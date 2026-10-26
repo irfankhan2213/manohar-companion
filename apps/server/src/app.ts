@@ -1496,10 +1496,19 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   // 15. Tally Sync Endpoints (Agent Integration)
+  app.get('/api/sync/info', (req, res) => {
+    const companies = db.prepare('SELECT id, tenantId, name, tallyName, lastSyncedAt, agentStatus FROM companies').all();
+    res.json({
+      companies,
+      serverTime: new Date().toISOString(),
+    });
+  });
+
   app.post('/api/sync/push', (req, res) => {
     const { companyId, alterId, parties, bills, stockItems } = req.body;
     const now = new Date().toISOString();
-    const compRow = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(companyId) as any;
+    const compRow = (companyId ? db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId) : null) || (db.prepare('SELECT * FROM companies LIMIT 1').get() as any);
+    const resolvedCompanyId = compRow?.id || companyId || 'default';
     const defaultTenantId = compRow?.tenantId || (getRequestUser(req)?.tenantId) || 'platform';
 
     let partiesUpdated = 0;
@@ -1512,7 +1521,7 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
-        stmt.run(p.id, p.tenantId || defaultTenantId, companyId, p.name, p.city || '', JSON.stringify(p.phones || []), p.gstin || null, p.creditDays || 30, null, 0, p.notes || '', null);
+        stmt.run(p.id, p.tenantId || defaultTenantId, resolvedCompanyId, p.name, p.city || '', JSON.stringify(p.phones || []), p.gstin || null, p.creditDays || 30, null, 0, p.notes || '', null);
         partiesUpdated++;
       }
     }
@@ -1523,7 +1532,7 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const b of bills) {
-        stmt.run(b.id, companyId, b.partyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
+        stmt.run(b.id, resolvedCompanyId, b.partyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
         billsUpdated++;
       }
     }
@@ -1534,7 +1543,7 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const s of stockItems) {
-        stmt.run(s.id, companyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);
+        stmt.run(s.id, resolvedCompanyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);
         stockUpdated++;
       }
     }
@@ -1542,7 +1551,12 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO sync_batches (companyId, syncedAt, alterId, vouchersCount, ledgersCount, stockCount)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(companyId, now, alterId || 0, billsUpdated, partiesUpdated, stockUpdated);
+    `).run(resolvedCompanyId, now, alterId || 0, billsUpdated, partiesUpdated, stockUpdated);
+
+    if (compRow?.id) {
+      db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, compRow.id);
+    }
+    db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
 
     res.json({
       success: true,
@@ -1558,6 +1572,16 @@ export function createApp(dbPath?: string): express.Express {
     // Return pending queued challans waiting to be written to Tally XML
     const rows = db.prepare("SELECT * FROM challans WHERE status = 'queued'").all() as any[];
     res.json(rows.map(r => ({ ...r, lines: JSON.parse(r.lines || '[]') })));
+  });
+
+  app.post('/api/sync/ack', (req, res) => {
+    const { challanId, status, failureReason } = req.body;
+    db.prepare('UPDATE challans SET status = ?, failureReason = ? WHERE id = ?').run(
+      status || 'synced',
+      failureReason || null,
+      challanId
+    );
+    res.json({ success: true, challanId, status: status || 'synced' });
   });
 
   // 17. Database Backups

@@ -54,20 +54,31 @@ export interface TallySyncPayload {
 
 export interface AgentConfig {
   tallyUrl: string; // e.g. "http://127.0.0.1:9000"
-  cloudUrl: string; // e.g. "https://api.manohartraders.com"
-  stateFilePath: string;
-  pollIntervalMs: number;
-  mockMode: boolean;
+  cloudUrl?: string; // e.g. "https://manohar.evolveexpert.com"
+  companyId?: string; // e.g. "c-1793000752410"
+  agentSecretKey?: string; // e.g. "dev-agent-secret-key"
+  stateFilePath?: string;
+  pollIntervalMs?: number;
+  mockMode?: boolean;
 }
 
 export interface AgentState {
-  tenantId?: string;
+  cloudUrl?: string;
   companyId?: string;
+  agentSecretKey?: string;
+  tenantId?: string;
   companyName?: string;
   pairingKey?: string;
   lastAlterId: number;
   lastSyncedAt?: string;
   status: 'online' | 'offline';
+  cloudStatus?: 'connected' | 'disconnected' | 'error';
+  lastCloudSyncAt?: string;
+  lastSyncStats?: {
+    partiesUpdated: number;
+    billsUpdated: number;
+    stockUpdated: number;
+  };
 }
 
 export interface VoucherImportResult {

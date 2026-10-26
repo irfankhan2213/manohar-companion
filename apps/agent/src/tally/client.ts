@@ -93,14 +93,17 @@ export class TallyClient {
 
       return await resp.text();
     } catch (err: any) {
-      // If Tally is not running locally and not in strict production, allow seamless fallback
-      console.warn(`[TallyClient] Cannot reach ${this.url}: ${err.message}. Switching to local mock simulator.`);
-      this.mock = true;
-      return this.postXml(xmlPayload);
+      if (this.mock) {
+        return this.postXml(xmlPayload);
+      }
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with port 9000 enabled.`);
     }
   }
 
   public async ping(): Promise<{ ok: boolean; company?: string; error?: string }> {
+    if (this.mock) {
+      return { ok: true, company: 'Manohar Traders (Mock Mode)' };
+    }
     try {
       const xml = await this.postXml(buildCompanyInfoQuery());
       const info = parseCompanyInfoResponse(xml);
