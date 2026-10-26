@@ -11,3 +11,4 @@ artifacts/screens/diff
 *.sqlite-*
 scratch/
 
+/manohar-traders.apk

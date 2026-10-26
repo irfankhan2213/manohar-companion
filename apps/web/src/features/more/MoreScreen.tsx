@@ -8,6 +8,7 @@ import {
   Settings,
   Languages,
   ShieldCheck,
+  Smartphone,
 } from 'lucide-react';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
@@ -62,6 +63,15 @@ export const MoreScreen: React.FC = () => {
       </InsetGroup>
 
       <InsetGroup title="System & Preferences">
+        <Row
+          leading={<Smartphone className="w-5 h-5 text-accent" />}
+          title="Download Android App"
+          trailing="APK (703 KB)"
+          chevron
+          onClick={() => {
+            window.location.href = '/manohar-traders.apk';
+          }}
+        />
         <Row
           leading={<Settings className="w-5 h-5 text-accent" />}
           title="Settings & Backups"

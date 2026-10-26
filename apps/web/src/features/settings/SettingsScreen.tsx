@@ -1163,10 +1163,17 @@ export const SettingsScreen: React.FC = () => {
           <div className="p-3.5 bg-fill/40 rounded-xl border border-separator/30 flex flex-col gap-2">
             <span className="font-bold text-label text-headline">🤖 Android Phone (Google Chrome)</span>
             <ol className="list-decimal pl-5 text-label-2 text-subhead flex flex-col gap-1.5">
-              <li>Open Chrome menu by tapping the <strong>3 dots (⋮)</strong> in the top-right corner.</li>
-              <li>Tap <strong>"Install app"</strong> or <strong>"Add to Home screen"</strong>.</li>
-              <li>If the notification stops or says "cannot be installed", go to <em>Phone Settings &gt; Apps &gt; Chrome &gt; Install unknown apps</em> and toggle it to <strong>Allowed</strong>.</li>
+              <li>Direct install: Tap <strong>Download Android APK</strong> below to directly install the app on your phone.</li>
+              <li>Or via Chrome: Open Chrome menu (<strong>⋮</strong>) &gt; Tap <strong>"Install app"</strong>.</li>
+              <li>If prompted, allow <em>"Install unknown apps"</em> in your Android settings.</li>
             </ol>
+            <a
+              href="/manohar-traders.apk"
+              download="manohar-traders.apk"
+              className="mt-2 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-accent text-white font-medium rounded-xl text-subhead hover:bg-accent/90 transition-colors shadow-sm"
+            >
+              <Download className="w-4 h-4" /> Download Android APK (703 KB)
+            </a>
           </div>
 
           <div className="p-3.5 bg-fill/40 rounded-xl border border-separator/30 flex flex-col gap-2">
