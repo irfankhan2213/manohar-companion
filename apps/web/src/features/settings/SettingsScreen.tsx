@@ -370,9 +370,19 @@ export const SettingsScreen: React.FC = () => {
                   <span className="text-headline font-bold text-label">
                     Office PC (Windows Agent)
                   </span>
-                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-ok/10 text-ok">
-                    <span className="w-1.5 h-1.5 rounded-full bg-ok animate-pulse" />
-                    {agent?.status === 'online'
+                  <span
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      agent?.status === 'online' || activeCompany?.agentStatus === 'online'
+                        ? 'bg-ok/10 text-ok'
+                        : 'bg-label-3/10 text-label-2'
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        agent?.status === 'online' || activeCompany?.agentStatus === 'online' ? 'bg-ok animate-pulse' : 'bg-label-3'
+                      }`}
+                    />
+                    {agent?.status === 'online' || activeCompany?.agentStatus === 'online'
                       ? t('settings.online', 'Online')
                       : t('settings.offline', 'Offline')}
                   </span>
@@ -384,7 +394,11 @@ export const SettingsScreen: React.FC = () => {
           <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
             <span className="text-label-2">
               {t('settings.lastSynced', 'Last synced')}:{' '}
-              <strong className="text-label">2 min ago</strong>
+              <strong className="text-label">
+                {activeCompany?.lastSyncedAt
+                  ? new Date(activeCompany.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  : 'Never'}
+              </strong>
             </span>
             <Button
               variant="tinted"
@@ -402,6 +416,16 @@ export const SettingsScreen: React.FC = () => {
                   : t('settings.syncNow', 'Sync Tally Now')}
               </span>
             </Button>
+          </div>
+
+          <div className="pt-2 border-t border-separator/40">
+            <a
+              href="/tally-agent-windows.zip"
+              download="tally-agent-windows.zip"
+              className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-accent/10 text-accent font-medium rounded-xl text-subhead hover:bg-accent/20 transition-colors border border-accent/20"
+            >
+              <Download className="w-4 h-4" /> Download Windows Sync Agent (.ZIP - 80 KB)
+            </a>
           </div>
         </div>
 
