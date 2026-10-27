@@ -157,6 +157,8 @@ export function createApp(dbPath?: string): express.Express {
         if (u) {
           return {
             ...u,
+            customRoleName: u.customRoleName || undefined,
+            customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
             companyIds: safeParseCompanyIds(u.companyIds),
             active: Boolean(u.active),
           };
@@ -245,6 +247,8 @@ export function createApp(dbPath?: string): express.Express {
       user: {
         ...user,
         pin: undefined,
+        customRoleName: user.customRoleName || undefined,
+        customPermissions: user.customPermissions ? JSON.parse(user.customPermissions) : undefined,
         companyIds: safeParseCompanyIds(user.companyIds),
         active: Boolean(user.active),
       },
@@ -392,6 +396,8 @@ export function createApp(dbPath?: string): express.Express {
     res.json({
       user: {
         ...safeUser,
+        customRoleName: user.customRoleName || undefined,
+        customPermissions: user.customPermissions ? JSON.parse(user.customPermissions) : undefined,
         companyIds: safeParseCompanyIds(user.companyIds),
         active: Boolean(user.active),
       },
@@ -1438,6 +1444,8 @@ export function createApp(dbPath?: string): express.Express {
       const { pin: _pin, ...safeUser } = r;
       return {
         ...safeUser,
+        customRoleName: r.customRoleName || undefined,
+        customPermissions: r.customPermissions ? JSON.parse(r.customPermissions) : undefined,
         companyIds: safeParseCompanyIds(r.companyIds),
         active: Boolean(r.active),
       };
@@ -1452,7 +1460,66 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare('UPDATE users SET role = ? WHERE id = ?').run(req.body.role, req.params.id);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
     const { pin: _pin, ...safeU } = u;
-    res.json({ ...safeU, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
+    res.json({
+      ...safeU,
+      customRoleName: u.customRoleName || undefined,
+      customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
+      companyIds: safeParseCompanyIds(u.companyIds),
+      active: Boolean(u.active),
+    });
+  });
+
+  app.patch('/api/users/:id', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev' && user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Forbidden: Admin, Owner, or Dev role required to update staff' });
+    }
+    const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'dev' && target.tenantId !== user.tenantId) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+
+    const body = req.body;
+    const updatedRole = body.role ?? target.role;
+    const updatedCustomRoleName = body.customRoleName !== undefined ? (body.customRoleName ? String(body.customRoleName).trim() : null) : target.customRoleName;
+    const updatedCustomPerms = body.customPermissions !== undefined ? (Array.isArray(body.customPermissions) ? JSON.stringify(body.customPermissions) : null) : target.customPermissions;
+    const updatedName = body.name ?? target.name;
+    const updatedActive = body.active !== undefined ? (body.active ? 1 : 0) : target.active;
+
+    db.prepare(`
+      UPDATE users
+      SET name = ?, role = ?, customRoleName = ?, customPermissions = ?, active = ?
+      WHERE id = ?
+    `).run(updatedName, updatedRole, updatedCustomRoleName, updatedCustomPerms, updatedActive, req.params.id);
+
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
+    const { pin: _pin, ...safeU } = u;
+    res.json({
+      ...safeU,
+      customRoleName: u.customRoleName || undefined,
+      customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
+      companyIds: safeParseCompanyIds(u.companyIds),
+      active: Boolean(u.active),
+    });
+  });
+
+  app.delete('/api/users/:id', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || (user.role !== 'owner' && user.role !== 'dev')) {
+      return res.status(403).json({ error: 'Forbidden: Owner or Dev role required to remove staff' });
+    }
+    const target = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as any;
+    if (!target) return res.status(404).json({ error: 'User not found' });
+    if (user.role !== 'dev' && target.tenantId !== user.tenantId) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+    if (target.id === user.id) {
+      return res.status(400).json({ error: 'Cannot remove your own owner account' });
+    }
+    db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    db.prepare('DELETE FROM auth_tokens WHERE userId = ?').run(req.params.id);
+    res.json({ success: true });
   });
 
   app.post('/api/users', (req, res) => {
@@ -1465,13 +1532,22 @@ export function createApp(dbPath?: string): express.Express {
     const tenantId = (user && user.role !== 'dev' && user.tenantId) ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
     const rawPin = body.pin || (body.role === 'dev' ? '0000' : '1234');
     const pin = hashPin(rawPin);
+    const customRoleName = body.customRoleName ? String(body.customRoleName).trim() : null;
+    const customPermissions = Array.isArray(body.customPermissions) ? JSON.stringify(body.customPermissions) : null;
+
     db.prepare(`
-      INSERT INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, tenantId, body.name, body.phone, pin, body.role || 'sales', JSON.stringify(body.companyIds || 'all'), 1);
+      INSERT INTO users (id, tenantId, name, phone, pin, role, customRoleName, customPermissions, companyIds, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, tenantId, body.name, body.phone, pin, body.role || 'sales', customRoleName, customPermissions, JSON.stringify(body.companyIds || 'all'), 1);
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
     const { pin: _pin, ...safeU } = u;
-    res.status(201).json({ ...safeU, companyIds: safeParseCompanyIds(u.companyIds), active: Boolean(u.active) });
+    res.status(201).json({
+      ...safeU,
+      customRoleName: u.customRoleName || undefined,
+      customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
+      companyIds: safeParseCompanyIds(u.companyIds),
+      active: Boolean(u.active),
+    });
   });
 
   // 14b. Role Permissions (Customizable per Organization)

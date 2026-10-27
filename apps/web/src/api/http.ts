@@ -197,15 +197,14 @@ export const httpApiClient: ApiClient = {
   },
   users: {
     list: () => fetchJSON<User[]>('/users'),
+    update: (id: Id, data: Partial<User>) =>
+      fetchJSON<User>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
     updateRole: (id: Id, role: Role) =>
       fetchJSON<User>(`/users/${id}/role`, { method: 'PATCH', body: JSON.stringify({ role }) }),
-    create: (data: Omit<User, 'id'>) =>
+    create: (data: Partial<User> & { name: string; phone: string; role: Role }) =>
       fetchJSON<User>('/users', { method: 'POST', body: JSON.stringify(data) }),
-    login: (phone: string, pin: string) =>
-      fetchJSON<{ success: boolean; user?: User; error?: string }>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ phone, pin }),
-      }),
+    delete: (id: Id) =>
+      fetchJSON<{ success: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   },
   permissions: {
     get: () => fetchJSON<Record<Role, Record<string, boolean>>>('/permissions'),

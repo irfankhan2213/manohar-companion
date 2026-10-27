@@ -12,7 +12,6 @@ import {
   Trash2,
   KeyRound,
   CheckCircle2,
-  XCircle,
   Database,
   Edit3,
   ShieldCheck,
@@ -24,7 +23,6 @@ import {
 import {
   User,
   Role,
-  can,
   PERMISSION_KEYS,
   PermissionKey,
   ROLE_PERMISSIONS,
@@ -220,14 +218,25 @@ export const SettingsScreen: React.FC = () => {
   const [pairingCode, setPairingCode] = useState<string>('839201');
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Inspector sheet state
+  // Inspector & Edit staff sheet state
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffRole, setEditStaffRole] = useState<Role>('sales');
+  const [editStaffCustomRoleName, setEditStaffCustomRoleName] = useState('');
+  const [editStaffPermissions, setEditStaffPermissions] = useState<string[]>([]);
+  const [isUpdatingStaff, setIsUpdatingStaff] = useState(false);
+  const [isDeletingStaff, setIsDeletingStaff] = useState(false);
 
   // Add staff sheet state
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
   const [newStaffRole, setNewStaffRole] = useState<Role>('sales');
+  const [newStaffCustomRoleName, setNewStaffCustomRoleName] = useState('');
+  const [newStaffPermissions, setNewStaffPermissions] = useState<string[]>(() =>
+    PERMISSION_KEYS.filter((k) => ROLE_PERMISSIONS.sales[k])
+  );
+  const [isCreatingStaff, setIsCreatingStaff] = useState(false);
 
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
 
@@ -289,13 +298,138 @@ export const SettingsScreen: React.FC = () => {
     showToast({ message: `Downloading ${format.toUpperCase()} database backup...` });
   };
 
-  const handleAddStaff = () => {
-    if (!newStaffName.trim() || !newStaffPhone.trim()) return;
-    showToast({ message: `Staff member ${newStaffName} added` });
-    setAddStaffOpen(false);
+  const handleOpenAddStaff = () => {
     setNewStaffName('');
     setNewStaffPhone('');
+    setNewStaffRole('sales');
+    setNewStaffCustomRoleName('');
+    setNewStaffPermissions(PERMISSION_KEYS.filter((k) => ROLE_PERMISSIONS.sales[k]));
+    setAddStaffOpen(true);
   };
+
+  const handleOpenStaffDetails = (u: User) => {
+    setSelectedUser(u);
+    setEditStaffName(u.name);
+    setEditStaffRole(u.role);
+    setEditStaffCustomRoleName(u.customRoleName || '');
+    if (Array.isArray(u.customPermissions)) {
+      setEditStaffPermissions([...u.customPermissions]);
+    } else {
+      const perms = ROLE_PERMISSIONS[u.role] || ROLE_PERMISSIONS.viewer;
+      setEditStaffPermissions(PERMISSION_KEYS.filter((k) => perms[k]));
+    }
+  };
+
+  const handleAddStaff = async () => {
+    if (!newStaffName.trim() || !newStaffPhone.trim() || isCreatingStaff) return;
+    try {
+      setIsCreatingStaff(true);
+      if (api.users.create) {
+        await api.users.create({
+          tenantId: currentTenant?.id || 't1',
+          name: newStaffName.trim(),
+          phone: newStaffPhone.trim(),
+          role: newStaffRole,
+          customRoleName: newStaffCustomRoleName.trim() || undefined,
+          customPermissions: newStaffPermissions,
+          companyIds: 'all',
+          active: true,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      showToast({ message: `Staff member ${newStaffName} created with custom role` });
+      setAddStaffOpen(false);
+      setNewStaffName('');
+      setNewStaffPhone('');
+      setNewStaffCustomRoleName('');
+      setNewStaffRole('sales');
+      setNewStaffPermissions(PERMISSION_KEYS.filter((k) => ROLE_PERMISSIONS.sales[k]));
+    } catch (err: any) {
+      showToast({ message: err?.message || 'Failed to create staff' });
+    } finally {
+      setIsCreatingStaff(false);
+    }
+  };
+
+  const handleSaveStaff = async () => {
+    if (!selectedUser || isUpdatingStaff) return;
+    try {
+      setIsUpdatingStaff(true);
+      if (api.users.update) {
+        await api.users.update(selectedUser.id, {
+          name: editStaffName.trim(),
+          role: editStaffRole,
+          customRoleName: editStaffCustomRoleName.trim() || undefined,
+          customPermissions: editStaffPermissions,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      showToast({ message: `Staff profile updated for ${editStaffName}` });
+      setSelectedUser(null);
+    } catch (err: any) {
+      showToast({ message: err?.message || 'Failed to update staff' });
+    } finally {
+      setIsUpdatingStaff(false);
+    }
+  };
+
+  const handleDeleteStaff = async () => {
+    if (!selectedUser || isDeletingStaff) return;
+    if (selectedUser.id === currentUser?.id) {
+      showToast({ message: 'Cannot remove your own owner account' });
+      return;
+    }
+    const confirmDelete = window.confirm(`Remove staff member ${selectedUser.name}? Their login access will be revoked.`);
+    if (!confirmDelete) return;
+
+    try {
+      setIsDeletingStaff(true);
+      if (api.users.delete) {
+        await api.users.delete(selectedUser.id);
+      }
+      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      showToast({ message: `Staff member ${selectedUser.name} removed` });
+      setSelectedUser(null);
+    } catch (err: any) {
+      showToast({ message: err?.message || 'Failed to remove staff' });
+    } finally {
+      setIsDeletingStaff(false);
+    }
+  };
+
+  const PERMISSION_GROUPS: Array<{
+    name: string;
+    keys: PermissionKey[];
+  }> = [
+    {
+      name: 'Financial & Ledgers',
+      keys: ['dashboard.view', 'ledgers.view', 'party.edit'],
+    },
+    {
+      name: 'Payment Reminders',
+      keys: ['reminders.view', 'reminders.send', 'reminders.configure'],
+    },
+    {
+      name: 'Inventory & Godowns',
+      keys: ['stock.view', 'stock.adjust'],
+    },
+    {
+      name: 'Delivery Challans',
+      keys: ['challan.view', 'challan.create'],
+    },
+    {
+      name: 'Notes & Audits',
+      keys: ['notebook.view', 'notebook.edit', 'activity.view'],
+    },
+    {
+      name: 'Tally Synchronization',
+      keys: ['tally.write', 'tally.write.stock'],
+    },
+    {
+      name: 'Administration & Setup',
+      keys: ['settings.manage', 'users.manage', 'clients.manage'],
+    },
+  ];
 
   const formatPermissionLabel = (key: PermissionKey): string => {
     const map: Record<PermissionKey, string> = {
@@ -586,8 +720,8 @@ export const SettingsScreen: React.FC = () => {
       {/* 2. Staff & Role Management */}
       <InsetGroup
         title={t('settings.staffSection', 'Staff & Role Management')}
-        actionText={t('settings.addStaff', 'Add Staff')}
-        onActionClick={() => setAddStaffOpen(true)}
+        actionText={isAdminOrOwner ? t('settings.addStaff', 'Add Staff') : undefined}
+        onActionClick={isAdminOrOwner ? handleOpenAddStaff : undefined}
       >
         {users.map((u) => (
           <Row
@@ -608,12 +742,19 @@ export const SettingsScreen: React.FC = () => {
               </div>
             }
             trailing={
-              <span className="px-2.5 py-1 rounded-full text-caption font-bold bg-fill text-label">
-                {t(`roles.${u.role}`, u.role)}
-              </span>
+              <div className="flex flex-col items-end gap-0.5">
+                <span className="px-2.5 py-0.5 rounded-full text-caption font-bold bg-accent-soft text-accent truncate max-w-[150px]">
+                  {u.customRoleName || t(`roles.${u.role}`, u.role)}
+                </span>
+                {u.customRoleName && (
+                  <span className="text-[10px] text-label-3 uppercase tracking-wider">
+                    {t(`roles.${u.role}`, u.role)}
+                  </span>
+                )}
+              </div>
             }
             chevron
-            onClick={() => setSelectedUser(u)}
+            onClick={() => handleOpenStaffDetails(u)}
           />
         ))}
       </InsetGroup>
@@ -777,29 +918,45 @@ export const SettingsScreen: React.FC = () => {
         />
       </InsetGroup>
 
-      {/* User Permissions Inspector Sheet */}
+      {/* Staff Profile & Custom Role Sheet */}
       <Sheet
         open={Boolean(selectedUser)}
         onOpenChange={(open) => !open && setSelectedUser(null)}
-        title={selectedUser?.name ?? 'User Permissions'}
-        description={`Role: ${
-          selectedUser ? t(`roles.${selectedUser.role}`, selectedUser.role) : ''
-        }`}
+        title={selectedUser?.name ?? 'Staff Profile & Permissions'}
+        description={
+          selectedUser?.customRoleName
+            ? `${selectedUser.customRoleName} (${t(`roles.${selectedUser.role}`, selectedUser.role)})`
+            : selectedUser
+            ? t(`roles.${selectedUser.role}`, selectedUser.role)
+            : ''
+        }
       >
         {selectedUser && (
-          <div className="flex flex-col gap-4 pt-2">
-            <div className="p-3 bg-fill/40 rounded-xl border border-separator/30 flex items-center justify-between text-subhead">
+          <div className="flex flex-col gap-5 pt-2 pb-6 max-h-[80vh] overflow-y-auto">
+            {/* Account Privacy & Security Notice */}
+            <div className="p-3.5 bg-accent-soft/40 rounded-2xl border border-accent/20 flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-accent shrink-0 mt-0.5" />
+              <div className="flex flex-col text-caption text-label-2 leading-relaxed">
+                <span className="font-bold text-label text-subhead">Protected Staff Account</span>
+                <span>
+                  Staff accounts use private credentials. As the business owner, you can define their custom role name and granular access permissions below, but cannot access or impersonate their account.
+                </span>
+              </div>
+            </div>
+
+            {/* Read-Only Contact & Tenant Info */}
+            <div className="grid grid-cols-2 gap-3 p-3 bg-fill/40 rounded-xl border border-separator/30 text-subhead">
               <div>
-                <span className="text-caption uppercase text-label-2 font-bold block">
-                  Contact
+                <span className="text-caption uppercase text-label-3 font-bold block mb-0.5">
+                  Phone (WhatsApp ID)
                 </span>
                 <span className="text-label font-semibold">{selectedUser.phone}</span>
               </div>
               <div>
-                <span className="text-caption uppercase text-label-2 font-bold block">
-                  Companies
+                <span className="text-caption uppercase text-label-3 font-bold block mb-0.5">
+                  Assigned Companies
                 </span>
-                <span className="text-label font-semibold">
+                <span className="text-label font-semibold truncate block">
                   {selectedUser.companyIds === 'all'
                     ? 'All Companies'
                     : (activeCompany?.name || 'Primary Company')}
@@ -807,42 +964,166 @@ export const SettingsScreen: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <span className="text-caption uppercase text-label-2 font-bold tracking-wide">
-                {t('settings.permissionsTitle', 'Role Permissions')}
-              </span>
+            {/* Editable Staff Name */}
+            <div>
+              <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+                Staff Full Name
+              </label>
+              <input
+                type="text"
+                value={editStaffName}
+                onChange={(e) => setEditStaffName(e.target.value)}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              />
+            </div>
 
-              <div className="divide-y divide-separator/30 border border-separator/40 rounded-xl overflow-hidden bg-surface">
-                {PERMISSION_KEYS.map((perm) => {
-                  const allowed = can(selectedUser.role, perm);
-                  return (
-                    <div
-                      key={perm}
-                      className="flex items-center justify-between p-2.5 text-subhead"
-                    >
-                      <span
-                        className={
-                          allowed
-                            ? 'text-label font-medium'
-                            : 'text-label-3 line-through'
-                        }
-                      >
-                        {formatPermissionLabel(perm)}
-                      </span>
-                      {allowed ? (
-                        <CheckCircle2 className="w-4 h-4 text-ok shrink-0" />
-                      ) : (
-                        <XCircle className="w-4 h-4 text-label-3 shrink-0 opacity-40" />
-                      )}
+            {/* Custom Role Title */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-caption font-semibold uppercase text-label-2 block">
+                  Custom Role Title (Job Name)
+                </label>
+                <span className="text-caption text-label-3">e.g. Senior Billing Head</span>
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. Lead Collection Agent, Warehouse Manager"
+                value={editStaffCustomRoleName}
+                onChange={(e) => setEditStaffCustomRoleName(e.target.value)}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              />
+            </div>
+
+            {/* Base Role Preset Selection */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-caption font-semibold uppercase text-label-2 block">
+                  Base Security Role
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const rolePerms = ROLE_PERMISSIONS[editStaffRole] || ROLE_PERMISSIONS.viewer;
+                    setEditStaffPermissions(PERMISSION_KEYS.filter((k) => rolePerms[k]));
+                    showToast({ message: `Reset permissions to ${editStaffRole} defaults` });
+                  }}
+                  className="text-caption text-accent hover:underline font-semibold"
+                >
+                  Apply Role Defaults
+                </button>
+              </div>
+              <select
+                value={editStaffRole}
+                onChange={(e) => {
+                  const newRole = e.target.value as Role;
+                  setEditStaffRole(newRole);
+                  const rolePerms = ROLE_PERMISSIONS[newRole] || ROLE_PERMISSIONS.viewer;
+                  setEditStaffPermissions(PERMISSION_KEYS.filter((k) => rolePerms[k]));
+                }}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              >
+                <option value="owner">Owner (Full access)</option>
+                <option value="admin">Admin (All operations except billing)</option>
+                <option value="accounts">Accounts (Ledgers, bills & reminders)</option>
+                <option value="sales">Sales (Challans & stock lookup)</option>
+                <option value="stock_keeper">Stock Keeper (Adjustments & godowns)</option>
+                <option value="viewer">Viewer (Read only)</option>
+              </select>
+            </div>
+
+            {/* Granular Custom Permissions */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-4 h-4 text-accent" />
+                  <span className="text-caption uppercase text-label-2 font-bold tracking-wide">
+                    Custom Permissions ({editStaffPermissions.length}/{PERMISSION_KEYS.length})
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditStaffPermissions([...PERMISSION_KEYS])}
+                    className="text-caption text-accent font-semibold hover:underline"
+                  >
+                    Select All
+                  </button>
+                  <span className="text-label-3">·</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditStaffPermissions([])}
+                    className="text-caption text-label-3 font-semibold hover:underline"
+                  >
+                    Clear All
+                  </button>
+                </div>
+              </div>
+
+              <div className="border border-separator/40 rounded-xl overflow-hidden bg-surface divide-y divide-separator/30">
+                {PERMISSION_GROUPS.map((group) => (
+                  <div key={group.name} className="p-3">
+                    <span className="text-caption uppercase font-bold text-label-3 block mb-2 tracking-wider">
+                      {group.name}
+                    </span>
+                    <div className="space-y-2">
+                      {group.keys.map((perm) => {
+                        const isGranted = editStaffPermissions.includes(perm);
+                        return (
+                          <label
+                            key={perm}
+                            className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-fill/50 cursor-pointer transition-colors"
+                          >
+                            <div className="flex flex-col">
+                              <span className="text-subhead font-medium text-label leading-snug">
+                                {formatPermissionLabel(perm)}
+                              </span>
+                              <span className="text-[11px] font-mono text-label-3">
+                                {perm}
+                              </span>
+                            </div>
+                            <input
+                              type="checkbox"
+                              checked={isGranted}
+                              onChange={() => {
+                                if (isGranted) {
+                                  setEditStaffPermissions(editStaffPermissions.filter((k) => k !== perm));
+                                } else {
+                                  setEditStaffPermissions([...editStaffPermissions, perm]);
+                                }
+                              }}
+                              className="w-5 h-5 rounded-md text-accent border-separator focus:ring-accent/40"
+                            />
+                          </label>
+                        );
+                      })}
                     </div>
-                  );
-                })}
+                  </div>
+                ))}
               </div>
             </div>
 
-            <Button fullWidth onClick={() => setSelectedUser(null)}>
-              Done
-            </Button>
+            {/* Actions: Save & Delete */}
+            <div className="flex flex-col gap-2.5 pt-2">
+              <Button
+                fullWidth
+                disabled={!editStaffName.trim() || isUpdatingStaff}
+                onClick={handleSaveStaff}
+              >
+                {isUpdatingStaff ? 'Saving Changes...' : 'Save Staff Changes'}
+              </Button>
+
+              {isAdminOrOwner && selectedUser.id !== currentUser?.id && (
+                <button
+                  type="button"
+                  disabled={isDeletingStaff}
+                  onClick={handleDeleteStaff}
+                  className="w-full h-11 rounded-xl bg-danger/10 text-danger hover:bg-danger/20 font-semibold text-subhead transition-colors flex items-center justify-center gap-2"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span>{isDeletingStaff ? 'Removing Staff...' : 'Remove Staff Member'}</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
       </Sheet>
@@ -852,12 +1133,20 @@ export const SettingsScreen: React.FC = () => {
         open={addStaffOpen}
         onOpenChange={setAddStaffOpen}
         title={t('settings.addStaff', 'Add Staff Member')}
-        description="Provision staff account with designated role"
+        description="Provision staff account with custom role name and granular access permissions"
       >
-        <div className="flex flex-col gap-4 pt-2">
+        <div className="flex flex-col gap-4 pt-2 pb-6 max-h-[80vh] overflow-y-auto">
+          {/* Account Privacy & Security Notice */}
+          <div className="p-3 bg-accent-soft/40 rounded-xl border border-accent/20 flex items-start gap-2.5 text-caption text-label-2">
+            <ShieldCheck className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+            <span>
+              Staff set their own secure PIN upon first login. As the owner, you configure their title and access permissions, but cannot access their account.
+            </span>
+          </div>
+
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
-              Staff Full Name
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+              Staff Full Name *
             </label>
             <input
               type="text"
@@ -869,8 +1158,8 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
-              Mobile Number (WhatsApp)
+            <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+              Mobile Number (WhatsApp) *
             </label>
             <input
               type="tel"
@@ -882,29 +1171,123 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
-              Security Role
-            </label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-caption font-semibold uppercase text-label-2 block">
+                Custom Role Title (Job Title)
+              </label>
+              <span className="text-caption text-label-3">Optional</span>
+            </div>
+            <input
+              type="text"
+              placeholder="e.g. Senior Collection Agent, Field Sales Head"
+              value={newStaffCustomRoleName}
+              onChange={(e) => setNewStaffCustomRoleName(e.target.value)}
+              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+            />
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-caption font-semibold uppercase text-label-2 block">
+                Base Security Role
+              </label>
+              <span className="text-caption text-label-3">Presets standard permissions</span>
+            </div>
             <select
               value={newStaffRole}
-              onChange={(e) => setNewStaffRole(e.target.value as Role)}
+              onChange={(e) => {
+                const nextRole = e.target.value as Role;
+                setNewStaffRole(nextRole);
+                const rolePerms = ROLE_PERMISSIONS[nextRole] || ROLE_PERMISSIONS.viewer;
+                setNewStaffPermissions(PERMISSION_KEYS.filter((k) => rolePerms[k]));
+              }}
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             >
-              <option value="owner">Owner (Full access)</option>
-              <option value="admin">Admin (All operations except billing)</option>
-              <option value="accounts">Accounts (Ledgers, bills & reminders)</option>
               <option value="sales">Sales (Challans & stock lookup)</option>
+              <option value="accounts">Accounts (Ledgers, bills & reminders)</option>
               <option value="stock_keeper">Stock Keeper (Adjustments & godowns)</option>
+              <option value="admin">Admin (All operations except billing)</option>
               <option value="viewer">Viewer (Read only)</option>
             </select>
           </div>
 
+          {/* Granular Custom Permissions */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-accent" />
+                <span className="text-caption uppercase text-label-2 font-bold tracking-wide">
+                  Custom Permissions ({newStaffPermissions.length}/{PERMISSION_KEYS.length})
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewStaffPermissions([...PERMISSION_KEYS])}
+                  className="text-caption text-accent font-semibold hover:underline"
+                >
+                  Select All
+                </button>
+                <span className="text-label-3">·</span>
+                <button
+                  type="button"
+                  onClick={() => setNewStaffPermissions([])}
+                  className="text-caption text-label-3 font-semibold hover:underline"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+
+            <div className="border border-separator/40 rounded-xl overflow-hidden bg-surface divide-y divide-separator/30">
+              {PERMISSION_GROUPS.map((group) => (
+                <div key={group.name} className="p-3">
+                  <span className="text-caption uppercase font-bold text-label-3 block mb-2 tracking-wider">
+                    {group.name}
+                  </span>
+                  <div className="space-y-2">
+                    {group.keys.map((perm) => {
+                      const isGranted = newStaffPermissions.includes(perm);
+                      return (
+                        <label
+                          key={perm}
+                          className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-fill/50 cursor-pointer transition-colors"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-subhead font-medium text-label leading-snug">
+                              {formatPermissionLabel(perm)}
+                            </span>
+                            <span className="text-[11px] font-mono text-label-3">
+                              {perm}
+                            </span>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={isGranted}
+                            onChange={() => {
+                              if (isGranted) {
+                                setNewStaffPermissions(newStaffPermissions.filter((k) => k !== perm));
+                              } else {
+                                setNewStaffPermissions([...newStaffPermissions, perm]);
+                              }
+                            }}
+                            className="w-5 h-5 rounded-md text-accent border-separator focus:ring-accent/40"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
           <Button
             fullWidth
-            disabled={!newStaffName.trim() || !newStaffPhone.trim()}
+            disabled={!newStaffName.trim() || !newStaffPhone.trim() || isCreatingStaff}
             onClick={handleAddStaff}
           >
-            Create Staff Account
+            {isCreatingStaff ? 'Creating Staff Account...' : 'Create Staff Account'}
           </Button>
         </div>
       </Sheet>

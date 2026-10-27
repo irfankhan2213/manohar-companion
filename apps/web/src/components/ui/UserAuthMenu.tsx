@@ -60,8 +60,8 @@ export const UserAuthMenu: React.FC = () => {
           <span className="text-caption font-semibold text-label leading-tight truncate max-w-[90px]">
             {currentUser.name.split(' ')[0]}
           </span>
-          <span className="text-[10px] text-label-3 capitalize leading-none">
-            {currentUser.role.replace('_', ' ')}
+          <span className="text-[10px] text-label-3 capitalize leading-none truncate max-w-[110px]">
+            {currentUser.customRoleName || currentUser.role.replace('_', ' ')}
           </span>
         </div>
       </button>
@@ -91,7 +91,7 @@ export const UserAuthMenu: React.FC = () => {
                 currentUser.role
               )}`}
             >
-              {currentUser.role.replace('_', ' ')}
+              {currentUser.customRoleName || currentUser.role.replace('_', ' ')}
             </span>
           </div>
 

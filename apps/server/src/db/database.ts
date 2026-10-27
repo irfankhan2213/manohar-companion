@@ -103,6 +103,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       phone TEXT,
       pin TEXT DEFAULT '1234',
       role TEXT,
+      customRoleName TEXT,
+      customPermissions TEXT,
       companyIds TEXT,
       active INTEGER
     );
@@ -279,6 +281,14 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   try {
     db.prepare("ALTER TABLE users ADD COLUMN pin TEXT DEFAULT '1234'").run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE users ADD COLUMN customRoleName TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE users ADD COLUMN customPermissions TEXT').run();
   } catch {}
 
   // Ensure dev user and platform tenant exist in database

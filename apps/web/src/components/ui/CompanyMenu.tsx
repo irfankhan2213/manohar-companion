@@ -6,13 +6,18 @@ import { useAppStore } from '../../app/store.js';
 import { api } from '../../api/index.js';
 
 export const CompanyMenu: React.FC = () => {
-  const { currentCompanyId, setCompanyId } = useAppStore();
+  const { currentCompanyId, setCompanyId, currentUser } = useAppStore();
   const [open, setOpen] = useState(false);
 
-  const { data: companies = [] } = useQuery({
+  const { data: rawCompanies = [] } = useQuery({
     queryKey: ['companies'],
     queryFn: () => api.companies.list(),
   });
+
+  const companies =
+    currentUser && currentUser.companyIds !== 'all' && Array.isArray(currentUser.companyIds)
+      ? rawCompanies.filter((c) => currentUser.companyIds.includes(c.id))
+      : rawCompanies;
 
   const currentCompany =
     currentCompanyId === 'all'
@@ -33,7 +38,7 @@ export const CompanyMenu: React.FC = () => {
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          aria-label="Switch company"
+          aria-label="Select company"
           className="flex items-center gap-2 h-10 px-2.5 -ml-1.5 rounded-xl text-left bg-surface/80 border border-separator/40 shadow-sm active:scale-[0.98] transition-all"
         >
           <div className="flex flex-col">
@@ -80,22 +85,24 @@ export const CompanyMenu: React.FC = () => {
             })}
           </div>
 
-          <div className="pt-1">
-            <DropdownMenu.Item
-              onClick={() => setCompanyId('all')}
-              className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 cursor-pointer select-none outline-none"
-            >
-              <div className="flex flex-col">
-                <span>All companies</span>
-                <span className="text-footnote font-normal text-label-2">
-                  Combined receivables & stock
-                </span>
-              </div>
-              {currentCompanyId === 'all' && (
-                <Check className="w-4 h-4 text-accent stroke-[2.5]" />
-              )}
-            </DropdownMenu.Item>
-          </div>
+          {(!currentUser || currentUser.companyIds === 'all') && (
+            <div className="pt-1">
+              <DropdownMenu.Item
+                onClick={() => setCompanyId('all')}
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 cursor-pointer select-none outline-none"
+              >
+                <div className="flex flex-col">
+                  <span>All companies</span>
+                  <span className="text-footnote font-normal text-label-2">
+                    Combined receivables & stock
+                  </span>
+                </div>
+                {currentCompanyId === 'all' && (
+                  <Check className="w-4 h-4 text-accent stroke-[2.5]" />
+                )}
+              </DropdownMenu.Item>
+            </div>
+          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

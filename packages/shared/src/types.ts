@@ -47,6 +47,8 @@ export const UserSchema = z.object({
   phone: z.string(),
   pin: z.string().optional(),
   role: RoleSchema,
+  customRoleName: z.string().optional(),
+  customPermissions: z.array(z.string()).optional(),
   companyIds: z.union([z.array(z.string()), z.literal('all')]),
   active: z.boolean(),
 });

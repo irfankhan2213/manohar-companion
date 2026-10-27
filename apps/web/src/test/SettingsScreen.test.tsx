@@ -85,7 +85,7 @@ describe('SettingsScreen Component', () => {
     });
   });
 
-  it('inspects user permissions sheet', async () => {
+  it('inspects and customizes user permissions and custom role sheet', async () => {
     renderComponent();
 
     await waitFor(() => {
@@ -96,12 +96,12 @@ describe('SettingsScreen Component', () => {
     fireEvent.click(userRow);
 
     await waitFor(() => {
-      expect(screen.getByText('Role Permissions')).toBeInTheDocument();
+      expect(screen.getByText('Protected Staff Account')).toBeInTheDocument();
       expect(screen.getByText('View Executive Dashboard')).toBeInTheDocument();
-      expect(screen.getByText('Done')).toBeInTheDocument();
+      expect(screen.getByText('Save Staff Changes')).toBeInTheDocument();
     });
 
-    // Close sheet
-    fireEvent.click(screen.getByText('Done'));
+    // Save changes
+    fireEvent.click(screen.getByText('Save Staff Changes'));
   });
 });

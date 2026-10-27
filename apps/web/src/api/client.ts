@@ -147,9 +147,10 @@ export interface ApiClient {
   };
   users: {
     list: () => Promise<User[]>;
+    update?: (id: Id, data: Partial<User>) => Promise<User>;
     updateRole?: (id: Id, role: Role) => Promise<User>;
-    create?: (data: Omit<User, 'id'>) => Promise<User>;
-    login?: (phone: string, pin: string) => Promise<{ success: boolean; user?: User; error?: string }>;
+    create?: (data: Partial<User> & { name: string; phone: string; role: Role }) => Promise<User>;
+    delete?: (id: Id) => Promise<{ success: boolean }>;
   };
   permissions?: {
     get: () => Promise<Record<Role, Record<string, boolean>>>;

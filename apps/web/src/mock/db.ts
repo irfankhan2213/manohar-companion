@@ -570,6 +570,15 @@ export const mockApiClient: ApiClient = {
   },
   users: {
     list: async () => db.users,
+    update: async (id, data) => {
+      const u = db.users.find((user) => user.id === id);
+      if (u) {
+        Object.assign(u, data);
+        saveDB();
+        return u;
+      }
+      throw new Error('User not found');
+    },
     updateRole: async (id, role) => {
       const u = db.users.find((user) => user.id === id);
       if (u) {
@@ -588,19 +597,13 @@ export const mockApiClient: ApiClient = {
       saveDB();
       return newUser as any;
     },
-    login: async (phone, pin) => {
-      const clean = (p: string) => p.replace(/\D/g, '');
-      const u = db.users.find(
-        (user) =>
-          clean(user.phone).endsWith(clean(phone)) ||
-          clean(phone).endsWith(clean(user.phone))
-      );
-      if (!u) return { success: false, error: 'Staff phone number not found' };
-      const userPin = (u as any).pin || '1234';
-      if (pin !== userPin) {
-        return { success: false, error: 'Invalid 4-digit PIN' };
+    delete: async (id) => {
+      const idx = db.users.findIndex((u) => u.id === id);
+      if (idx !== -1) {
+        db.users.splice(idx, 1);
+        saveDB();
       }
-      return { success: true, user: u };
+      return { success: true };
     },
   },
   permissions: {

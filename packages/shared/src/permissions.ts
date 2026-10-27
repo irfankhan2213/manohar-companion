@@ -172,8 +172,18 @@ export function setCustomPermissions(perms: Record<Role, Record<PermissionKey, b
   CUSTOM_ROLE_PERMISSIONS = perms;
 }
 
-export function can(role: Role, permission: PermissionKey): boolean {
-  const rolePerms = CUSTOM_ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[role];
-  if (!rolePerms) return false;
-  return rolePerms[permission] === true;
+export function can(roleOrUser: Role | { role: Role; customPermissions?: string[] } | null | undefined, permission: PermissionKey): boolean {
+  if (!roleOrUser) return false;
+  if (typeof roleOrUser === 'string') {
+    const role = roleOrUser as Role;
+    const rolePerms = CUSTOM_ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS[role];
+    return rolePerms ? rolePerms[permission] === true : false;
+  }
+  const u = roleOrUser;
+  if (u.role === 'dev') return true;
+  if (Array.isArray(u.customPermissions)) {
+    return u.customPermissions.includes(permission);
+  }
+  const rolePerms = CUSTOM_ROLE_PERMISSIONS[u.role] || ROLE_PERMISSIONS[u.role];
+  return rolePerms ? rolePerms[permission] === true : false;
 }
