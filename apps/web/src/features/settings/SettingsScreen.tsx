@@ -282,15 +282,29 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleClearCache = () => {
+  const handleClearCache = async () => {
     localStorage.removeItem('mock-db-v4');
     localStorage.removeItem('mock-db-v3');
+    if ('caches' in window) {
+      try {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      } catch {}
+    }
+    if ('serviceWorker' in navigator) {
+      try {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const registration of registrations) {
+          await registration.unregister();
+        }
+      } catch {}
+    }
     showToast({
       message: t('settings.cacheCleared', 'Local cache cleared. Fresh data reloaded.'),
     });
     setTimeout(() => {
       window.location.reload();
-    }, 600);
+    }, 400);
   };
 
   const handleDownloadBackup = (format: 'sqlite' | 'json') => {

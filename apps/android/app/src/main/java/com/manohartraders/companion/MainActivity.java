@@ -98,6 +98,9 @@ public class MainActivity extends Activity {
     }
 
     private void configureWebView() {
+        // Clear HTTP disk cache on startup to ensure latest web application is loaded
+        webView.clearCache(true);
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
