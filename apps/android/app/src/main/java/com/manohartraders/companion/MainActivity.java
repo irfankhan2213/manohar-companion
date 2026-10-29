@@ -1,9 +1,14 @@
 package com.manohartraders.companion;
 
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
@@ -17,6 +22,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceError;
@@ -35,6 +41,8 @@ public class MainActivity extends Activity {
 
     private static final String APP_URL = "https://manohar.evolveexpert.com";
     private static final int FILE_CHOOSER_REQUEST_CODE = 1001;
+    private static final String CHANNEL_ID = "manohar_companion_alerts";
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 1002;
 
     private WebView webView;
     private ProgressBar progressBar;
@@ -53,6 +61,10 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
         }
+
+        // Initialize notification channel and permissions for popup system alerts
+        createNotificationChannel();
+        requestNotificationPermission();
 
         // Build UI programmatically for minimal overhead and zero XML bloat
         FrameLayout rootLayout = new FrameLayout(this);
@@ -93,6 +105,9 @@ public class MainActivity extends Activity {
 
         setContentView(rootLayout);
 
+        // Check if app was opened via a notification intent
+        handleNotificationIntent(getIntent());
+
         // Load Application
         loadApp();
     }
@@ -122,6 +137,9 @@ public class MainActivity extends Activity {
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
         cookieManager.setAcceptThirdPartyCookies(webView, true);
+
+        // Native notification bridge for actual Android popups
+        webView.addJavascriptInterface(new NotificationBridge(this), "AndroidBridge");
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -297,11 +315,98 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    public boolean onKeyDown(int keyCode, KeyEvent event) {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView != null && webView.canGoBack()) {
-            webView.goBack();
-            return true;
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleNotificationIntent(intent);
+    }
+
+    private void handleNotificationIntent(Intent intent) {
+        if (intent != null && intent.getData() != null) {
+            String url = intent.getData().toString();
+            if (url.startsWith("http://") || url.startsWith("https://")) {
+                if (webView != null) {
+                    webView.loadUrl(url);
+                }
+            }
         }
-        return super.onKeyDown(keyCode, event);
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            CharSequence name = "Manohar Traders Alerts";
+            String description = "Task assignments, delivery challans, and reminder updates";
+            int importance = NotificationManager.IMPORTANCE_HIGH;
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);
+            channel.setDescription(description);
+            channel.enableVibration(true);
+            channel.enableLights(true);
+            channel.setLightColor(Color.parseColor("#0A84FF"));
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            if (notificationManager != null) {
+                notificationManager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private void requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION_REQUEST);
+            }
+        }
+    }
+
+    public class NotificationBridge {
+        private final Context context;
+
+        public NotificationBridge(Context context) {
+            this.context = context;
+        }
+
+        @JavascriptInterface
+        public void showNotification(String title, String message, String actionPath) {
+            try {
+                Intent intent = new Intent(context, MainActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                if (actionPath != null && !actionPath.isEmpty()) {
+                    intent.setData(Uri.parse(APP_URL + (actionPath.startsWith("/") ? actionPath : "/" + actionPath)));
+                }
+
+                int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    flags |= PendingIntent.FLAG_IMMUTABLE;
+                }
+                PendingIntent pendingIntent = PendingIntent.getActivity(context, (int) System.currentTimeMillis(), intent, flags);
+
+                Notification.Builder builder;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    builder = new Notification.Builder(context, CHANNEL_ID);
+                } else {
+                    builder = new Notification.Builder(context);
+                }
+
+                builder.setSmallIcon(R.mipmap.ic_launcher)
+                        .setContentTitle(title)
+                        .setContentText(message)
+                        .setStyle(new Notification.BigTextStyle().bigText(message))
+                        .setPriority(Notification.PRIORITY_HIGH)
+                        .setDefaults(Notification.DEFAULT_ALL)
+                        .setAutoCancel(true)
+                        .setContentIntent(pendingIntent);
+
+                NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                if (manager != null) {
+                    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                        manager.notify((int) (System.currentTimeMillis() % 100000), builder.build());
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 }

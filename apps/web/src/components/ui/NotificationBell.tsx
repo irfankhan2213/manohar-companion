@@ -5,7 +5,7 @@ import { Bell, CheckCheck, ExternalLink, Image as ImageIcon, X } from 'lucide-re
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { Sheet } from './Sheet.js';
-import { Notification } from '@saas/shared';
+import type { Notification as AppNotification } from '@saas/shared';
 
 export const NotificationBell: React.FC = () => {
   const navigate = useNavigate();
@@ -14,11 +14,83 @@ export const NotificationBell: React.FC = () => {
   const [open, setOpen] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
+  const seenNotificationIds = React.useRef<Set<string>>(new Set());
+  const initialLoadRef = React.useRef<boolean>(true);
+
+  // Request browser notification permission if running as Web PWA
+  React.useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
   const { data: notifications = [] } = useQuery({
     queryKey: ['notifications', currentCompanyId],
     queryFn: () => api.notifications.list(undefined, currentCompanyId),
     refetchInterval: 5000,
   });
+
+  // Watch for incoming new notifications and trigger native Android/Web popup notifications
+  React.useEffect(() => {
+    if (!notifications || notifications.length === 0) return;
+
+    if (initialLoadRef.current) {
+      notifications.forEach((n) => seenNotificationIds.current.add(n.id));
+      initialLoadRef.current = false;
+      return;
+    }
+
+    const newUnreadNotifications = notifications.filter(
+      (n) => !n.read && !seenNotificationIds.current.has(n.id)
+    );
+
+    for (const n of newUnreadNotifications) {
+      seenNotificationIds.current.add(n.id);
+      const actionPath = n.challanId ? `/challans/${n.challanId}` : n.taskId ? '/tasks' : '';
+
+      // 1. Android Native Popup Notification (via WebView bridge)
+      if (typeof window !== 'undefined' && (window as any).AndroidBridge?.showNotification) {
+        try {
+          (window as any).AndroidBridge.showNotification(n.title, n.body, actionPath);
+        } catch (err) {
+          console.error('AndroidBridge notification error', err);
+        }
+      } else if (
+        typeof window !== 'undefined' &&
+        'Notification' in window &&
+        Notification.permission === 'granted'
+      ) {
+        // 2. Web Notification API (PWA / Chrome on Android)
+        try {
+          new Notification(n.title, {
+            body: n.body,
+            icon: '/icon-192.png',
+            data: { url: actionPath },
+          });
+        } catch (err) {
+          console.error('Web notification error', err);
+        }
+      }
+    }
+  }, [notifications]);
+
+  const handleTestNotification = () => {
+    const title = 'Test Alert: Manohar Traders';
+    const message = 'Native Android popup notification is working perfectly!';
+    if (typeof window !== 'undefined' && (window as any).AndroidBridge?.showNotification) {
+      (window as any).AndroidBridge.showNotification(title, message, '/challans');
+    } else if (typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'granted') {
+        new Notification(title, { body: message, icon: '/icon-192.png' });
+      } else {
+        Notification.requestPermission().then((perm) => {
+          if (perm === 'granted') {
+            new Notification(title, { body: message, icon: '/icon-192.png' });
+          }
+        });
+      }
+    }
+  };
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -36,7 +108,7 @@ export const NotificationBell: React.FC = () => {
     },
   });
 
-  const handleOpenNotification = (n: Notification) => {
+  const handleOpenNotification = (n: AppNotification) => {
     if (!n.read) {
       markReadMutation.mutate(n.id);
     }
@@ -73,21 +145,31 @@ export const NotificationBell: React.FC = () => {
         description="Task assignments and delivery updates"
       >
         <div className="flex flex-col gap-3 py-2">
-          {unreadCount > 0 && (
-            <div className="flex items-center justify-between pb-1 border-b border-separator/40">
-              <span className="text-footnote font-semibold text-label-2">
-                {unreadCount} unread
-              </span>
+          <div className="flex items-center justify-between pb-1 border-b border-separator/40">
+            <span className="text-footnote font-semibold text-label-2">
+              {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
+            </span>
+            <div className="flex items-center gap-3">
               <button
                 type="button"
-                onClick={() => markAllReadMutation.mutate()}
+                onClick={handleTestNotification}
                 className="text-footnote font-semibold text-accent flex items-center gap-1 hover:underline"
               >
-                <CheckCheck className="w-3.5 h-3.5" />
-                <span>Mark all as read</span>
+                <Bell className="w-3.5 h-3.5" />
+                <span>Test Popup</span>
               </button>
+              {unreadCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => markAllReadMutation.mutate()}
+                  className="text-footnote font-semibold text-label-2 flex items-center gap-1 hover:underline"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Mark all read</span>
+                </button>
+              )}
             </div>
-          )}
+          </div>
 
           {notifications.length === 0 ? (
             <div className="p-8 text-center text-label-2 text-subhead flex flex-col items-center gap-2">
