@@ -97,6 +97,7 @@ async function main() {
       if (cloudArg) patch.cloudUrl = cloudArg.split('=')[1];
       if (companyArg) patch.companyId = companyArg.split('=')[1];
       if (keyArg) patch.agentSecretKey = keyArg.split('=')[1];
+      if (tallyArg) patch.tallyUrl = tallyArg.split('=')[1];
       store.update(patch);
       console.log('Configuration updated:');
       console.log(store.get());

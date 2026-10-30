@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { AgentState } from '../types.js';
 
 export class StateStore {
@@ -7,7 +8,19 @@ export class StateStore {
   private state: AgentState;
 
   constructor(filePath?: string) {
-    this.filePath = filePath || path.resolve(process.cwd(), 'agent-state.json');
+    if (filePath) {
+      this.filePath = filePath;
+    } else {
+      let scriptDir = process.cwd();
+      try {
+        if (typeof import.meta !== 'undefined' && import.meta.url) {
+          scriptDir = path.dirname(fileURLToPath(import.meta.url));
+        }
+      } catch {}
+      const scriptState = path.resolve(scriptDir, 'agent-state.json');
+      const cwdState = path.resolve(process.cwd(), 'agent-state.json');
+      this.filePath = fs.existsSync(scriptState) ? scriptState : cwdState;
+    }
     this.state = this.load();
   }
 
