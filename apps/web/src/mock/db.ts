@@ -233,8 +233,8 @@ export const mockApiClient: ApiClient = {
           type: 'overdue',
           title: `${veryLateCount} bills are over 30 days`,
           subtitle: 'Urgent follow-up recommended',
-          actionLabel: 'Review',
-          actionPath: '/collections',
+          actionLabel: db.rules.whatsappEnabled ? 'Send Reminders' : 'View Dues',
+          actionPath: db.rules.whatsappEnabled ? '/reminders' : '/collections',
         });
       }
 
@@ -270,6 +270,7 @@ export const mockApiClient: ApiClient = {
         notDuePercentage: notDuePct,
         latePercentage: latePct,
         over30Percentage: over30Pct,
+        whatsappAttached: Boolean(db.rules.whatsappEnabled),
         needsAttention,
         mostOverdue: sortedMostOverdue,
         companyBreakdown,

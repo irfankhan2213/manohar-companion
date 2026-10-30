@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
@@ -8,7 +8,6 @@ import {
   MessageSquare,
   CheckCircle2,
   TrendingUp,
-  RotateCw,
   FileSpreadsheet,
   CheckSquare,
   Package,
@@ -27,26 +26,19 @@ export const HomeScreen: React.FC = () => {
   const navigate = useNavigate();
   const { currentCompanyId, currentRole } = useAppStore();
   const canViewLedgers = can(currentRole, 'ledgers.view');
-  const [isSending, setIsSending] = useState(false);
-  const [sendSuccess, setSendSuccess] = useState(false);
+  const canSend = can(currentRole, 'reminders.send');
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['home-summary', currentCompanyId],
     queryFn: () => api.home.summary(currentCompanyId),
   });
 
-  const handleSendReminders = () => {
-    setIsSending(true);
-    setTimeout(() => {
-      setIsSending(false);
-      setSendSuccess(true);
-      setTimeout(() => {
-        setSendSuccess(false);
-      }, 3000);
-    }, 800);
-  };
+  const { data: reminderRules } = useQuery({
+    queryKey: ['reminder-rules'],
+    queryFn: () => api.reminders.rules.get(),
+  });
 
-  const canSend = can(currentRole, 'reminders.send');
+  const isWhatsAppAttached = summary?.whatsappAttached ?? reminderRules?.whatsappEnabled ?? false;
 
   return (
     <LargeTitleScreen
@@ -155,34 +147,29 @@ export const HomeScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* Primary Action Button */}
-        {canSend && (
-          <div className="pt-2">
+        {/* Primary Action Button: Send Reminders if WhatsApp is attached; View Dues otherwise */}
+        <div className="pt-2">
+          {isWhatsAppAttached && canSend ? (
             <Button
               fullWidth
-              onClick={handleSendReminders}
-              disabled={isSending || sendSuccess}
+              onClick={() => navigate('/reminders')}
               className="h-[52px]"
             >
-              {isSending ? (
-                <>
-                  <RotateCw className="w-5 h-5 animate-spin mr-2" />
-                  <span>{t('home.preparingQueue', 'Preparing queue...')}</span>
-                </>
-              ) : sendSuccess ? (
-                <>
-                  <CheckCircle2 className="w-5 h-5 mr-2" />
-                  <span>{t('home.remindersQueued', { count: 5, defaultValue: '5 Reminders Queued' })}</span>
-                </>
-              ) : (
-                <>
-                  <Send className="w-5 h-5 mr-2 stroke-[2.2]" />
-                  <span>{t('home.sendReminders', 'Send reminders')}</span>
-                </>
-              )}
+              <Send className="w-5 h-5 mr-2 stroke-[2.2]" />
+              <span>{t('home.sendReminders', 'Send reminders')}</span>
             </Button>
-          </div>
-        )}
+          ) : (
+            <Button
+              fullWidth
+              variant="primary"
+              onClick={() => navigate('/collections')}
+              className="h-[52px]"
+            >
+              <TrendingUp className="w-5 h-5 mr-2 stroke-[2.2]" />
+              <span>{t('home.viewDues', 'View dues')}</span>
+            </Button>
+          )}
+        </div>
       </div>
       )}
 

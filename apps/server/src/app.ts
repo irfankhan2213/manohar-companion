@@ -759,6 +759,15 @@ export function createApp(dbPath?: string): express.Express {
 
     overdueList.sort((a, b) => b.amount - a.amount);
 
+    let rRules: any = null;
+    if (user && user.role !== 'dev' && user.tenantId) {
+      rRules = db.prepare('SELECT whatsappEnabled FROM reminder_rules WHERE tenantId = ?').get(user.tenantId);
+    }
+    if (!rRules) {
+      rRules = db.prepare('SELECT whatsappEnabled FROM reminder_rules LIMIT 1').get() as any;
+    }
+    const isWhatsAppAttached = Boolean(rRules?.whatsappEnabled ?? 0);
+
     // Dynamic attention items computed from live data
     const needsAttention: Array<{
       id: string;
@@ -778,8 +787,8 @@ export function createApp(dbPath?: string): express.Express {
         type: 'overdue',
         title: `${overdueOver30.length} account${overdueOver30.length > 1 ? 's' : ''} overdue > 30 days`,
         subtitle: `₹ ${sumLakhs}L total pending across ${overdueOver30.length} parties`,
-        actionLabel: 'Send Reminders',
-        actionPath: '/reminders',
+        actionLabel: isWhatsAppAttached ? 'Send Reminders' : 'View Dues',
+        actionPath: isWhatsAppAttached ? '/reminders' : '/collections',
       });
     }
 
@@ -813,6 +822,7 @@ export function createApp(dbPath?: string): express.Express {
       notDuePercentage: totalReceivables ? Math.round((notDue / totalReceivables) * 100) : 0,
       latePercentage: totalReceivables ? Math.round((late1_30 / totalReceivables) * 100) : 0,
       over30Percentage: totalReceivables ? Math.round((late30Plus / totalReceivables) * 100) : 0,
+      whatsappAttached: isWhatsAppAttached,
       needsAttention,
       mostOverdue: overdueList.slice(0, 5),
     });

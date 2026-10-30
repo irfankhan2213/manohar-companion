@@ -50,4 +50,14 @@ describe('HomeScreen Component', () => {
       expect(screen.getByText('45 days late')).toBeInTheDocument();
     });
   });
+
+  it('hides send reminder button and shows view dues button when whatsapp is not attached', async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      // Primary button and attention row show View dues, Send reminders is hidden
+      expect(screen.getAllByText(/view dues/i).length).toBeGreaterThanOrEqual(1);
+      expect(screen.queryByText(/send reminders/i)).not.toBeInTheDocument();
+    });
+  });
 });

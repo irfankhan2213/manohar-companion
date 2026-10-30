@@ -28,6 +28,7 @@ export interface HomeSummary {
   notDuePercentage: number;
   latePercentage: number;
   over30Percentage: number;
+  whatsappAttached?: boolean;
   needsAttention: Array<{
     id: string;
     type: 'overdue' | 'reply' | 'stock' | 'outbox';
