@@ -10,5 +10,7 @@ artifacts/screens/diff
 *.sqlite
 *.sqlite-*
 scratch/
+*[[:space:]][0-9]*
 
 /manohar-traders.apk
+.agents/

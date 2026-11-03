@@ -90,6 +90,7 @@ export const StockScreen: React.FC = () => {
         <Search className="w-4 h-4 text-label-3 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
           type="search"
+          aria-label="Search item, part number or group"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search item, part number or group"
@@ -98,6 +99,7 @@ export const StockScreen: React.FC = () => {
         {searchQuery && (
           <button
             type="button"
+            aria-label="Clear search"
             onClick={() => setSearchQuery('')}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label"
           >
@@ -122,6 +124,7 @@ export const StockScreen: React.FC = () => {
           </div>
           <input
             type="checkbox"
+            aria-label="Combined Stock View"
             checked={isCombined}
             onChange={(e) => setIsCombined(e.target.checked)}
             className="w-6 h-6 accent-accent rounded cursor-pointer"

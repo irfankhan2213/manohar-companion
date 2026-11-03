@@ -22,7 +22,7 @@ export const DevClientsScreen: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
-  const { setCompanyId, currentUser } = useAppStore();
+  const { switchTenant, currentUser } = useAppStore();
 
   const [onboardOpen, setOnboardOpen] = useState(false);
   const [orgName, setOrgName] = useState('');
@@ -88,7 +88,14 @@ export const DevClientsScreen: React.FC = () => {
 
   const handleInspectClient = (client: any) => {
     if (client.companies?.[0]) {
-      setCompanyId(client.companies[0].id);
+      switchTenant({
+        id: client.id,
+        name: client.name,
+        ownerName: client.ownerName,
+        ownerPhone: client.ownerPhone,
+        status: client.status,
+        createdAt: client.createdAt,
+      }, client.companies[0].id);
       showToast({
         message: `Switched view to ${client.name}`,
         variant: 'success',

@@ -247,6 +247,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={
                 <input
                   type="date"
+                  aria-label="Challan Date"
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
                   className="bg-transparent text-label font-semibold text-subhead text-right focus:outline-none"
@@ -257,6 +258,7 @@ export const CreateChallanScreen: React.FC = () => {
               title="Godown"
               trailing={
                 <select
+                  aria-label="Godown"
                   value={selectedGodownId}
                   onChange={(e) => setSelectedGodownId(e.target.value)}
                   className="bg-transparent text-label font-semibold text-subhead text-right focus:outline-none cursor-pointer"
@@ -277,6 +279,7 @@ export const CreateChallanScreen: React.FC = () => {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-label-2" />
                 <input
                   type="text"
+                  aria-label="Search party by name or city"
                   placeholder="Search party by name or city..."
                   value={partySearch}
                   onChange={(e) => setPartySearch(e.target.value)}
@@ -384,10 +387,11 @@ export const CreateChallanScreen: React.FC = () => {
           <InsetGroup title="Add Stock Item">
             <div className="p-4 flex flex-col gap-3">
               <div>
-                <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                <label htmlFor="challan-item" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                   Select Item
                 </label>
                 <select
+                  id="challan-item"
                   value={selectedItemId}
                   onChange={(e) => handleSelectItem(e.target.value)}
                   className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
@@ -404,11 +408,12 @@ export const CreateChallanScreen: React.FC = () => {
               {selectedItemId && (
                 <div className="grid grid-cols-2 gap-3 pt-1">
                   <div>
-                    <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                    <label htmlFor="challan-qty" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                       Quantity
                     </label>
                     <div className="flex items-center h-11 bg-surface border border-separator/60 rounded-xl px-2 gap-2">
                       <input
+                        id="challan-qty"
                         type="number"
                         min="1"
                         value={itemQty}
@@ -419,11 +424,12 @@ export const CreateChallanScreen: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+                    <label htmlFor="challan-rate" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                       Rate (₹)
                     </label>
                     <div className="flex items-center h-11 bg-surface border border-separator/60 rounded-xl px-3">
                       <input
+                        id="challan-rate"
                         type="number"
                         min="0"
                         value={itemRateRupees}
@@ -533,6 +539,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={
                 <input
                   type="text"
+                  aria-label="Vehicle Number"
                   placeholder="e.g. PB-10-CZ-8821"
                   value={vehicleNo}
                   onChange={(e) => setVehicleNo(e.target.value)}
@@ -545,6 +552,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={
                 <input
                   type="text"
+                  aria-label="LR or Bilty Number"
                   placeholder="e.g. LR-99214"
                   value={lrNo}
                   onChange={(e) => setLrNo(e.target.value)}
@@ -557,6 +565,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={
                 <input
                   type="text"
+                  aria-label="Transporter Name"
                   placeholder="e.g. Golden Goods"
                   value={transporter}
                   onChange={(e) => setTransporter(e.target.value)}
@@ -569,6 +578,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={
                 <input
                   type="text"
+                  aria-label="Remarks or Narration"
                   placeholder="Optional note"
                   value={narration}
                   onChange={(e) => setNarration(e.target.value)}

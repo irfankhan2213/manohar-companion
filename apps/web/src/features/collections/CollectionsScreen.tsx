@@ -133,15 +133,24 @@ export const CollectionsScreen: React.FC = () => {
     });
   };
 
-  const handleQueueBatchReminders = () => {
+  const handleQueueBatchReminders = async () => {
     const count = selectedPartyIds.size;
+    const partyIds = Array.from(selectedPartyIds);
     setConfirmSheetOpen(false);
     setIsMultiSelect(false);
     setSelectedPartyIds(new Set());
-    showToast({
-      message: `${count} payment reminders queued for sending`,
-      variant: 'success',
-    });
+    try {
+      await Promise.all(partyIds.map((pid) => api.reminders.send(pid)));
+      showToast({
+        message: `${count} payment reminders queued for sending`,
+        variant: 'success',
+      });
+    } catch {
+      showToast({
+        message: 'Failed to queue reminders',
+        variant: 'danger',
+      });
+    }
   };
 
   return (
@@ -178,6 +187,7 @@ export const CollectionsScreen: React.FC = () => {
         <Search className="w-4 h-4 text-label-3 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
           type="search"
+          aria-label="Search customer or city"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search customer or city"
@@ -186,6 +196,7 @@ export const CollectionsScreen: React.FC = () => {
         {searchQuery && (
           <button
             type="button"
+            aria-label="Clear search"
             onClick={() => setSearchQuery('')}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label"
           >

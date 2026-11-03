@@ -15,6 +15,7 @@ export interface DeliveryChallanVoucherParams {
   partyName: string;
   narration: string;
   vehicleNo?: string;
+  voucherType?: 'sales' | 'purchase' | 'delivery';
   items: Array<{
     itemName: string;
     godownName?: string;
@@ -112,7 +113,7 @@ export function buildBillsQuery(): string {
         <TDLMESSAGE>
           <COLLECTION NAME="BillsCollection" ISMODIFY="No">
             <TYPE>Bills</TYPE>
-            <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, CLOSINGBALANCE, ISDEBIT</FETCH>
+            <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, OPENINGBALANCE, CLOSINGBALANCE, ISDEBIT</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>
@@ -204,6 +205,14 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
 }
 
 export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherParams): string {
+  const tallyVchType =
+    params.voucherType === 'sales'
+      ? 'Sales'
+      : params.voucherType === 'purchase'
+        ? 'Purchase'
+        : 'Delivery Note';
+  const signPrefix = params.voucherType === 'purchase' ? '' : '-';
+
   const itemEntries = params.items
     .map((item) => {
       const amount = (item.qty * item.rateRupees).toFixed(2);
@@ -216,7 +225,7 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
           <ACTUALQTY>${item.qty} ${escapeXml(item.unit)}</ACTUALQTY>
           <BILLEDQTY>${item.qty} ${escapeXml(item.unit)}</BILLEDQTY>
           <RATE>${item.rateRupees} / ${escapeXml(item.unit)}</RATE>
-          <AMOUNT>-${amount}</AMOUNT>
+          <AMOUNT>${signPrefix}${amount}</AMOUNT>
         </ALLINVENTORYENTRIES.LIST>`;
     })
     .join('\n');
@@ -240,10 +249,10 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
     </DESC>
     <DATA>
       <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="Delivery Note" ACTION="Create">
+        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create">
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
-          <VOUCHERTYPENAME>Delivery Note</VOUCHERTYPENAME>
+          <VOUCHERTYPENAME>${tallyVchType}</VOUCHERTYPENAME>
           <PARTYLEDGERNAME>${escapeXml(params.partyName)}</PARTYLEDGERNAME>
           <BASICBUYERNAME>${escapeXml(params.partyName)}</BASICBUYERNAME>
           <NARRATION>${escapeXml(vehicleNarration)}</NARRATION>

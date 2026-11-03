@@ -9,11 +9,17 @@ import {
 } from '../tally/templates.js';
 
 function slugify(text: string): string {
-  return text
+  const ascii = text
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
+  if (ascii) return ascii;
+  let hash = 5381;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) + hash) + text.charCodeAt(i);
+  }
+  return `item-${Math.abs(hash).toString(36)}`;
 }
 
 export interface SyncEngineOptions {
@@ -88,19 +94,19 @@ export class SyncEngine {
         durationMs: Date.now() - startTime,
       };
 
-      // 6. Update local state
+      // 6. Push data to SaaS Cloud if configured
+      if (this.cloudUrl) {
+        await this.pushToCloud(payload);
+        await this.pullOutboxFromCloud();
+      }
+
+      // 7. Update local state after successful cloud push
       this.store.update({
         companyName: company.name,
         lastAlterId: maxAlterId,
         lastSyncedAt: nowIso,
         status: 'online',
       });
-
-      // 7. Push data to SaaS Cloud if configured
-      if (this.cloudUrl) {
-        await this.pushToCloud(payload);
-        await this.pullOutboxFromCloud();
-      }
 
       this.onSyncComplete?.(payload);
       return payload;
@@ -116,12 +122,13 @@ export class SyncEngine {
 
     const companyId = this.companyId || this.store.get().companyId;
     const key = this.agentSecretKey || this.store.get().agentSecretKey || 'dev-agent-secret-key';
+    const companyPrefix = companyId ? `${slugify(companyId)}-` : '';
 
-    // Map ledgers (Sundry Debtors & Creditors) to Parties
+    // Map ledgers (Sundry Debtors & Creditors) to Parties with company-scoped IDs to prevent cross-company collisions
     const parties = payload.ledgers
       .filter((l) => l.isSundryDebtor || l.isSundryCreditor || l.parent.toLowerCase().includes('debtor') || l.parent.toLowerCase().includes('creditor'))
       .map((l) => ({
-        id: `p-${slugify(l.name)}`,
+        id: `p-${companyPrefix}${slugify(l.name)}`,
         name: l.name,
         city: '',
         phones: l.phone ? [l.phone] : [],
@@ -130,27 +137,28 @@ export class SyncEngine {
         notes: `Imported from Tally (${l.parent})`,
       }));
 
-    // Map bills to Bills
+    // Map bills to Bills with company-scoped IDs and preserved opening invoice amounts
     const bills = payload.bills.map((b) => ({
-      id: `b-${slugify(b.partyName)}-${slugify(b.billNo)}`,
-      partyId: `p-${slugify(b.partyName)}`,
+      id: `b-${companyPrefix}${slugify(b.partyName)}-${slugify(b.billNo)}`,
+      partyId: `p-${companyPrefix}${slugify(b.partyName)}`,
       billNo: b.billNo,
       date: b.billDate,
       dueDate: b.dueDate,
       dueDays: 30,
-      amount: b.pendingAmount,
+      amount: b.openingAmount ?? b.pendingAmount,
       pending: b.pendingAmount,
       source: 'tally_bill',
     }));
 
-    // Map stock items
+    // Map stock items with company-scoped IDs
     const stockItems = payload.stockItems.map((s) => ({
-      id: `s-${slugify(s.name)}`,
+      id: `s-${companyPrefix}${slugify(s.name)}`,
       name: s.name,
       partNo: s.partNo || null,
       unit: s.baseUnits || 'pcs',
       group: s.parent || 'General',
       rate: s.closingRate || 0,
+      closingQty: s.closingQty || 0,
       reorderLevel: 5,
       alias: null,
     }));
@@ -201,33 +209,58 @@ export class SyncEngine {
 
   public async pullOutboxFromCloud(): Promise<number> {
     if (!this.cloudUrl) return 0;
+    const companyId = this.companyId || this.store.get().companyId;
     const key = this.agentSecretKey || this.store.get().agentSecretKey || 'dev-agent-secret-key';
 
-    const pullRes = await fetch(`${this.cloudUrl}/api/sync/pull`, {
+    const pullUrl = companyId
+      ? `${this.cloudUrl}/api/sync/pull?companyId=${encodeURIComponent(companyId)}`
+      : `${this.cloudUrl}/api/sync/pull`;
+
+    const pullRes = await fetch(pullUrl, {
       headers: {
         'x-agent-key': key,
       },
     });
 
     if (!pullRes.ok) return 0;
-    const queuedChallans: any[] = await pullRes.json();
+    const queuedItems: any[] = await pullRes.json();
     let syncedCount = 0;
 
-    for (const ch of queuedChallans) {
+    for (const item of queuedItems) {
       try {
-        const result = await this.pushDeliveryChallan({
-          date: ch.date ? ch.date.replace(/-/g, '') : new Date().toISOString().slice(0, 10).replace(/-/g, ''),
-          voucherNumber: ch.number || ch.id,
-          partyName: ch.partyName || ch.partyId,
-          narration: ch.narration || `Mobile Delivery Note (${ch.id})`,
-          vehicleNo: ch.vehicleNo,
-          items: (ch.lines || []).map((l: any) => ({
-            itemName: l.description || l.itemId,
-            qty: l.qty || 1,
-            unit: l.unit || 'pcs',
-            rateRupees: (l.rate || 0) / 100,
-          })),
-        });
+        const formattedDate = item.date
+          ? item.date.replace(/-/g, '')
+          : new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+        let result: VoucherImportResult;
+        if (item.kind === 'stock_journal') {
+          result = await this.pushStockAdjustment({
+            date: formattedDate,
+            voucherNumber: item.number || item.id,
+            narration: item.narration || item.reason || `Mobile Stock Adjustment (${item.id})`,
+            itemName: item.itemName || item.refId,
+            godownName: item.godownName || 'Main Location',
+            qty: item.deltaQty ?? item.qty ?? 0,
+            unit: item.unit || 'pcs',
+            rateRupees: (item.rate || 0) / 100,
+          });
+        } else {
+          result = await this.pushDeliveryChallan({
+            date: formattedDate,
+            voucherNumber: item.number || item.id,
+            partyName: item.partyName || item.partyId,
+            narration: item.narration || `Mobile Challan (${item.id})`,
+            vehicleNo: item.vehicleNo,
+            voucherType: item.type || 'delivery',
+            items: (item.lines || []).map((l: any) => ({
+              itemName: l.description || l.itemId,
+              godownName: item.godownName,
+              qty: l.qty || 1,
+              unit: l.unit || 'pcs',
+              rateRupees: (l.rate || 0) / 100,
+            })),
+          });
+        }
 
         const status = result.success && result.errors === 0 ? 'synced' : 'failed';
         await fetch(`${this.cloudUrl}/api/sync/ack`, {
@@ -237,7 +270,9 @@ export class SyncEngine {
             'x-agent-key': key,
           },
           body: JSON.stringify({
-            challanId: ch.id,
+            challanId: item.id,
+            outboxId: item.outboxId || item.id,
+            kind: item.kind || 'challan',
             status,
             failureReason: status === 'failed' ? result.message || 'Tally XML import error' : null,
           }),
@@ -245,7 +280,7 @@ export class SyncEngine {
 
         if (status === 'synced') syncedCount++;
       } catch (err: any) {
-        console.error(`[SyncEngine] Failed to import challan ${ch.id} to Tally:`, err.message);
+        console.error(`[SyncEngine] Failed to import item ${item.id} to Tally:`, err.message);
       }
     }
 

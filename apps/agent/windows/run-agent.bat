@@ -1,5 +1,5 @@
 @echo off
-title Manohar Traders - TallyPrime Sync Agent
+title Manohar Companion - TallyPrime Sync Agent
 color 0A
 setlocal EnableDelayedExpansion
 
@@ -8,14 +8,14 @@ cd /d "%~dp0"
 :: 1. Check for bundled portable node.exe first
 if exist "%~dp0node.exe" (
     set "NODE_BIN=%~dp0node.exe"
-    goto MENU
+    goto CHECK_ARGS
 )
 
 :: 2. Check for system installed Node.js
 where node >nul 2>nul
 if %errorlevel% equ 0 (
     set "NODE_BIN=node"
-    goto MENU
+    goto CHECK_ARGS
 )
 
 :: 3. If neither is available, display error
@@ -29,28 +29,37 @@ echo.
 pause
 exit /b 1
 
+:CHECK_ARGS
+if not "%~1"=="" (
+    "%NODE_BIN%" tally-agent.mjs %*
+    exit /b %errorlevel%
+)
+goto MENU
+
 :MENU
 cls
 echo =====================================================================
-echo           MANOHAR TRADERS - TALLYPRIME CLOUD SYNC AGENT
+echo          MANOHAR COMPANION - TALLYPRIME CLOUD SYNC AGENT
 echo =====================================================================
 echo.
 echo   [1] Check Status / Test Connection (Tally + Cloud)
 echo   [2] Run Manual 2-Way Sync Now
 echo   [3] Start Background Continuous Sync Daemon
-echo   [4] Configure Settings (Cloud URL, Company, Secret Key)
-echo   [5] Reset Sync Counter (Re-sync all data from scratch)
-echo   [6] Exit
+echo   [4] Pair Agent with Web App (Enter 6-digit Pairing Code)
+echo   [5] Configure Settings Manually (Cloud URL, Company, Secret Key)
+echo   [6] Reset Sync Counter (Re-sync all data from scratch)
+echo   [7] Exit
 echo.
 echo =====================================================================
-set /p choice="Select an option (1-6): "
+set /p choice="Select an option (1-7): "
 
 if "%choice%"=="1" goto STATUS
 if "%choice%"=="2" goto SYNC
 if "%choice%"=="3" goto START
-if "%choice%"=="4" goto CONFIG
-if "%choice%"=="5" goto RESET
-if "%choice%"=="6" goto EXIT
+if "%choice%"=="4" goto PAIR
+if "%choice%"=="5" goto CONFIG
+if "%choice%"=="6" goto RESET
+if "%choice%"=="7" goto EXIT
 goto MENU
 
 :STATUS
@@ -79,6 +88,28 @@ echo.
 pause
 goto MENU
 
+:PAIR
+cls
+echo =====================================================================
+echo                PAIR WITH WEB APP / ORGANIZATION
+echo =====================================================================
+echo Open your Web App -> Settings -> Desktop Tally Agent.
+echo Click "Generate New" next to Pairing Code.
+echo.
+set /p p_code="Enter 6-digit Pairing Code: "
+if "%p_code%"=="" (
+    echo Pairing code cannot be empty.
+    pause
+    goto MENU
+)
+set /p p_url="Enter Cloud URL [or press Enter to keep default/current]: "
+set CMD="%NODE_BIN%" tally-agent.mjs pair %p_code%
+if not "%p_url%"=="" set CMD=!CMD! --cloud=%p_url%
+!CMD!
+echo.
+pause
+goto MENU
+
 :CONFIG
 cls
 echo =====================================================================
@@ -88,7 +119,7 @@ echo Default Cloud: https://manohar.evolveexpert.com
 echo Default Tally: http://127.0.0.1:9000
 echo.
 set /p c_url="Enter Cloud URL [or press Enter to keep default]: "
-set /p c_comp="Enter Company ID [or press Enter for c-1793000752410]: "
+set /p c_comp="Enter Company ID: "
 set /p c_key="Enter Agent Secret Key [or press Enter for default]: "
 set /p c_tally="Enter Tally XML URL [or press Enter for http://127.0.0.1:9000]: "
 

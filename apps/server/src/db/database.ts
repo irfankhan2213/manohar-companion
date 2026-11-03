@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import crypto from 'node:crypto';
 const require = createRequire(import.meta.url);
 const { DatabaseSync } = require('node:sqlite');
 import {
@@ -42,6 +43,12 @@ export interface Database {
   exec(sql: string): void;
   prepare(sql: string): any;
   close(): void;
+}
+
+function hashDefaultPin(pin: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derivedKey = crypto.scryptSync(pin, salt, 32);
+  return `scrypt:${salt}:${derivedKey.toString('hex')}`;
 }
 
 let dbInstance: any = null;
@@ -92,6 +99,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       tallyName TEXT,
       financialYear TEXT,
       gstin TEXT,
+      address TEXT,
+      phone TEXT,
       lastSyncedAt TEXT,
       agentStatus TEXT
     );
@@ -137,6 +146,18 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       source TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS ledger_lines (
+      id TEXT PRIMARY KEY,
+      companyId TEXT,
+      partyId TEXT,
+      date TEXT,
+      particulars TEXT,
+      voucherType TEXT,
+      voucherNo TEXT,
+      debit INTEGER,
+      credit INTEGER
+    );
+
     CREATE TABLE IF NOT EXISTS godowns (
       id TEXT PRIMARY KEY,
       companyId TEXT,
@@ -180,6 +201,17 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       createdBy TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS outbox_items (
+      id TEXT PRIMARY KEY,
+      companyId TEXT,
+      kind TEXT,
+      refId TEXT,
+      status TEXT,
+      attempts INTEGER DEFAULT 1,
+      lastError TEXT,
+      payload TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS tasks (
       id TEXT PRIMARY KEY,
       companyId TEXT,
@@ -217,6 +249,17 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       quietHours TEXT,
       minAmount INTEGER,
       stopWhenPaid INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS reminder_messages (
+      id TEXT PRIMARY KEY,
+      companyId TEXT,
+      partyId TEXT,
+      billId TEXT,
+      template TEXT,
+      sentAt TEXT,
+      status TEXT,
+      failureReason TEXT
     );
 
     CREATE TABLE IF NOT EXISTS reminder_replies (
@@ -266,6 +309,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
     CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
     CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
+    CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
     CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
     CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
     CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);
@@ -273,6 +317,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (companyId);
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
     CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
+    CREATE INDEX IF NOT EXISTS idx_users_tenant ON users (tenantId);
   `);
 
   try {
@@ -291,7 +336,15 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare('ALTER TABLE users ADD COLUMN customPermissions TEXT').run();
   } catch {}
 
-  // Ensure dev user and platform tenant exist in database
+  try {
+    db.prepare('ALTER TABLE companies ADD COLUMN address TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE companies ADD COLUMN phone TEXT').run();
+  } catch {}
+
+  // Ensure dev user and platform tenant exist in database (with scrypt-hashed PIN)
   try {
     const insTenant = db.prepare(`
       INSERT OR IGNORE INTO tenants (id, name, ownerName, ownerPhone, status, createdAt)
@@ -299,10 +352,11 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     `);
     insTenant.run('platform', 'Platform Management', 'Dev Admin', '+91 99999 00000', 'active', '2026-04-01T00:00:00Z');
 
+    const devPin = process.env.DEV_ADMIN_PIN || '0000';
     db.prepare(`
       INSERT OR IGNORE INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('u-dev', 'platform', 'Dev Admin', '+91 99999 00000', '0000', 'dev', 'all', 1);
+    `).run('u-dev', 'platform', 'Dev Admin', '+91 99999 00000', hashDefaultPin(devPin), 'dev', 'all', 1);
   } catch {}
 
   // 2. In automated test environment, populate test fixtures if empty
@@ -328,25 +382,38 @@ export function seedDatabase(db: any) {
 
   // Companies
   const insertCompany = db.prepare(`
-    INSERT OR IGNORE INTO companies (id, tenantId, name, tallyName, financialYear, gstin, lastSyncedAt, agentStatus)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO companies (id, tenantId, name, tallyName, financialYear, gstin, address, phone, lastSyncedAt, agentStatus)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const c of INITIAL_COMPANIES) {
-    insertCompany.run(c.id, c.tenantId, c.name, c.tallyName, c.financialYear, c.gstin || null, c.lastSyncedAt, c.agentStatus);
+    insertCompany.run(
+      c.id,
+      c.tenantId,
+      c.name,
+      c.tallyName,
+      c.financialYear,
+      c.gstin || null,
+      c.address || null,
+      c.phone || null,
+      c.lastSyncedAt,
+      c.agentStatus
+    );
   }
 
-  // Users
+  // Users (hash seeded PINs with scrypt on insert)
   const insertUser = db.prepare(`
     INSERT OR IGNORE INTO users (id, tenantId, name, phone, pin, role, companyIds, active)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const u of INITIAL_USERS) {
+    const rawPin = u.pin || (u.role === 'dev' ? '0000' : '1234');
+    const storedPin = rawPin.startsWith('scrypt:') ? rawPin : hashDefaultPin(rawPin);
     insertUser.run(
       u.id,
       u.tenantId,
       u.name,
       u.phone,
-      u.pin || (u.role === 'dev' ? '0000' : '1234'),
+      storedPin,
       u.role,
       JSON.stringify(u.companyIds),
       u.active ? 1 : 0
@@ -382,6 +449,28 @@ export function seedDatabase(db: any) {
   `);
   for (const b of INITIAL_BILLS) {
     insertBill.run(b.id, b.companyId, b.partyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source);
+  }
+
+  // Ledger Lines (seed sample ledger lines for initial parties)
+  const insertLedger = db.prepare(`
+    INSERT OR IGNORE INTO ledger_lines (id, companyId, partyId, date, particulars, voucherType, voucherNo, debit, credit)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  if (Array.isArray(INITIAL_LEDGER_SAMPLE) && INITIAL_PARTIES.length > 0) {
+    const firstParty = INITIAL_PARTIES[0]!;
+    INITIAL_LEDGER_SAMPLE.forEach((line, idx) => {
+      insertLedger.run(
+        `ll-${firstParty.id}-${idx + 1}`,
+        firstParty.companyId,
+        firstParty.id,
+        line.date,
+        line.particulars,
+        line.voucherType,
+        line.voucherNo,
+        line.debit,
+        line.credit
+      );
+    });
   }
 
   // Godowns

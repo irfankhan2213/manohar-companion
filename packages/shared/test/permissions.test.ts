@@ -46,6 +46,12 @@ describe('permissions and RBAC matrix', () => {
     expect(can('accounts', 'users.manage')).toBe(false);
   });
 
+  it('strictly blocks non-dev users from obtaining clients.manage even via customPermissions', () => {
+    expect(can({ role: 'owner', customPermissions: ['clients.manage', 'stock.view'] }, 'clients.manage')).toBe(false);
+    expect(can({ role: 'sales', customPermissions: ['clients.manage', 'stock.view'] }, 'clients.manage')).toBe(false);
+    expect(can({ role: 'dev', customPermissions: ['clients.manage'] }, 'clients.manage')).toBe(true);
+  });
+
   it('snapshots role permission configuration matrix', () => {
     expect(ROLE_PERMISSIONS).toMatchSnapshot();
   });

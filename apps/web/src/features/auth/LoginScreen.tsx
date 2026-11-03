@@ -97,12 +97,13 @@ export const LoginScreen: React.FC = () => {
 
           {/* Phone Input */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-caption font-bold text-label-2 uppercase tracking-wide">
+            <label htmlFor="login-phone" className="text-caption font-bold text-label-2 uppercase tracking-wide">
               Registered Phone Number
             </label>
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-fill border border-separator/50 focus-within:border-accent focus-within:bg-surface transition-all">
               <Phone className="w-4 h-4 text-label-3 shrink-0" />
               <input
+                id="login-phone"
                 type="tel"
                 value={phone}
                 onChange={(e) => {
@@ -118,12 +119,13 @@ export const LoginScreen: React.FC = () => {
 
           {/* PIN Input */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-caption font-bold text-label-2 uppercase tracking-wide">
+            <label htmlFor="login-pin" className="text-caption font-bold text-label-2 uppercase tracking-wide">
               4-Digit PIN
             </label>
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-fill border border-separator/50 focus-within:border-accent focus-within:bg-surface transition-all">
               <Lock className="w-4 h-4 text-label-3 shrink-0" />
               <input
+                id="login-pin"
                 type={showPin ? 'text' : 'password'}
                 inputMode="numeric"
                 maxLength={6}
@@ -140,7 +142,7 @@ export const LoginScreen: React.FC = () => {
                 type="button"
                 onClick={() => setShowPin(!showPin)}
                 className="text-label-3 hover:text-label p-1"
-                aria-label="Toggle PIN visibility"
+                aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
               >
                 {showPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>

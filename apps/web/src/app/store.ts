@@ -25,6 +25,7 @@ interface AppSessionState {
   setRole: (role: Role) => void;
   setLanguage: (lang: 'en' | 'hi') => void;
   setStaySignedIn: (stay: boolean) => void;
+  switchTenant: (tenant: Tenant | null, companyId: string | 'all') => void;
   login: (token: string, user: User, tenant?: Tenant, defaultCompanyId?: string) => void;
   logout: () => void;
 }
@@ -40,10 +41,14 @@ export const useAppStore = create<AppSessionState>()(
       language: 'en',
       staySignedIn: true,
       setCompanyId: (companyId) => set({ currentCompanyId: companyId }),
+      switchTenant: (tenant, companyId) => set({ currentTenant: tenant, currentCompanyId: companyId }),
       setUser: (user) => set({ currentUser: user, currentRole: user.role }),
       setRole: (role) => set({ currentRole: role }),
       setLanguage: (language) => {
         i18n.changeLanguage(language);
+        if (typeof document !== 'undefined') {
+          document.documentElement.lang = language;
+        }
         set({ language });
       },
       setStaySignedIn: (staySignedIn) => set({ staySignedIn }),

@@ -21,7 +21,7 @@ const store = new StateStore();
 const savedState = store.get();
 
 const cloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
-const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || 'c-1793000752410');
+const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || '');
 const agentSecretKey = keyArg ? keyArg.split('=')[1] : (process.env.AGENT_KEY || savedState.agentSecretKey || 'dev-agent-secret-key');
 const tallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || 'http://127.0.0.1:9000');
 
@@ -63,7 +63,8 @@ async function main() {
 
       console.log(`\n[Cloud SaaS Configuration]`);
       console.log(`Cloud URL:  ${cloudUrl || 'Not set'}`);
-      console.log(`Company ID: ${companyId || 'Auto-detecting'}`);
+      console.log(`Company ID: ${companyId ? `${companyId}${savedState.companyName ? ` (${savedState.companyName})` : ''}` : 'NOT CONNECTED (Run \'tally-agent pair <code>\')'}`);
+      console.log(`Tenant ID:  ${savedState.tenantId || 'Not set'}`);
       console.log(`Agent Key:  ${agentSecretKey ? '••••••••' + agentSecretKey.slice(-4) : 'Not configured'}`);
 
       try {
@@ -124,6 +125,14 @@ async function main() {
     }
 
     case 'sync': {
+      if (!companyId) {
+        console.error('\n[Error] Agent is not connected to any company / organization!');
+        console.error('Please connect your agent using one of the following methods:');
+        console.error('  1. Generate a Pairing Code in the Web App (Settings -> Desktop Tally Agent)');
+        console.error('  2. Run: tally-agent pair <6-digit-code>');
+        console.error('  3. Or run run-agent.bat and choose Option [4].\n');
+        process.exit(1);
+      }
       console.log(`Starting 2-way sync (Mode: ${client.isMockMode() ? 'Mock' : 'Live'})...`);
       try {
         const payload = await engine.runSyncOnce();
@@ -160,10 +169,18 @@ async function main() {
     }
 
     case 'start': {
+      if (!companyId) {
+        console.error('\n[Error] Agent is not connected to any company / organization!');
+        console.error('Please connect your agent using one of the following methods:');
+        console.error('  1. Generate a Pairing Code in the Web App (Settings -> Desktop Tally Agent)');
+        console.error('  2. Run: tally-agent pair <6-digit-code>');
+        console.error('  3. Or run run-agent.bat and choose Option [4].\n');
+        process.exit(1);
+      }
       console.log(`Starting Tally Sync Agent daemon (Poll Interval: ${pollIntervalMs}ms)...`);
       console.log(`Tally URL:  ${tallyUrl}`);
       console.log(`Cloud URL:  ${cloudUrl}`);
-      console.log(`Company ID: ${companyId}`);
+      console.log(`Company ID: ${companyId}${savedState.companyName ? ` (${savedState.companyName})` : ''}`);
       engine.startPolling();
 
       // Handle graceful shutdown
@@ -177,12 +194,49 @@ async function main() {
 
     case 'pair': {
       const code = args[1];
-      if (!code) {
-        console.error('Error: Please provide pairing code, e.g. tally-agent pair 839201');
+      if (!code || !/^\d{6}$/.test(code.trim())) {
+        console.error('Error: Please provide a valid 6-digit pairing code, e.g. tally-agent pair 839201');
         process.exit(1);
       }
-      store.update({ pairingKey: code });
-      console.log(`Paired successfully with code: ${code}`);
+      const pairCode = code.trim();
+      const targetCloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
+      console.log(`Connecting to Cloud SaaS: ${targetCloudUrl}`);
+      console.log(`Submitting pairing code:  ${pairCode}...`);
+      try {
+        const res = await fetch(`${targetCloudUrl}/api/agent/pair`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: pairCode }),
+        });
+        const data: any = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || `Server returned error (${res.status})`);
+        }
+        store.update({
+          companyId: data.companyId,
+          companyName: data.companyName,
+          tenantId: data.tenantId,
+          agentSecretKey: data.agentSecretKey,
+          cloudUrl: data.cloudUrl || targetCloudUrl,
+          pairingKey: pairCode,
+          status: 'online',
+        });
+        console.log(`\n================================================================`);
+        console.log(`✓ PAIRING SUCCESSFUL!`);
+        console.log(`Connected to Organization: "${data.companyName}"`);
+        console.log(`Company ID:                ${data.companyId}`);
+        if (data.tenantId) {
+          console.log(`Tenant ID:                 ${data.tenantId}`);
+        }
+        console.log(`Cloud Server:              ${data.cloudUrl || targetCloudUrl}`);
+        console.log(`================================================================\n`);
+        console.log(`Agent is now permanently configured for "${data.companyName}".`);
+        console.log(`You can run 'tally-agent sync' to start syncing.`);
+      } catch (err: any) {
+        console.error(`\n✗ Pairing failed: ${err.message}`);
+        console.error(`Please make sure the pairing code has not expired (valid for 10m) and cloud server is reachable.`);
+        process.exit(1);
+      }
       break;
     }
 
@@ -200,8 +254,8 @@ Commands:
   test                 Verify connection to local Tally and Cloud API
   sync [--mock]        Run one-shot 2-way sync (push data, pull challans)
   start [--mock]       Start background sync daemon
-  config --cloud=URL --company=ID --key=KEY   Save configuration
-  pair <code>          Set 6-digit agent pairing key
+  pair <code>          Pair agent with organization using 6-digit code from Web App
+  config --cloud=URL --company=ID --key=KEY   Save configuration manually
   reset                Reset AlterID counter and state`);
       break;
     }

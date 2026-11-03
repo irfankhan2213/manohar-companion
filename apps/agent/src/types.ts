@@ -26,6 +26,7 @@ export interface TallyBill {
   billNo: string;
   billDate: string;
   dueDate: string;
+  openingAmount?: Paise;
   pendingAmount: Paise;
   isOverdue: boolean;
   daysOverdue: number;

@@ -215,4 +215,73 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(Array.isArray(backupRes.body.companies)).toBe(true);
     expect(Array.isArray(backupRes.body.parties)).toBe(true);
   });
+
+  it('supports pagination headers and slicing on listing endpoints', async () => {
+    const res = await request(app)
+      .get('/api/parties?limit=2&offset=0')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBeLessThanOrEqual(2);
+    expect(res.headers['x-total-count']).toBeDefined();
+    expect(res.headers['x-has-more']).toBeDefined();
+
+    const paginatedRes = await request(app)
+      .get('/api/parties?limit=2&offset=0&format=paginated')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(paginatedRes.status).toBe(200);
+    expect(paginatedRes.body.items).toBeDefined();
+    expect(paginatedRes.body.total).toBeDefined();
+    expect(paginatedRes.body.limit).toBe(2);
+    expect(paginatedRes.body.offset).toBe(0);
+  });
+
+  it('generates organization-specific agent-state.json config download', async () => {
+    const res = await request(app)
+      .get('/api/agent/config-file?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain('attachment; filename="agent-state.json"');
+    expect(res.body.companyId).toBe('c1');
+    expect(res.body.cloudUrl).toBeDefined();
+    expect(res.body.agentSecretKey).toBeDefined();
+    expect(res.body.tallyUrl).toBe('http://127.0.0.1:9000');
+  });
+
+  it('generates organization-scoped pairing code and successfully pairs agent via POST /api/agent/pair', async () => {
+    // 1. Generate pairing code for company c1
+    const codeRes = await request(app)
+      .post('/api/agent/pairing-code')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ companyId: 'c1' });
+    expect(codeRes.status).toBe(200);
+    expect(codeRes.body.code).toMatch(/^\d{6}$/);
+    expect(codeRes.body.companyId).toBe('c1');
+    expect(codeRes.body.expiresAt).toBeDefined();
+
+    const pairingCode = codeRes.body.code;
+
+    // 2. Desktop Agent calls /api/agent/pair without prior auth token
+    const pairRes = await request(app)
+      .post('/api/agent/pair')
+      .send({ code: pairingCode });
+    expect(pairRes.status).toBe(200);
+    expect(pairRes.body.success).toBe(true);
+    expect(pairRes.body.companyId).toBe('c1');
+    expect(pairRes.body.companyName).toBeDefined();
+    expect(pairRes.body.agentSecretKey).toBeDefined();
+    expect(pairRes.body.cloudUrl).toBeDefined();
+
+    // 3. Reusing the pairing code fails (one-time security token)
+    const reuseRes = await request(app)
+      .post('/api/agent/pair')
+      .send({ code: pairingCode });
+    expect(reuseRes.status).toBe(404);
+
+    // 4. Invalid pairing code fails
+    const invalidRes = await request(app)
+      .post('/api/agent/pair')
+      .send({ code: '000000' });
+    expect(invalidRes.status).toBe(404);
+  });
 });

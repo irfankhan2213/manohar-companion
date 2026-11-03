@@ -1,14 +1,17 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
-import { initDatabase, getDB } from '../src/db/database.js';
+import { initDatabase } from '../src/db/database.js';
 
 describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
   let app: any;
   let devToken: string;
   let ownerToken: string;
   let salesToken: string;
+  let stockKeeperToken: string;
+  let tenant2Id: string;
   let tenant2CompanyId: string;
+  let tenant2OwnerToken: string;
 
   beforeAll(async () => {
     initDatabase(':memory:');
@@ -26,13 +29,19 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
       .send({ phone: '+91 98140 11223', pin: '1234' });
     ownerToken = ownerLogin.body.token;
 
-    // 3. Client 1 Sales Staff login
+    // 3. Client 1 Sales Staff login (sales role: party.edit=false, stock.adjust=false, settings.manage=false)
     const salesLogin = await request(app)
       .post('/api/auth/login')
       .send({ phone: '+91 98222 44556', pin: '1234' });
     salesToken = salesLogin.body.token;
 
-    // 4. Onboard Tenant 2
+    // 4. Client 1 Stock Keeper login (stock_keeper role: ledgers.view=false, reminders.view=false)
+    const skLogin = await request(app)
+      .post('/api/auth/login')
+      .send({ phone: '+91 98333 55667', pin: '1234' });
+    stockKeeperToken = skLogin.body.token;
+
+    // 5. Onboard Tenant 2
     const newClient = await request(app)
       .post('/api/dev/clients')
       .set('Authorization', `Bearer ${devToken}`)
@@ -43,7 +52,13 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
         ownerPin: '4321',
         tallyCompanyName: 'Sharma Textiles',
       });
+    tenant2Id = newClient.body.tenant.id;
     tenant2CompanyId = newClient.body.company.id;
+
+    const t2Login = await request(app)
+      .post('/api/auth/login')
+      .send({ phone: '+91 98777 66554', pin: '4321' });
+    tenant2OwnerToken = t2Login.body.token;
   });
 
   describe('OWASP API1 & API2: Broken Object Level Authorization & Broken Authentication', () => {
@@ -94,7 +109,7 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
     });
   });
 
-  describe('OWASP API5: Broken Function Level Authorization & Privilege Escalation', () => {
+  describe('OWASP API5: Broken Function Level Authorization & Granular RBAC', () => {
     it('prevents regular owner or sales staff from accessing /api/dev/clients (403 Forbidden)', async () => {
       const ownerRes = await request(app)
         .get('/api/dev/clients')
@@ -122,6 +137,97 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
         .send({ sales: { 'ledgers.view': true } });
       expect(res.status).toBe(403);
     });
+
+    it('prevents sales staff (missing settings.manage) from creating or modifying companies', async () => {
+      const createRes = await request(app)
+        .post('/api/companies')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .send({ name: 'Rogue Branch' });
+      expect(createRes.status).toBe(403);
+
+      const updateRes = await request(app)
+        .put('/api/companies/c1')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .send({ name: 'Hijacked Name' });
+      expect(updateRes.status).toBe(403);
+    });
+
+    it('prevents sales staff (missing party.edit) from creating or modifying parties', async () => {
+      const createRes = await request(app)
+        .post('/api/parties')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .send({ name: 'Unauthorized Party', city: 'Ludhiana' });
+      expect(createRes.status).toBe(403);
+
+      const patchRes = await request(app)
+        .patch('/api/parties/p1')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .send({ remindersPaused: true });
+      expect(patchRes.status).toBe(403);
+    });
+
+    it('prevents stock_keeper (missing ledgers.view) from viewing parties, bills, or collections', async () => {
+      const partiesRes = await request(app)
+        .get('/api/parties')
+        .set('Authorization', `Bearer ${stockKeeperToken}`);
+      expect(partiesRes.status).toBe(403);
+
+      const billsRes = await request(app)
+        .get('/api/bills')
+        .set('Authorization', `Bearer ${stockKeeperToken}`);
+      expect(billsRes.status).toBe(403);
+
+      const colRes = await request(app)
+        .get('/api/collections')
+        .set('Authorization', `Bearer ${stockKeeperToken}`);
+      expect(colRes.status).toBe(403);
+    });
+
+    it('prevents sales staff (missing settings.manage) from generating pairing codes or downloading agent config', async () => {
+      const pairCodeRes = await request(app)
+        .post('/api/agent/pairing-code')
+        .set('Authorization', `Bearer ${salesToken}`)
+        .send({ companyId: 'c1' });
+      expect(pairCodeRes.status).toBe(403);
+
+      const cfgRes = await request(app)
+        .get('/api/agent/config-file?companyId=c1')
+        .set('Authorization', `Bearer ${salesToken}`);
+      expect(cfgRes.status).toBe(403);
+    });
+
+    it('prevents owner from assigning platform clients.manage permission via POST /api/users', async () => {
+      const res = await request(app)
+        .post('/api/users')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          name: 'Privilege Escalation Attempt',
+          phone: '+91 99991 11111',
+          role: 'sales',
+          customPermissions: ['clients.manage', 'stock.view'],
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.customPermissions).not.toContain('clients.manage');
+      expect(res.body.customPermissions).toContain('stock.view');
+    });
+
+    it('prevents owner from setting clients.manage: true in PUT /api/permissions matrix', async () => {
+      const res = await request(app)
+        .put('/api/permissions')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ sales: { 'clients.manage': true, 'stock.view': true } });
+      expect(res.status).toBe(200);
+      expect(res.body.sales['clients.manage']).toBe(false);
+      expect(res.body.sales['stock.view']).toBe(true);
+    });
+
+    it('prevents non-dev callers from assigning dev role', async () => {
+      const res = await request(app)
+        .patch('/api/users/u3/role')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({ role: 'dev' });
+      expect(res.status).toBe(403);
+    });
   });
 
   describe('OWASP API3: Sensitive Data Exposure & PIN Protection', () => {
@@ -138,12 +244,20 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
       }
     });
 
-    it('ensures PIN hashes are stripped from /api/users listings', async () => {
+    it('ensures PIN hashes are stripped from /api/users listings and /api/backup/json exports', async () => {
       const res = await request(app)
         .get('/api/users')
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(res.status).toBe(200);
       for (const u of res.body) {
+        expect(u.pin).toBeUndefined();
+      }
+
+      const backupRes = await request(app)
+        .get('/api/backup/json')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(backupRes.status).toBe(200);
+      for (const u of backupRes.body.users) {
         expect(u.pin).toBeUndefined();
       }
     });
@@ -156,6 +270,48 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
         .set('Authorization', `Bearer ${ownerToken}`);
       expect(res.status).toBe(403);
       expect(res.body.error).toContain('Forbidden');
+    });
+
+    it('blocks Client 1 from enumerating Client 2 staff via GET /api/users?tenantId=...', async () => {
+      const res = await request(app)
+        .get(`/api/users?tenantId=${tenant2Id}`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('forces newly created companies by non-dev owners to stay inside their own tenantId', async () => {
+      const res = await request(app)
+        .post('/api/companies')
+        .set('Authorization', `Bearer ${ownerToken}`)
+        .send({
+          name: 'Attempted Spoof Company',
+          tenantId: tenant2Id,
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.tenantId).toBe('tenant-1');
+    });
+
+    it('scopes tenant agent keys so Tenant 2 agent key cannot push or pull Tenant 1 company data', async () => {
+      const statusRes = await request(app)
+        .get('/api/agent/status')
+        .set('Authorization', `Bearer ${tenant2OwnerToken}`);
+      expect(statusRes.status).toBe(200);
+      const tenant2AgentKey = statusRes.body.agentApiKey;
+      expect(tenant2AgentKey).toBeDefined();
+
+      // Tenant 2 agent key attempting to push to Tenant 1 company c1 must fail with 403
+      const crossPush = await request(app)
+        .post('/api/sync/push')
+        .set('x-agent-key', tenant2AgentKey)
+        .send({ companyId: 'c1', parties: [] });
+      expect(crossPush.status).toBe(403);
+
+      // Tenant 2 agent key pushing to its own company succeeds
+      const ownPush = await request(app)
+        .post('/api/sync/push')
+        .set('x-agent-key', tenant2AgentKey)
+        .send({ companyId: tenant2CompanyId, parties: [] });
+      expect(ownPush.status).toBe(200);
     });
   });
 

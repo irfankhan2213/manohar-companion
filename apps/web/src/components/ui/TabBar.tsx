@@ -14,10 +14,10 @@ import { can } from '@saas/shared';
 
 export const TabBar: React.FC = () => {
   const { t } = useTranslation();
-  const { currentRole } = useAppStore();
+  const { currentRole, currentUser } = useAppStore();
 
-  const canViewStock = can(currentRole, 'stock.view');
-  const canViewLedgers = can(currentRole, 'ledgers.view');
+  const canViewStock = can(currentUser || currentRole, 'stock.view');
+  const canViewLedgers = can(currentUser || currentRole, 'ledgers.view');
 
   const tabs = [
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },

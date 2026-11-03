@@ -20,6 +20,7 @@ import {
   Task,
   Tenant,
   User,
+  setCustomPermissions,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from './client.js';
 import { useAppStore } from '../app/store.js';
@@ -70,7 +71,11 @@ export const httpApiClient: ApiClient = {
   },
   agent: {
     status: () => fetchJSON<Agent>('/agent/status'),
-    createPairingCode: () => fetchJSON<{ code: string; expiresAt: string }>('/agent/pairing-code', { method: 'POST' }),
+    createPairingCode: (companyId?: string) =>
+      fetchJSON<{ code: string; expiresAt: string; companyId?: string; companyName?: string }>(
+        '/agent/pairing-code',
+        { method: 'POST', body: JSON.stringify({ companyId }) }
+      ),
     triggerSync: () => fetchJSON<{ success: boolean; syncedAt: string; ledgersCount: number; vouchersCount: number }>('/agent/sync', { method: 'POST' }),
   },
   home: {
@@ -121,9 +126,12 @@ export const httpApiClient: ApiClient = {
   },
   stock: {
     items: {
-      list: async (_companyId: Id | 'all', query?: string) => {
-        const q = query ? `?q=${encodeURIComponent(query)}` : '';
-        const list = await fetchJSON<Array<{ item: StockItem; totalQty: number; balances: StockBalance[]; lowStock: boolean }>>(`/stock${q}`);
+      list: async (companyId: Id | 'all', query?: string) => {
+        const params = new URLSearchParams();
+        if (companyId && companyId !== 'all') params.set('companyId', companyId);
+        if (query) params.set('q', query);
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        const list = await fetchJSON<Array<{ item: StockItem; totalQty: number; balances: StockBalance[]; lowStock: boolean }>>(`/stock${qs}`);
         return list.map(l => l.item);
       },
       get: async (id: Id) => {
@@ -207,12 +215,19 @@ export const httpApiClient: ApiClient = {
       fetchJSON<{ success: boolean }>(`/users/${id}`, { method: 'DELETE' }),
   },
   permissions: {
-    get: () => fetchJSON<Record<Role, Record<string, boolean>>>('/permissions'),
-    update: (perms: Record<Role, Record<string, boolean>>) =>
-      fetchJSON<Record<Role, Record<string, boolean>>>('/permissions', {
+    get: async () => {
+      const perms = await fetchJSON<Record<Role, Record<string, boolean>>>('/permissions');
+      setCustomPermissions(perms as any);
+      return perms;
+    },
+    update: async (perms: Record<Role, Record<string, boolean>>) => {
+      const updated = await fetchJSON<Record<Role, Record<string, boolean>>>('/permissions', {
         method: 'PUT',
         body: JSON.stringify(perms),
-      }),
+      });
+      setCustomPermissions(updated as any);
+      return updated;
+    },
   },
   auth: {
     login: (phone: string, pin: string) =>

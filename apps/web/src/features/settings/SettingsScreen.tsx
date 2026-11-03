@@ -26,6 +26,8 @@ import {
   PERMISSION_KEYS,
   PermissionKey,
   ROLE_PERMISSIONS,
+  OPERATIONAL_PERMISSION_KEYS,
+  can,
   setCustomPermissions,
 } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -51,7 +53,10 @@ export const SettingsScreen: React.FC = () => {
     currentTenant,
     logout,
   } = useAppStore();
-  const isAdminOrOwner = currentRole === 'owner' || currentRole === 'admin' || currentRole === 'dev';
+  const isDevUser = currentUser?.role === 'dev' || currentRole === 'dev';
+  const isOwnerUser = currentUser?.role === 'owner' || currentRole === 'owner' || isDevUser;
+  const canManageUsers = isOwnerUser || can(currentUser || currentRole, 'users.manage');
+  const isAdminOrOwner = isOwnerUser || currentRole === 'admin';
 
   const handleSignOut = async () => {
     try {
@@ -264,10 +269,10 @@ export const SettingsScreen: React.FC = () => {
 
   // Regenerate pairing code mutation
   const pairingMutation = useMutation({
-    mutationFn: () => api.agent.createPairingCode(),
+    mutationFn: () => api.agent.createPairingCode(orgCompanyId),
     onSuccess: (data) => {
       setPairingCode(data.code);
-      showToast({ message: 'New pairing code generated' });
+      showToast({ message: `New pairing code generated for ${activeCompany?.name || 'organization'}` });
     },
   });
 
@@ -280,6 +285,49 @@ export const SettingsScreen: React.FC = () => {
     } catch {
       showToast({ message: 'Code copied: ' + pairingCode });
     }
+  };
+
+  const [copiedAgentCmd, setCopiedAgentCmd] = useState(false);
+  const [copiedPairCmd, setCopiedPairCmd] = useState(false);
+  const orgCompanyId = activeCompany?.id || (currentCompanyId !== 'all' ? currentCompanyId : 'c1');
+
+  const handleCopyPairCmd = async () => {
+    try {
+      await navigator.clipboard.writeText(`run-agent.bat pair ${pairingCode}`);
+      setCopiedPairCmd(true);
+      showToast({ message: 'Pairing command copied! Run it on the Tally PC.' });
+      setTimeout(() => setCopiedPairCmd(false), 2000);
+    } catch {
+      showToast({ message: `Cmd: run-agent.bat pair ${pairingCode}` });
+    }
+  };
+
+  const handleDownloadAgentConfig = async () => {
+    try {
+      const token = useAppStore.getState().authToken;
+      const res = await fetch(`/api/agent/config-file?companyId=${encodeURIComponent(orgCompanyId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to generate agent config');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'agent-state.json';
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast({ message: `Downloaded agent-state.json for ${activeCompany?.name || 'organization'}`, variant: 'success' });
+    } catch (err: any) {
+      showToast({ message: err.message || 'Error downloading agent config', variant: 'danger' });
+    }
+  };
+
+  const handleCopyAgentCmd = () => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://manohar.evolveexpert.com';
+    navigator.clipboard.writeText(`run-agent.bat config --company=${orgCompanyId} --cloud=${origin}`);
+    setCopiedAgentCmd(true);
+    setTimeout(() => setCopiedAgentCmd(false), 2000);
+    showToast({ message: 'Agent configuration command copied!', variant: 'success' });
   };
 
   const handleClearCache = async () => {
@@ -445,6 +493,20 @@ export const SettingsScreen: React.FC = () => {
     },
   ];
 
+  const visiblePermissionGroups = PERMISSION_GROUPS.map((g) => {
+    if (g.name === 'Administration & Setup') {
+      return {
+        ...g,
+        keys: g.keys.filter((k) => {
+          if (k === 'clients.manage') return isDevUser;
+          if (k === 'users.manage' || k === 'settings.manage') return isOwnerUser;
+          return true;
+        }),
+      };
+    }
+    return g;
+  }).filter((g) => g.keys.length > 0);
+
   const formatPermissionLabel = (key: PermissionKey): string => {
     const map: Record<PermissionKey, string> = {
       'dashboard.view': 'View Executive Dashboard',
@@ -566,24 +628,34 @@ export const SettingsScreen: React.FC = () => {
             </Button>
           </div>
 
-          <div className="pt-2 border-t border-separator/40">
+          <div className="pt-2 border-t border-separator/40 flex flex-col gap-2">
             <a
               href="/tally-agent-windows.zip"
               download="tally-agent-windows.zip"
               className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-accent/10 text-accent font-medium rounded-xl text-subhead hover:bg-accent/20 transition-colors border border-accent/20"
             >
-              <Download className="w-4 h-4" /> Download Windows Sync Agent (.ZIP - 80 KB)
+              <Download className="w-4 h-4" /> Download Windows Sync Agent (.ZIP)
             </a>
+            <Button
+              variant="tinted"
+              onClick={handleDownloadAgentConfig}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-subhead"
+            >
+              <Download className="w-4 h-4" /> Download agent-state.json ({activeCompany?.name || 'This Org'})
+            </Button>
           </div>
         </div>
 
         {/* Pairing Code Inset */}
-        <div className="p-4 bg-fill/30 rounded-2xl border border-separator/40 flex flex-col gap-2">
+        <div className="p-4 bg-fill/30 rounded-2xl border border-separator/40 flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-accent" />
               <span className="text-subhead font-semibold text-label">
                 {t('settings.pairingCodeTitle', 'Pairing Code')}
+              </span>
+              <span className="text-caption text-label-2 font-normal">
+                ({activeCompany?.name || 'This Organization'})
               </span>
             </div>
             <button
@@ -600,7 +672,7 @@ export const SettingsScreen: React.FC = () => {
               <span className="font-mono text-title-large font-bold tracking-widest text-label">
                 {pairingCode}
               </span>
-              <span className="text-caption text-label-3">Expires in 9m</span>
+              <span className="text-caption text-label-3">Expires in 10m</span>
             </div>
 
             <Button
@@ -622,6 +694,49 @@ export const SettingsScreen: React.FC = () => {
               )}
             </Button>
           </div>
+
+          {/* Quick Pairing Command */}
+          <div className="flex items-center justify-between bg-surface/60 px-3 py-2 rounded-xl border border-separator/30 text-footnote">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <span className="text-label-3 text-caption shrink-0">Command:</span>
+              <code className="font-mono text-label text-caption truncate select-all">
+                run-agent.bat pair {pairingCode}
+              </code>
+            </div>
+            <button
+              type="button"
+              onClick={handleCopyPairCmd}
+              className="text-caption font-semibold text-accent hover:underline ml-2 shrink-0"
+            >
+              {copiedPairCmd ? 'Copied' : 'Copy Cmd'}
+            </button>
+          </div>
+        </div>
+
+        {/* Organization Company ID for Agent */}
+        <div className="p-3 bg-fill/20 rounded-xl border border-separator/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col">
+            <span className="text-caption text-label-2 font-medium">Organization Company ID</span>
+            <span className="font-mono text-footnote font-bold text-label">{orgCompanyId}</span>
+          </div>
+          <Button
+            size="small"
+            variant="tinted"
+            onClick={handleCopyAgentCmd}
+            className="flex items-center gap-1.5 h-8 px-2.5 whitespace-nowrap self-start sm:self-center"
+          >
+            {copiedAgentCmd ? (
+              <>
+                <Check className="w-3.5 h-3.5 text-ok" />
+                <span className="text-ok">Copied Setup Cmd</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3.5 h-3.5" />
+                <span>Copy Setup Command</span>
+              </>
+            )}
+          </Button>
         </div>
       </InsetGroup>
 
@@ -734,8 +849,8 @@ export const SettingsScreen: React.FC = () => {
       {/* 2. Staff & Role Management */}
       <InsetGroup
         title={t('settings.staffSection', 'Staff & Role Management')}
-        actionText={isAdminOrOwner ? t('settings.addStaff', 'Add Staff') : undefined}
-        onActionClick={isAdminOrOwner ? handleOpenAddStaff : undefined}
+        actionText={canManageUsers ? t('settings.addStaff', 'Add Staff') : undefined}
+        onActionClick={canManageUsers ? handleOpenAddStaff : undefined}
       >
         {users.map((u) => (
           <Row
@@ -776,8 +891,8 @@ export const SettingsScreen: React.FC = () => {
       {/* 2b. Role Permissions Matrix */}
       <InsetGroup
         title={t('settings.permissionsSection', 'Role Permissions & Access Control')}
-        actionText={isAdminOrOwner ? 'Customize Matrix' : undefined}
-        onActionClick={isAdminOrOwner ? () => setPermissionsModalOpen(true) : undefined}
+        actionText={isOwnerUser ? 'Customize Matrix' : undefined}
+        onActionClick={isOwnerUser ? () => setPermissionsModalOpen(true) : undefined}
       >
         <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3">
           <div className="flex items-center justify-between">
@@ -788,7 +903,7 @@ export const SettingsScreen: React.FC = () => {
               </span>
             </div>
             <span className="text-caption text-label-3">
-              {isAdminOrOwner ? 'Owner Editable' : 'Enforced'}
+              {isOwnerUser ? 'Owner Editable' : 'Enforced'}
             </span>
           </div>
           <div className="flex flex-wrap gap-1.5 pt-1">
@@ -853,6 +968,7 @@ export const SettingsScreen: React.FC = () => {
           title={t('settings.activeCompany', 'Active Company')}
           trailing={
             <select
+              aria-label={t('settings.activeCompany', 'Active Company')}
               value={currentCompanyId}
               onChange={(e) => setCompanyId(e.target.value)}
               className="bg-fill/60 border border-separator/40 rounded-lg px-2.5 py-1.5 text-footnote font-semibold text-label focus:outline-none cursor-pointer max-w-[180px] truncate"
@@ -980,10 +1096,11 @@ export const SettingsScreen: React.FC = () => {
 
             {/* Editable Staff Name */}
             <div>
-              <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+              <label htmlFor="edit-staff-name" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
                 Staff Full Name
               </label>
               <input
+                id="edit-staff-name"
                 type="text"
                 value={editStaffName}
                 onChange={(e) => setEditStaffName(e.target.value)}
@@ -994,12 +1111,13 @@ export const SettingsScreen: React.FC = () => {
             {/* Custom Role Title */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-caption font-semibold uppercase text-label-2 block">
+                <label htmlFor="edit-staff-custom-role" className="text-caption font-semibold uppercase text-label-2 block">
                   Custom Role Title (Job Name)
                 </label>
                 <span className="text-caption text-label-3">e.g. Senior Billing Head</span>
               </div>
               <input
+                id="edit-staff-custom-role"
                 type="text"
                 placeholder="e.g. Lead Collection Agent, Warehouse Manager"
                 value={editStaffCustomRoleName}
@@ -1011,7 +1129,7 @@ export const SettingsScreen: React.FC = () => {
             {/* Base Role Preset Selection */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="text-caption font-semibold uppercase text-label-2 block">
+                <label htmlFor="edit-staff-role" className="text-caption font-semibold uppercase text-label-2 block">
                   Base Security Role
                 </label>
                 <button
@@ -1027,6 +1145,7 @@ export const SettingsScreen: React.FC = () => {
                 </button>
               </div>
               <select
+                id="edit-staff-role"
                 value={editStaffRole}
                 onChange={(e) => {
                   const newRole = e.target.value as Role;
@@ -1057,7 +1176,14 @@ export const SettingsScreen: React.FC = () => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setEditStaffPermissions([...PERMISSION_KEYS])}
+                    onClick={() => {
+                      const assignableKeys = isDevUser
+                        ? [...PERMISSION_KEYS]
+                        : isOwnerUser
+                        ? (editStaffRole === 'admin' ? [...OPERATIONAL_PERMISSION_KEYS, 'settings.manage' as PermissionKey] : [...OPERATIONAL_PERMISSION_KEYS])
+                        : [...OPERATIONAL_PERMISSION_KEYS];
+                      setEditStaffPermissions(assignableKeys);
+                    }}
                     className="text-caption text-accent font-semibold hover:underline"
                   >
                     Select All
@@ -1074,7 +1200,7 @@ export const SettingsScreen: React.FC = () => {
               </div>
 
               <div className="border border-separator/40 rounded-xl overflow-hidden bg-surface divide-y divide-separator/30">
-                {PERMISSION_GROUPS.map((group) => (
+                {visiblePermissionGroups.map((group) => (
                   <div key={group.name} className="p-3">
                     <span className="text-caption uppercase font-bold text-label-3 block mb-2 tracking-wider">
                       {group.name}
@@ -1126,7 +1252,7 @@ export const SettingsScreen: React.FC = () => {
                 {isUpdatingStaff ? 'Saving Changes...' : 'Save Staff Changes'}
               </Button>
 
-              {isAdminOrOwner && selectedUser.id !== currentUser?.id && (
+              {isOwnerUser && selectedUser.id !== currentUser?.id && (
                 <button
                   type="button"
                   disabled={isDeletingStaff}
@@ -1159,10 +1285,11 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+            <label htmlFor="new-staff-name" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
               Staff Full Name *
             </label>
             <input
+              id="new-staff-name"
               type="text"
               placeholder="e.g. Vikas Sharma"
               value={newStaffName}
@@ -1172,10 +1299,11 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+            <label htmlFor="new-staff-phone" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
               Mobile Number (WhatsApp) *
             </label>
             <input
+              id="new-staff-phone"
               type="tel"
               placeholder="+91 98765 00000"
               value={newStaffPhone}
@@ -1186,12 +1314,13 @@ export const SettingsScreen: React.FC = () => {
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-caption font-semibold uppercase text-label-2 block">
+              <label htmlFor="new-staff-custom-role" className="text-caption font-semibold uppercase text-label-2 block">
                 Custom Role Title (Job Title)
               </label>
               <span className="text-caption text-label-3">Optional</span>
             </div>
             <input
+              id="new-staff-custom-role"
               type="text"
               placeholder="e.g. Senior Collection Agent, Field Sales Head"
               value={newStaffCustomRoleName}
@@ -1202,12 +1331,13 @@ export const SettingsScreen: React.FC = () => {
 
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-caption font-semibold uppercase text-label-2 block">
+              <label htmlFor="new-staff-role" className="text-caption font-semibold uppercase text-label-2 block">
                 Base Security Role
               </label>
               <span className="text-caption text-label-3">Presets standard permissions</span>
             </div>
             <select
+              id="new-staff-role"
               value={newStaffRole}
               onChange={(e) => {
                 const nextRole = e.target.value as Role;
@@ -1237,7 +1367,14 @@ export const SettingsScreen: React.FC = () => {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setNewStaffPermissions([...PERMISSION_KEYS])}
+                  onClick={() => {
+                    const assignableKeys = isDevUser
+                      ? [...PERMISSION_KEYS]
+                      : isOwnerUser
+                      ? (newStaffRole === 'admin' ? [...OPERATIONAL_PERMISSION_KEYS, 'settings.manage' as PermissionKey] : [...OPERATIONAL_PERMISSION_KEYS])
+                      : [...OPERATIONAL_PERMISSION_KEYS];
+                    setNewStaffPermissions(assignableKeys);
+                  }}
                   className="text-caption text-accent font-semibold hover:underline"
                 >
                   Select All
@@ -1254,7 +1391,7 @@ export const SettingsScreen: React.FC = () => {
             </div>
 
             <div className="border border-separator/40 rounded-xl overflow-hidden bg-surface divide-y divide-separator/30">
-              {PERMISSION_GROUPS.map((group) => (
+              {visiblePermissionGroups.map((group) => (
                 <div key={group.name} className="p-3">
                   <span className="text-caption uppercase font-bold text-label-3 block mb-2 tracking-wider">
                     {group.name}
@@ -1315,10 +1452,11 @@ export const SettingsScreen: React.FC = () => {
       >
         <div className="flex flex-col gap-4 pt-2">
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+            <label htmlFor="edit-company-name" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
               Company / Business Name
             </label>
             <input
+              id="edit-company-name"
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
@@ -1328,10 +1466,11 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+            <label htmlFor="edit-tally-name" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
               Tally Company Name (Exact Match)
             </label>
             <input
+              id="edit-tally-name"
               type="text"
               value={tallyName}
               onChange={(e) => setTallyName(e.target.value)}
@@ -1345,10 +1484,11 @@ export const SettingsScreen: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              <label htmlFor="edit-company-fy" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                 Financial Year
               </label>
               <input
+                id="edit-company-fy"
                 type="text"
                 value={financialYear}
                 onChange={(e) => setFinancialYear(e.target.value)}
@@ -1357,10 +1497,11 @@ export const SettingsScreen: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              <label htmlFor="edit-company-gstin" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                 GSTIN Number
               </label>
               <input
+                id="edit-company-gstin"
                 type="text"
                 value={gstin}
                 onChange={(e) => setGstin(e.target.value.toUpperCase())}
@@ -1385,10 +1526,11 @@ export const SettingsScreen: React.FC = () => {
       >
         <div className="flex flex-col gap-4 pt-2">
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+            <label htmlFor="add-company-name" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
               Organization Name
             </label>
             <input
+              id="add-company-name"
               type="text"
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
@@ -1398,10 +1540,11 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+            <label htmlFor="add-tally-name" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
               Tally Company Name
             </label>
             <input
+              id="add-tally-name"
               type="text"
               value={tallyName}
               onChange={(e) => setTallyName(e.target.value)}
@@ -1412,10 +1555,11 @@ export const SettingsScreen: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              <label htmlFor="add-company-fy" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                 Financial Year
               </label>
               <input
+                id="add-company-fy"
                 type="text"
                 value={financialYear}
                 onChange={(e) => setFinancialYear(e.target.value)}
@@ -1424,10 +1568,11 @@ export const SettingsScreen: React.FC = () => {
               />
             </div>
             <div>
-              <label className="text-caption font-semibold uppercase text-label-2 mb-1 block">
+              <label htmlFor="add-company-gstin" className="text-caption font-semibold uppercase text-label-2 mb-1 block">
                 GSTIN Number (Optional)
               </label>
               <input
+                id="add-company-gstin"
                 type="text"
                 value={gstin}
                 onChange={(e) => setGstin(e.target.value.toUpperCase())}
@@ -1471,9 +1616,12 @@ export const SettingsScreen: React.FC = () => {
 
           {/* Permissions Toggle List */}
           <div className="flex flex-col rounded-2xl bg-surface border border-separator/40 divide-y divide-separator/30 max-h-[50vh] overflow-y-auto">
-            {PERMISSION_KEYS.map((perm) => {
+            {PERMISSION_KEYS.filter((p) => p !== 'clients.manage' || isDevUser).map((perm) => {
               const isAllowed = rolePermissions[selectedRoleForPerms]?.[perm] ?? false;
-              const isLocked = selectedRoleForPerms === 'owner'; // Owner always has all permissions
+              const isLocked =
+                selectedRoleForPerms === 'owner' ||
+                (!isDevUser && perm === 'clients.manage') ||
+                (!isOwnerUser && (perm === 'users.manage' || perm === 'settings.manage'));
 
               return (
                 <div
@@ -1491,7 +1639,7 @@ export const SettingsScreen: React.FC = () => {
 
                   <button
                     type="button"
-                    disabled={isLocked || !isAdminOrOwner}
+                    disabled={isLocked || !isOwnerUser}
                     onClick={() => handleTogglePermission(selectedRoleForPerms, perm)}
                     className={`w-11 h-6 rounded-full transition-colors relative focus:outline-none disabled:opacity-50 ${
                       isAllowed ? 'bg-accent' : 'bg-fill'

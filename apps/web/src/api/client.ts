@@ -59,7 +59,7 @@ export interface ApiClient {
   };
   agent: {
     status: () => Promise<Agent>;
-    createPairingCode: () => Promise<{ code: string; expiresAt: string }>;
+    createPairingCode: (companyId?: string) => Promise<{ code: string; expiresAt: string; companyId?: string; companyName?: string }>;
     triggerSync: () => Promise<{
       success: boolean;
       syncedAt: string;

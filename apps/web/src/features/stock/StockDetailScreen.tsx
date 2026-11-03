@@ -56,7 +56,7 @@ export const StockDetailScreen: React.FC = () => {
 
   const adjustMutation = useMutation({
     mutationFn: () =>
-      api.stock.adjust(itemId, selectedGodownId, deltaQty, reason),
+      api.stock.adjust(itemId, selectedGodownId, deltaQty, note ? `${reason}: ${note}` : reason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-item', itemId] });
       queryClient.invalidateQueries({ queryKey: ['stock-items'] });

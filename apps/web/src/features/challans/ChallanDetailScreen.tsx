@@ -30,7 +30,7 @@ export const ChallanDetailScreen: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [taskSheetOpen, setTaskSheetOpen] = useState(false);
@@ -131,7 +131,7 @@ export const ChallanDetailScreen: React.FC = () => {
       title: taskTitle.trim(),
       description: taskNotes.trim() || undefined,
       assignedToUserId: taskAssigneeId,
-      assignedByUserId: 'u1',
+      assignedByUserId: currentUser?.id || 'u1',
       challanId: challan.id,
       photoUrl: taskPhotoUrl || undefined,
       status: 'pending',
@@ -169,7 +169,8 @@ export const ChallanDetailScreen: React.FC = () => {
   const godownName = godowns.find((g) => g.id === challan.godownId)?.name ?? 'Main Godown (Ludhiana)';
 
   const handleShareWhatsApp = () => {
-    const phone = party?.phones[0]?.replace(/\D/g, '') || '';
+    const rawPhone = party?.phones[0]?.replace(/\D/g, '') || '';
+    const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
     const itemSummary = challan.lines.map((l) => `${l.qty}x ${l.description}`).join(', ');
     const text = encodeURIComponent(
       `Hello ${party?.name ?? 'Customer'}, your ${challan.type.toUpperCase()} CHALLAN ${challan.number} dated ${challan.date} for ${formatINR(grandTotalPaise)} has been generated.` +

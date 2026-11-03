@@ -125,7 +125,7 @@ export function parseLedgersResponse(xmlString: string): TallyLedger[] {
   return ledgers;
 }
 
-export function parseBillsResponse(xmlString: string, today: string = '2026-10-17'): TallyBill[] {
+export function parseBillsResponse(xmlString: string, today: string = new Date().toISOString().slice(0, 10)): TallyBill[] {
   const parsed = xmlParser.parse(xmlString);
   const envelope = parsed?.ENVELOPE || parsed?.envelope;
   const body = envelope?.BODY || envelope?.body;
@@ -144,7 +144,9 @@ export function parseBillsResponse(xmlString: string, today: string = '2026-10-1
 
     const billDate = parseTallyDate(rawBill.BILLDATE);
     const dueDate = parseTallyDate(rawBill.BILLDUE || rawBill.BILLDATE);
-    const amount = parseTallyAmount(rawBill.CLOSINGBALANCE);
+    const closingAmount = Math.abs(parseTallyAmount(rawBill.CLOSINGBALANCE));
+    const openingRaw = Math.abs(parseTallyAmount(rawBill.OPENINGBALANCE));
+    const openingAmount = openingRaw > 0 ? openingRaw : closingAmount;
     const daysLate = getDaysOverdue(dueDate, today);
 
     bills.push({
@@ -152,7 +154,8 @@ export function parseBillsResponse(xmlString: string, today: string = '2026-10-1
       billNo: String(billNo).trim(),
       billDate,
       dueDate,
-      pendingAmount: Math.abs(amount),
+      openingAmount,
+      pendingAmount: closingAmount,
       isOverdue: daysLate > 0,
       daysOverdue: Math.max(0, daysLate),
     });

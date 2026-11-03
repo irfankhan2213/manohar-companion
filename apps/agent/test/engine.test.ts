@@ -69,37 +69,58 @@ describe('Sync Engine', () => {
     }
   });
 
-  it('pushes payload to cloud and pulls queued delivery challans', async () => {
+  it('pushes company-prefixed IDs to cloud and pulls both challans and stock_journal adjustments', async () => {
     const store = new StateStore(testStatePath);
     const client = new TallyClient({ mock: true });
-    
+
     let pushedBody: any = null;
-    let ackBody: any = null;
+    const ackBodies: any[] = [];
 
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url: any, init: any) => {
       const urlStr = String(url);
       if (urlStr.includes('/api/sync/push')) {
         pushedBody = JSON.parse(init.body);
-        return new Response(JSON.stringify({ success: true, partiesUpdated: 5, billsUpdated: 4, stockUpdated: 4 }), { status: 200 });
+        return new Response(
+          JSON.stringify({ success: true, partiesUpdated: 5, billsUpdated: 4, stockUpdated: 4 }),
+          { status: 200 }
+        );
       }
       if (urlStr.includes('/api/agent/sync')) {
         return new Response(JSON.stringify({ success: true }), { status: 200 });
       }
       if (urlStr.includes('/api/sync/pull')) {
-        return new Response(JSON.stringify([
-          {
-            id: 'ch-test-1',
-            number: 'CH/001',
-            partyName: 'Sample Garments',
-            date: '2026-10-27',
-            narration: 'Test Challan',
-            lines: [{ description: 'Servo Motor', qty: 2, unit: 'pcs', rate: 420000 }],
-          },
-        ]), { status: 200 });
+        return new Response(
+          JSON.stringify([
+            {
+              id: 'ch-test-1',
+              kind: 'challan',
+              type: 'sales',
+              number: 'CH/001',
+              partyName: 'Sample Garments',
+              date: '2026-10-27',
+              narration: 'Test Challan',
+              lines: [{ description: 'Servo Motor', qty: 2, unit: 'pcs', rate: 420000 }],
+            },
+            {
+              id: 'out-stock-1',
+              outboxId: 'out-stock-1',
+              kind: 'stock_journal',
+              refId: 'item-1',
+              itemName: 'Servo Motor 550W (Direct Drive)',
+              godownName: 'Main Godown',
+              deltaQty: -2,
+              unit: 'pcs',
+              rate: 420000,
+              reason: 'Damaged in transit',
+              date: '2026-10-27',
+            },
+          ]),
+          { status: 200 }
+        );
       }
       if (urlStr.includes('/api/sync/ack')) {
-        ackBody = JSON.parse(init.body);
+        ackBodies.push(JSON.parse(init.body));
         return new Response(JSON.stringify({ success: true }), { status: 200 });
       }
       return originalFetch(url, init);
@@ -119,12 +140,19 @@ describe('Sync Engine', () => {
       expect(pushedBody).toBeDefined();
       expect(pushedBody.companyId).toBe('comp-1');
       expect(pushedBody.parties.length).toBeGreaterThan(0);
+      expect(pushedBody.parties[0].id.startsWith('p-comp-1-')).toBe(true);
       expect(pushedBody.bills.length).toBeGreaterThan(0);
+      expect(pushedBody.bills[0].id.startsWith('b-comp-1-')).toBe(true);
+      expect(pushedBody.bills[0].amount).toBeGreaterThan(0);
       expect(pushedBody.stockItems.length).toBeGreaterThan(0);
+      expect(pushedBody.stockItems[0].id.startsWith('s-comp-1-')).toBe(true);
 
-      expect(ackBody).toBeDefined();
-      expect(ackBody.challanId).toBe('ch-test-1');
-      expect(ackBody.status).toBe('synced');
+      expect(ackBodies.length).toBe(2);
+      expect(ackBodies[0].challanId).toBe('ch-test-1');
+      expect(ackBodies[0].status).toBe('synced');
+      expect(ackBodies[1].outboxId).toBe('out-stock-1');
+      expect(ackBodies[1].kind).toBe('stock_journal');
+      expect(ackBodies[1].status).toBe('synced');
     } finally {
       globalThis.fetch = originalFetch;
       if (fs.existsSync(testStatePath)) {

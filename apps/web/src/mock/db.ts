@@ -14,6 +14,7 @@ import {
   setCustomPermissions,
 } from '@saas/shared';
 import { ApiClient, HomeSummary } from '../api/client.js';
+import { useAppStore } from '../app/store.js';
 import {
   FIXED_TODAY,
   INITIAL_ACTIVITIES,
@@ -54,6 +55,12 @@ interface MockDB {
 }
 
 const STORAGE_KEY = 'mock-db-v6';
+let lastLoggedInUserId: string | null = null;
+
+function sanitizeUser<T extends Record<string, any>>(u: T): T {
+  const { pin: _pin, ...safe } = u;
+  return safe as T;
+}
 
 function loadDB(): MockDB {
   try {
@@ -113,6 +120,7 @@ function saveDB() {
 
 export function resetMockDB() {
   localStorage.removeItem(STORAGE_KEY);
+  lastLoggedInUserId = null;
   db = loadDB();
 }
 
@@ -121,9 +129,13 @@ export const mockApiClient: ApiClient = {
     list: async () => [...db.companies],
     get: async (id) => db.companies.find((c) => c.id === id) || null,
     create: async (data) => {
+      const currentTenantId =
+        useAppStore.getState().currentTenant?.id ||
+        useAppStore.getState().currentUser?.tenantId ||
+        'tenant-1';
       const newCompany = {
         id: `c-${Date.now()}`,
-        tenantId: 'tenant-1',
+        tenantId: currentTenantId,
         name: data.name || 'New Company',
         tallyName: data.tallyName || data.name || 'New Company',
         financialYear: data.financialYear || '2026-27',
@@ -149,10 +161,15 @@ export const mockApiClient: ApiClient = {
   },
   agent: {
     status: async () => ({ ...db.agent }),
-    createPairingCode: async () => ({
-      code: '839201',
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    }),
+    createPairingCode: async (companyId?: string) => {
+      const comp = companyId ? db.companies.find((c) => c.id === companyId) : db.companies[0];
+      return {
+        code: '839201',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        companyId: comp?.id || companyId || 'c1',
+        companyName: comp?.name || 'Manohar Traders',
+      };
+    },
     triggerSync: async () => {
       db.agent.lastSeenAt = new Date().toISOString();
       saveDB();
@@ -297,7 +314,7 @@ export const mockApiClient: ApiClient = {
     create: async (data: any) => {
       const p = {
         id: data.id || `p-${Date.now()}`,
-        tenantId: data.tenantId || 'tenant-1',
+        tenantId: data.tenantId || useAppStore.getState().currentUser?.tenantId || 'tenant-1',
         companyId: data.companyId || 'c1',
         name: data.name || '',
         city: data.city || 'Ludhiana',
@@ -361,6 +378,7 @@ export const mockApiClient: ApiClient = {
             text,
             at: new Date().toISOString(),
           });
+          thread.unread = 0;
           saveDB();
         }
       },
@@ -390,7 +408,7 @@ export const mockApiClient: ApiClient = {
         return { item, balances };
       },
     },
-    adjust: async (itemId, godownId, deltaQty, _reason) => {
+    adjust: async (itemId, godownId, deltaQty, reason) => {
       const balanceIdx = db.balances.findIndex(
         (b: StockBalance) => b.itemId === itemId && b.godownId === godownId
       );
@@ -400,15 +418,35 @@ export const mockApiClient: ApiClient = {
         db.balances.push({ itemId, godownId, qty: deltaQty });
       }
 
+      const targetItem = db.stock.find((s) => s.id === itemId);
+      const targetGodown = db.godowns.find((g) => g.id === godownId);
+      const activeCompanyId = useAppStore.getState().currentCompanyId;
+      const resolvedCompanyId =
+        targetItem?.companyId ||
+        targetGodown?.companyId ||
+        (activeCompanyId !== 'all' ? activeCompanyId : 'c1');
+
       const outboxItem: OutboxItem = {
         id: `out-${Date.now()}`,
-        companyId: 'c1',
+        companyId: resolvedCompanyId,
         kind: 'stock_journal',
         refId: itemId,
         status: 'queued',
         attempts: 1,
       };
       db.outbox.unshift(outboxItem);
+
+      const currentUser = useAppStore.getState().currentUser;
+      db.activities.unshift({
+        id: `act-${Date.now()}`,
+        tenantId: currentUser?.tenantId || 'tenant-1',
+        companyId: resolvedCompanyId,
+        actorId: currentUser?.id || 'u1',
+        action: 'stock_adjusted',
+        target: `${targetItem?.name || itemId} (${deltaQty > 0 ? '+' : ''}${deltaQty}${reason ? `: ${reason}` : ''})`,
+        at: new Date().toISOString(),
+        device: 'Desktop',
+      });
       saveDB();
 
       setTimeout(() => {
@@ -570,13 +608,13 @@ export const mockApiClient: ApiClient = {
     },
   },
   users: {
-    list: async () => db.users,
+    list: async () => db.users.map((u) => sanitizeUser(u)),
     update: async (id, data) => {
       const u = db.users.find((user) => user.id === id);
       if (u) {
         Object.assign(u, data);
         saveDB();
-        return u;
+        return sanitizeUser(u);
       }
       throw new Error('User not found');
     },
@@ -585,18 +623,21 @@ export const mockApiClient: ApiClient = {
       if (u) {
         u.role = role;
         saveDB();
-        return u;
+        return sanitizeUser(u);
       }
       throw new Error('User not found');
     },
     create: async (data) => {
       const newUser = {
         id: `u-${Date.now()}`,
+        tenantId: useAppStore.getState().currentUser?.tenantId || 'tenant-1',
+        companyIds: 'all' as const,
+        active: true,
         ...data,
       };
       db.users.push(newUser as any);
       saveDB();
-      return newUser as any;
+      return sanitizeUser(newUser as any);
     },
     delete: async (id) => {
       const idx = db.users.findIndex((u) => u.id === id);
@@ -609,33 +650,66 @@ export const mockApiClient: ApiClient = {
   },
   permissions: {
     get: async () => {
-      const stored = localStorage.getItem('manohar_custom_permissions');
+      const tenantId =
+        useAppStore.getState().currentTenant?.id ||
+        useAppStore.getState().currentUser?.tenantId ||
+        'tenant-1';
+      const scopedKey = `manohar_custom_permissions_${tenantId}`;
+      const stored = localStorage.getItem(scopedKey) || localStorage.getItem('manohar_custom_permissions');
       if (stored) {
         try {
-          return JSON.parse(stored);
+          const parsed = JSON.parse(stored);
+          const merged = { ...ROLE_PERMISSIONS, ...parsed };
+          setCustomPermissions(merged as any);
+          return merged;
         } catch {}
       }
+      setCustomPermissions(ROLE_PERMISSIONS);
       return ROLE_PERMISSIONS;
     },
     update: async (perms) => {
-      localStorage.setItem('manohar_custom_permissions', JSON.stringify(perms));
-      setCustomPermissions(perms as any);
-      return perms;
+      const currentUser = useAppStore.getState().currentUser;
+      const tenantId =
+        useAppStore.getState().currentTenant?.id ||
+        currentUser?.tenantId ||
+        'tenant-1';
+      const sanitizedPerms = JSON.parse(JSON.stringify(perms));
+      if (currentUser?.role !== 'dev' && typeof sanitizedPerms === 'object' && sanitizedPerms !== null) {
+        for (const r of Object.keys(sanitizedPerms)) {
+          if (sanitizedPerms[r] && typeof sanitizedPerms[r] === 'object') {
+            sanitizedPerms[r]['clients.manage'] = false;
+          }
+        }
+      }
+      localStorage.setItem(`manohar_custom_permissions_${tenantId}`, JSON.stringify(sanitizedPerms));
+      localStorage.setItem('manohar_custom_permissions', JSON.stringify(sanitizedPerms));
+      setCustomPermissions(sanitizedPerms as any);
+      return sanitizedPerms;
     },
   },
   auth: {
     login: async (phone, pin) => {
-      const clean = (p: string) => p ? p.replace(/\D/g, '') : '';
-      const u = db.users.find(
+      const clean = (p: string) => (p ? p.replace(/\D/g, '') : '');
+      const matchingUsers = db.users.filter(
         (user) =>
           clean(user.phone).endsWith(clean(phone)) ||
           clean(phone).endsWith(clean(user.phone))
       );
-      if (!u) return { success: false, error: 'Staff phone number not found' };
-      const userPin = (u as any).pin || (u.role === 'dev' ? '0000' : '1234');
-      if (pin !== userPin) {
+      if (matchingUsers.length === 0) {
+        return { success: false, error: 'Staff phone number not found' };
+      }
+      const activeUsers = matchingUsers.filter((u) => u.active !== false);
+      if (activeUsers.length === 0) {
+        return { success: false, error: 'Account deactivated' };
+      }
+      const u = activeUsers.find((user) => {
+        const userPin = (user as any).pin || (user.role === 'dev' ? '0000' : '1234');
+        return pin === userPin;
+      });
+      if (!u) {
         return { success: false, error: 'Invalid 4-digit PIN' };
       }
+      lastLoggedInUserId = u.id;
       const tenant = {
         id: u.tenantId || 'tenant-1',
         name: u.role === 'dev' ? 'Platform Management' : 'Manohar Traders Group',
@@ -644,30 +718,56 @@ export const mockApiClient: ApiClient = {
         status: 'active' as const,
         createdAt: new Date().toISOString(),
       };
+      const companies =
+        u.role === 'dev'
+          ? db.companies
+          : db.companies.filter(
+              (c) =>
+                (!c.tenantId || c.tenantId === u.tenantId) &&
+                (u.companyIds === 'all' || !Array.isArray(u.companyIds) || u.companyIds.includes(c.id))
+            );
       return {
         success: true,
-        token: `mock_tok_${Date.now()}`,
-        user: u,
+        token: `mock_tok_${u.id}_${Date.now()}`,
+        user: sanitizeUser(u),
         tenant,
-        companies: db.companies,
+        companies,
       };
     },
     me: async () => {
-      const user = db.users[0]!;
+      const storeUser = useAppStore.getState().currentUser;
+      const targetId = storeUser?.id || lastLoggedInUserId;
+      const found = targetId ? db.users.find((u) => u.id === targetId) : undefined;
+      const user = found || storeUser || db.users[0]!;
+      if (user.active === false) {
+        throw new Error('Account deactivated');
+      }
+      const tenant = {
+        id: user.tenantId || 'tenant-1',
+        name: user.role === 'dev' ? 'Platform Management' : 'Manohar Traders Group',
+        ownerName: user.name,
+        ownerPhone: user.phone,
+        status: 'active' as const,
+        createdAt: new Date().toISOString(),
+      };
+      const companies =
+        user.role === 'dev'
+          ? db.companies
+          : db.companies.filter(
+              (c) =>
+                (!c.tenantId || c.tenantId === user.tenantId) &&
+                (user.companyIds === 'all' || !Array.isArray(user.companyIds) || user.companyIds.includes(c.id))
+            );
       return {
-        user,
-        tenant: {
-          id: user.tenantId || 'tenant-1',
-          name: 'Manohar Traders Group',
-          ownerName: user.name,
-          ownerPhone: user.phone,
-          status: 'active' as const,
-          createdAt: new Date().toISOString(),
-        },
-        companies: db.companies,
+        user: sanitizeUser(user),
+        tenant,
+        companies,
       };
     },
-    logout: async () => ({ success: true }),
+    logout: async () => {
+      lastLoggedInUserId = null;
+      return { success: true };
+    },
   },
   dev: {
     clients: {
@@ -684,7 +784,6 @@ export const mockApiClient: ApiClient = {
             id: 'u1',
             name: 'Manohar Lal',
             phone: '+91 98140 11223',
-            pin: '1234',
           },
         },
       ],
@@ -718,7 +817,8 @@ export const mockApiClient: ApiClient = {
         };
         db.users.push(owner as any);
         db.companies.push(company);
-        return { success: true, tenant, owner, company };
+        saveDB();
+        return { success: true, tenant, owner: sanitizeUser(owner as any), company };
       },
     },
   },

@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { setCustomPermissions } from '@saas/shared';
 import { useAppStore } from './store.js';
 import { api } from '../api/index.js';
 import { TabBar } from '../components/ui/TabBar.js';
@@ -54,20 +55,44 @@ const AppLayout: React.FC = () => {
 };
 
 const RequireAuth: React.FC = () => {
-  const { authToken, currentUser, logout } = useAppStore();
+  const { authToken, currentUser, setUser, logout } = useAppStore();
 
   React.useEffect(() => {
     if (authToken) {
-      api.auth.me().catch(() => {
-        logout();
-      });
+      api.auth
+        .me()
+        .then((res) => {
+          if (res?.user) {
+            setUser(res.user);
+          }
+        })
+        .catch(() => {
+          logout();
+        });
+
+      api.permissions
+        ?.get()
+        .then((perms) => {
+          if (perms) {
+            setCustomPermissions(perms as any);
+          }
+        })
+        .catch(() => {});
     }
-  }, [authToken, logout]);
+  }, [authToken, setUser, logout]);
 
   if (!authToken || !currentUser) {
     return <Navigate to="/login" replace />;
   }
   return <AppLayout />;
+};
+
+const RequireDevRole: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const { currentUser } = useAppStore();
+  if (!currentUser || currentUser.role !== 'dev') {
+    return <Navigate to="/" replace />;
+  }
+  return children;
 };
 
 export const App: React.FC = () => {
@@ -86,7 +111,14 @@ export const App: React.FC = () => {
             {/* Protected App Layout */}
             <Route element={<RequireAuth />}>
               <Route path="/" element={<HomeScreen />} />
-              <Route path="/dev/clients" element={<DevClientsScreen />} />
+              <Route
+                path="/dev/clients"
+                element={
+                  <RequireDevRole>
+                    <DevClientsScreen />
+                  </RequireDevRole>
+                }
+              />
               <Route path="/collections" element={<CollectionsScreen />} />
               <Route path="/collections/:partyId" element={<PartyDetailScreen />} />
               <Route path="/stock" element={<StockScreen />} />

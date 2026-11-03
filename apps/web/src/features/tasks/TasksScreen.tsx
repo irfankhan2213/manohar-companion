@@ -24,7 +24,7 @@ import { SAMPLE_TASK_PHOTO_1, SAMPLE_TASK_PHOTO_2 } from '../../mock/seed.js';
 export const TasksScreen: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
@@ -108,7 +108,7 @@ export const TasksScreen: React.FC = () => {
       title: title.trim(),
       description: description.trim() || undefined,
       assignedToUserId,
-      assignedByUserId: 'u1', // Owner (Manohar Lal)
+      assignedByUserId: currentUser?.id || 'u1',
       challanId: selectedChallanId || undefined,
       photoUrl: photoDataUrl || undefined,
       status: 'pending',
@@ -301,10 +301,11 @@ export const TasksScreen: React.FC = () => {
         <form onSubmit={handleCreateSubmit} className="flex flex-col gap-4 py-2">
           {/* Select Assignee */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-footnote font-semibold uppercase text-label-2">
+            <label htmlFor="task-assignee" className="text-footnote font-semibold uppercase text-label-2">
               Assign To
             </label>
             <select
+              id="task-assignee"
               value={assignedToUserId}
               onChange={(e) => setAssignedToUserId(e.target.value)}
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-semibold focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -319,10 +320,11 @@ export const TasksScreen: React.FC = () => {
 
           {/* Task Title (Text) */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-footnote font-semibold uppercase text-label-2">
+            <label htmlFor="task-title" className="text-footnote font-semibold uppercase text-label-2">
               Task Instructions (Text) *
             </label>
             <input
+              id="task-title"
               type="text"
               required
               placeholder="e.g. Inspect TAI MACHINE motor seal before truck leaves"
@@ -334,10 +336,11 @@ export const TasksScreen: React.FC = () => {
 
           {/* Task Detailed Notes */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-footnote font-semibold uppercase text-label-2">
+            <label htmlFor="task-notes" className="text-footnote font-semibold uppercase text-label-2">
               Additional Notes (Optional)
             </label>
             <textarea
+              id="task-notes"
               rows={2}
               placeholder="Include specific instructions, delivery address, or safety checks..."
               value={description}
@@ -348,10 +351,11 @@ export const TasksScreen: React.FC = () => {
 
           {/* Link to Delivery Challan */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-footnote font-semibold uppercase text-label-2">
+            <label htmlFor="task-challan" className="text-footnote font-semibold uppercase text-label-2">
               Link to Delivery Challan (Optional)
             </label>
             <select
+              id="task-challan"
               value={selectedChallanId}
               onChange={(e) => setSelectedChallanId(e.target.value)}
               className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
@@ -380,6 +384,7 @@ export const TasksScreen: React.FC = () => {
                 />
                 <button
                   type="button"
+                  aria-label="Remove photo"
                   onClick={() => setPhotoDataUrl('')}
                   className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black"
                 >
@@ -395,6 +400,7 @@ export const TasksScreen: React.FC = () => {
                   </span>
                   <input
                     type="file"
+                    aria-label="Upload Photo from Device"
                     accept="image/*"
                     onChange={handleFileUpload}
                     className="hidden"
