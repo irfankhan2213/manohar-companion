@@ -178,11 +178,20 @@ export const httpApiClient: ApiClient = {
     retry: (id: Id) => fetchJSON<Challan>(`/challans/${id}/retry`, { method: 'POST' }),
   },
   tasks: {
-    list: (companyId: Id | 'all', filter?: { challanId?: string; assignedToUserId?: string; status?: 'pending' | 'in_progress' | 'completed' }) => {
+    list: (
+      companyId: Id | 'all',
+      filter?: {
+        challanId?: string;
+        assignedToUserId?: string;
+        assignedByUserId?: string;
+        status?: 'pending' | 'in_progress' | 'completed';
+      }
+    ) => {
       const params = new URLSearchParams();
       if (companyId && companyId !== 'all') params.append('companyId', companyId);
       if (filter?.challanId) params.append('challanId', filter.challanId);
       if (filter?.assignedToUserId) params.append('assignedToUserId', filter.assignedToUserId);
+      if (filter?.assignedByUserId) params.append('assignedByUserId', filter.assignedByUserId);
       if (filter?.status) params.append('status', filter.status);
       return fetchJSON<Task[]>(`/tasks?${params.toString()}`);
     },

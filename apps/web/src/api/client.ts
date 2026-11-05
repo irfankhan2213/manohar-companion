@@ -123,6 +123,7 @@ export interface ApiClient {
       filter?: {
         challanId?: string;
         assignedToUserId?: string;
+        assignedByUserId?: string;
         status?: 'pending' | 'in_progress' | 'completed';
       }
     ) => Promise<Task[]>;

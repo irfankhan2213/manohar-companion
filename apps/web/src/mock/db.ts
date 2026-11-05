@@ -998,9 +998,16 @@ export const mockApiClient: ApiClient = {
         list = list.filter((t) => t.challanId === filter.challanId);
       }
 
-      const targetAssigneeId = filter?.assignedToUserId || currentUser?.id;
-      if (targetAssigneeId) {
-        list = list.filter((t) => t.assignedToUserId === targetAssigneeId);
+      if (filter?.assignedByUserId) {
+        list = list.filter((t) => t.assignedByUserId === filter.assignedByUserId);
+      } else if (filter?.assignedToUserId) {
+        list = list.filter((t) => t.assignedToUserId === filter.assignedToUserId);
+      } else if (currentUser?.id) {
+        list = list.filter(
+          (t) =>
+            t.assignedToUserId === currentUser.id ||
+            t.assignedByUserId === currentUser.id
+        );
       }
 
       if (filter?.status) {

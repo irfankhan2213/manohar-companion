@@ -10,6 +10,8 @@ import {
   X,
   Upload,
   Image as ImageIcon,
+  UserCheck,
+  Send,
 } from 'lucide-react';
 import { Task, User } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -27,20 +29,26 @@ export const TasksScreen: React.FC = () => {
   const { currentCompanyId, currentUser } = useAppStore();
   const { showToast } = useToast();
 
+  const [viewScope, setViewScope] = useState<'assigned_to_me' | 'assigned_by_me'>('assigned_to_me');
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
-  // Form State
+  // Assign New Task Form State
   const [assignedToUserId, setAssignedToUserId] = useState('u5'); // Suresh Kumar default
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedChallanId, setSelectedChallanId] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState<string>('');
 
-  // Fetch data (strictly scoped to tasks assigned to the logged-in user)
-  const { data: rawTasks = [], isLoading } = useQuery({
-    queryKey: ['tasks', currentCompanyId, currentUser?.id],
+  // Complete Task & Upload Proof Modal State
+  const [completingTask, setCompletingTask] = useState<Task | null>(null);
+  const [completionPhotoUrl, setCompletionPhotoUrl] = useState<string>('');
+  const [completionNote, setCompletionNote] = useState<string>('');
+
+  // Fetch tasks assigned to the logged-in user
+  const { data: rawAssignedToMe = [], isLoading: loadingToMe } = useQuery({
+    queryKey: ['tasks', currentCompanyId, 'to', currentUser?.id],
     queryFn: () =>
       api.tasks.list(
         currentCompanyId,
@@ -48,13 +56,34 @@ export const TasksScreen: React.FC = () => {
       ),
   });
 
-  const tasks = React.useMemo(
+  // Fetch tasks created/assigned by the logged-in user
+  const { data: rawAssignedByMe = [], isLoading: loadingByMe } = useQuery({
+    queryKey: ['tasks', currentCompanyId, 'by', currentUser?.id],
+    queryFn: () =>
+      currentUser?.id
+        ? api.tasks.list(currentCompanyId, { assignedByUserId: currentUser.id })
+        : Promise.resolve([]),
+    enabled: Boolean(currentUser?.id),
+  });
+
+  const assignedToMeTasks = React.useMemo(
     () =>
       currentUser?.id
-        ? rawTasks.filter((t) => t.assignedToUserId === currentUser.id)
-        : rawTasks,
-    [rawTasks, currentUser?.id]
+        ? rawAssignedToMe.filter((t) => t.assignedToUserId === currentUser.id)
+        : rawAssignedToMe,
+    [rawAssignedToMe, currentUser?.id]
   );
+
+  const assignedByMeTasks = React.useMemo(
+    () =>
+      currentUser?.id
+        ? rawAssignedByMe.filter((t) => t.assignedByUserId === currentUser.id)
+        : [],
+    [rawAssignedByMe, currentUser?.id]
+  );
+
+  const tasks = viewScope === 'assigned_by_me' ? assignedByMeTasks : assignedToMeTasks;
+  const isLoading = viewScope === 'assigned_by_me' ? loadingByMe : loadingToMe;
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
@@ -79,13 +108,16 @@ export const TasksScreen: React.FC = () => {
   // Task creation mutation
   const createTaskMutation = useMutation({
     mutationFn: (data: Omit<Task, 'id' | 'createdAt'>) => api.tasks.create(data),
-    onSuccess: () => {
+    onSuccess: (createdTask) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
       showToast({
         message: 'Task assigned and notification sent to assignee',
         variant: 'success',
       });
+      if (currentUser?.id && createdTask.assignedToUserId !== currentUser.id) {
+        setViewScope('assigned_by_me');
+      }
       setCreateSheetOpen(false);
       setTitle('');
       setDescription('');
@@ -94,18 +126,36 @@ export const TasksScreen: React.FC = () => {
     },
   });
 
-  // Task status update mutation
+  // Task status & completion proof update mutation
   const updateStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: Task['status'] }) =>
-      api.tasks.update(id, { status }),
-    onSuccess: () => {
+    mutationFn: ({
+      id,
+      status,
+      photoUrl,
+      description: updatedDescription,
+    }: {
+      id: string;
+      status: Task['status'];
+      photoUrl?: string;
+      description?: string;
+    }) => api.tasks.update(id, { status, photoUrl, description: updatedDescription }),
+    onSuccess: (_updated, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      showToast({ message: 'Task status updated' });
+      setCompletingTask(null);
+      setCompletionPhotoUrl('');
+      setCompletionNote('');
+      showToast({
+        message:
+          variables.status === 'completed'
+            ? 'Task marked completed and assigner notified'
+            : 'Task reopened as pending',
+        variant: 'success',
+      });
     },
   });
 
-  // Handle Photo File Upload
+  // Handle Photo File Upload for New Task
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -117,6 +167,44 @@ export const TasksScreen: React.FC = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Handle Completion Photo File Upload
+  const handleCompletionFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setCompletionPhotoUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleOpenCompleteSheet = (task: Task) => {
+    setCompletingTask(task);
+    setCompletionPhotoUrl(task.photoUrl || '');
+    setCompletionNote('');
+  };
+
+  const handleConfirmComplete = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completingTask) return;
+
+    const mergedDescription = completionNote.trim()
+      ? completingTask.description
+        ? `${completingTask.description} · Done Note: ${completionNote.trim()}`
+        : `Done Note: ${completionNote.trim()}`
+      : completingTask.description;
+
+    updateStatusMutation.mutate({
+      id: completingTask.id,
+      status: 'completed',
+      photoUrl: completionPhotoUrl || completingTask.photoUrl,
+      description: mergedDescription,
+    });
   };
 
   const handleCreateSubmit = (e: React.FormEvent) => {
@@ -161,7 +249,37 @@ export const TasksScreen: React.FC = () => {
         </Button>
       }
     >
-      {/* Filter Segment */}
+      {/* Scope Switcher: Assigned to Me vs Assigned by Me */}
+      {currentUser && (
+        <div className="grid grid-cols-2 gap-2 bg-surface p-1 rounded-2xl border border-separator/50 shadow-xs">
+          <button
+            type="button"
+            onClick={() => setViewScope('assigned_to_me')}
+            className={`py-2 px-3 rounded-xl text-footnote font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              viewScope === 'assigned_to_me'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-label-2 hover:text-label hover:bg-fill/40'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>Assigned to Me ({assignedToMeTasks.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewScope('assigned_by_me')}
+            className={`py-2 px-3 rounded-xl text-footnote font-semibold flex items-center justify-center gap-1.5 transition-all ${
+              viewScope === 'assigned_by_me'
+                ? 'bg-accent text-white shadow-sm'
+                : 'text-label-2 hover:text-label hover:bg-fill/40'
+            }`}
+          >
+            <Send className="w-4 h-4" />
+            <span>Assigned by Me ({assignedByMeTasks.length})</span>
+          </button>
+        </div>
+      )}
+
+      {/* Status Filter Segment */}
       <SegmentedControl
         options={[
           { value: 'all', label: `All (${tasks.length})` },
@@ -188,10 +306,14 @@ export const TasksScreen: React.FC = () => {
           <div className="bg-surface rounded-ios-card p-10 border border-separator/50 flex flex-col items-center justify-center gap-2 text-center">
             <CheckCircle2 className="w-10 h-10 text-ok" />
             <span className="text-subhead font-semibold text-label">
-              No tasks found
+              {viewScope === 'assigned_by_me'
+                ? 'No tasks delegated by you yet'
+                : 'No tasks assigned to you'}
             </span>
             <span className="text-footnote text-label-2">
-              All delivery and company operations are up to date.
+              {viewScope === 'assigned_by_me'
+                ? 'Assign a dispatch or inspection task to a team member to track its progress here.'
+                : 'All delivery and company operations assigned to you are up to date.'}
             </span>
             <Button
               variant="tinted"
@@ -217,7 +339,7 @@ export const TasksScreen: React.FC = () => {
                 }`}
               >
                 {/* Header: Assignee & Status */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <div className="w-7 h-7 rounded-full bg-accent/15 text-accent font-bold text-caption flex items-center justify-center">
                       {assignee?.name.charAt(0) ?? 'U'}
@@ -232,32 +354,50 @@ export const TasksScreen: React.FC = () => {
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateStatusMutation.mutate({
-                        id: task.id,
-                        status: isDone ? 'pending' : 'completed',
-                      })
-                    }
-                    className={`px-2.5 py-1 rounded-full text-caption font-semibold flex items-center gap-1.5 transition-colors ${
-                      isDone
-                        ? 'bg-ok/15 text-ok'
-                        : 'bg-warn/15 text-warn hover:bg-ok/15 hover:text-ok'
-                    }`}
-                  >
-                    {isDone ? (
-                      <>
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Completed</span>
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="w-3.5 h-3.5" />
-                        <span>Pending</span>
-                      </>
+                  <div className="flex items-center gap-1.5">
+                    {!isDone && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenCompleteSheet(task)}
+                        className="px-2.5 py-1 rounded-full text-caption font-semibold bg-accent-soft text-accent hover:bg-accent hover:text-white flex items-center gap-1 transition-colors"
+                        title="Upload completion photo and mark done"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        <span>Complete + Photo</span>
+                      </button>
                     )}
-                  </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isDone) {
+                          updateStatusMutation.mutate({
+                            id: task.id,
+                            status: 'pending',
+                          });
+                        } else {
+                          handleOpenCompleteSheet(task);
+                        }
+                      }}
+                      className={`px-2.5 py-1 rounded-full text-caption font-semibold flex items-center gap-1.5 transition-colors ${
+                        isDone
+                          ? 'bg-ok/15 text-ok'
+                          : 'bg-warn/15 text-warn hover:bg-ok/15 hover:text-ok'
+                      }`}
+                    >
+                      {isDone ? (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Completed</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="w-3.5 h-3.5" />
+                          <span>Pending</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Task Title & Notes */}
@@ -315,6 +455,122 @@ export const TasksScreen: React.FC = () => {
           })
         )}
       </div>
+
+      {/* Complete Task & Attach Photo Proof Sheet */}
+      <Sheet
+        open={Boolean(completingTask)}
+        onOpenChange={(open) => {
+          if (!open) setCompletingTask(null);
+        }}
+        title="Complete Task & Upload Proof"
+        description="Attach a completion photo (signed bilty or machine inspection) before marking this task done."
+      >
+        {completingTask && (
+          <form onSubmit={handleConfirmComplete} className="flex flex-col gap-4 py-2">
+            <div className="p-3 bg-fill/40 rounded-xl border border-separator/40 flex flex-col gap-1">
+              <span className="text-caption uppercase font-bold text-label-3">
+                Task Instructions
+              </span>
+              <span className="text-subhead font-semibold text-label">
+                {completingTask.title}
+              </span>
+              {completingTask.description && (
+                <span className="text-footnote text-label-2">
+                  {completingTask.description}
+                </span>
+              )}
+            </div>
+
+            {/* Completion Photo Upload */}
+            <div className="flex flex-col gap-2">
+              <label className="text-footnote font-semibold uppercase text-label-2">
+                Completion Photo Proof (Camera / Gallery)
+              </label>
+
+              {completionPhotoUrl ? (
+                <div className="relative rounded-xl overflow-hidden border border-separator/60 w-fit h-36 bg-fill/40">
+                  <img
+                    src={completionPhotoUrl}
+                    alt="Completion proof preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove completion photo"
+                    onClick={() => setCompletionPhotoUrl('')}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center justify-center gap-2 p-4 border-2 border-dashed border-separator/60 rounded-xl cursor-pointer hover:border-accent hover:bg-fill/30 transition-colors">
+                    <Upload className="w-5 h-5 text-accent" />
+                    <span className="text-subhead font-semibold text-label">
+                      Take Photo or Upload Proof
+                    </span>
+                    <input
+                      type="file"
+                      aria-label="Take Photo or Upload Proof"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleCompletionFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-caption text-label-3">Quick preset:</span>
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPhotoUrl(SAMPLE_TASK_PHOTO_1)}
+                      className="text-caption text-accent font-semibold px-2 py-1 rounded bg-accent-soft hover:underline"
+                    >
+                      + Machine Inspection Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPhotoUrl(SAMPLE_TASK_PHOTO_2)}
+                      className="text-caption text-accent font-semibold px-2 py-1 rounded bg-accent-soft hover:underline"
+                    >
+                      + Signed Bilty Proof
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Optional Completion Note */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-footnote font-semibold uppercase text-label-2">
+                Completion Note (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Checked voltage & loaded onto truck PB-10-CZ-8821"
+                value={completionNote}
+                onChange={(e) => setCompletionNote(e.target.value)}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label placeholder:text-label-3 focus:outline-none focus:ring-2 focus:ring-accent/30"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              fullWidth
+              disabled={updateStatusMutation.isPending}
+              className="h-12 mt-1 flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4 stroke-[2.2]" />
+              <span>
+                {updateStatusMutation.isPending
+                  ? 'Saving...'
+                  : 'Mark Task Completed & Notify Assigner'}
+              </span>
+            </Button>
+          </form>
+        )}
+      </Sheet>
 
       {/* Assign Task Sheet (Send Text or Text + Photo) */}
       <Sheet

@@ -2170,12 +2170,12 @@ export function createApp(dbPath?: string): express.Express {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
     } else if (user && user.role !== 'dev' && user.tenantId) {
-      query += ' AND (companyId IN (SELECT id FROM companies WHERE tenantId = ?) OR assignedToUserId = ?)';
-      params.push(user.tenantId, user.id);
+      query += ' AND (companyId IN (SELECT id FROM companies WHERE tenantId = ?) OR assignedToUserId = ? OR assignedByUserId = ?)';
+      params.push(user.tenantId, user.id, user.id);
       if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
-        query += ` AND (companyId IN (${placeholders}) OR assignedToUserId = ?)`;
-        params.push(...user.companyIds, user.id);
+        query += ` AND (companyId IN (${placeholders}) OR assignedToUserId = ? OR assignedByUserId = ?)`;
+        params.push(...user.companyIds, user.id, user.id);
       }
     }
 
@@ -2184,15 +2184,18 @@ export function createApp(dbPath?: string): express.Express {
       params.push(req.query.status);
     }
 
-    // Strict task visibility: non-admin staff can only ever view tasks assigned to them,
-    // and explicit assignedToUserId filters are honored for all users.
+    // Strict task visibility: non-admin staff can only view tasks assigned to them or created by them,
+    // and explicit assignedToUserId / assignedByUserId filters are honored.
     const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
-    if (user && !isAdminRole) {
-      query += ' AND assignedToUserId = ?';
-      params.push(user.id);
+    if (req.query.assignedByUserId) {
+      query += ' AND assignedByUserId = ?';
+      params.push(user && !isAdminRole ? user.id : req.query.assignedByUserId);
     } else if (req.query.assignedToUserId) {
       query += ' AND assignedToUserId = ?';
-      params.push(req.query.assignedToUserId);
+      params.push(user && !isAdminRole ? user.id : req.query.assignedToUserId);
+    } else if (user && !isAdminRole) {
+      query += ' AND (assignedToUserId = ? OR assignedByUserId = ?)';
+      params.push(user.id, user.id);
     }
 
     if (req.query.challanId) {

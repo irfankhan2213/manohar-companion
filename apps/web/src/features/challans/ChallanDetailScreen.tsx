@@ -42,6 +42,11 @@ export const ChallanDetailScreen: React.FC = () => {
   const [taskNotes, setTaskNotes] = useState('');
   const [taskPhotoUrl, setTaskPhotoUrl] = useState('');
 
+  // Complete Task & Upload Proof state
+  const [completingTask, setCompletingTask] = useState<Task | null>(null);
+  const [completionPhotoUrl, setCompletionPhotoUrl] = useState('');
+  const [completionNote, setCompletionNote] = useState('');
+
   const { data: challan, isLoading } = useQuery({
     queryKey: ['challan', id],
     queryFn: () => api.challans.get(id),
@@ -67,14 +72,17 @@ export const ChallanDetailScreen: React.FC = () => {
     queryFn: () =>
       api.tasks.list(currentCompanyId, {
         challanId: id,
-        ...(currentUser?.id ? { assignedToUserId: currentUser.id } : {}),
       }),
   });
 
   const tasks = React.useMemo(
     () =>
       currentUser?.id
-        ? rawTasks.filter((t) => t.assignedToUserId === currentUser.id)
+        ? rawTasks.filter(
+            (t) =>
+              t.assignedToUserId === currentUser.id ||
+              t.assignedByUserId === currentUser.id
+          )
         : rawTasks,
     [rawTasks, currentUser?.id]
   );
@@ -119,12 +127,30 @@ export const ChallanDetailScreen: React.FC = () => {
   });
 
   const updateTaskStatusMutation = useMutation({
-    mutationFn: ({ taskId, status }: { taskId: string; status: Task['status'] }) =>
-      api.tasks.update(taskId, { status }),
-    onSuccess: () => {
+    mutationFn: ({
+      taskId,
+      status,
+      photoUrl,
+      description,
+    }: {
+      taskId: string;
+      status: Task['status'];
+      photoUrl?: string;
+      description?: string;
+    }) => api.tasks.update(taskId, { status, photoUrl, description }),
+    onSuccess: (_updated, variables) => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      showToast({ message: 'Task status updated' });
+      setCompletingTask(null);
+      setCompletionPhotoUrl('');
+      setCompletionNote('');
+      showToast({
+        message:
+          variables.status === 'completed'
+            ? 'Task marked completed and assigner notified'
+            : 'Task status updated',
+        variant: 'success',
+      });
     },
   });
 
@@ -139,6 +165,36 @@ export const ChallanDetailScreen: React.FC = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleCompletionFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setCompletionPhotoUrl(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleConfirmCompleteTask = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!completingTask) return;
+    const mergedDescription = completionNote.trim()
+      ? completingTask.description
+        ? `${completingTask.description} · Done Note: ${completionNote.trim()}`
+        : `Done Note: ${completionNote.trim()}`
+      : completingTask.description;
+
+    updateTaskStatusMutation.mutate({
+      taskId: completingTask.id,
+      status: 'completed',
+      photoUrl: completionPhotoUrl || completingTask.photoUrl,
+      description: mergedDescription,
+    });
   };
 
   const handleCreateTask = (e: React.FormEvent) => {
@@ -455,32 +511,56 @@ export const ChallanDetailScreen: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateTaskStatusMutation.mutate({
-                          taskId: task.id,
-                          status: isDone ? 'pending' : 'completed',
-                        })
-                      }
-                      className={`px-2.5 py-1 rounded-full text-caption font-semibold flex items-center gap-1.5 transition-colors ${
-                        isDone
-                          ? 'bg-ok/15 text-ok'
-                          : 'bg-warn/15 text-warn hover:bg-ok/15 hover:text-ok'
-                      }`}
-                    >
-                      {isDone ? (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Done</span>
-                        </>
-                      ) : (
-                        <>
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>Pending</span>
-                        </>
+                    <div className="flex items-center gap-1.5">
+                      {!isDone && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCompletingTask(task);
+                            setCompletionPhotoUrl(task.photoUrl || '');
+                            setCompletionNote('');
+                          }}
+                          className="px-2.5 py-1 rounded-full text-caption font-semibold bg-accent-soft text-accent hover:bg-accent hover:text-white flex items-center gap-1 transition-colors"
+                          title="Upload completion photo and mark done"
+                        >
+                          <Camera className="w-3.5 h-3.5" />
+                          <span>Complete + Photo</span>
+                        </button>
                       )}
-                    </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isDone) {
+                            updateTaskStatusMutation.mutate({
+                              taskId: task.id,
+                              status: 'pending',
+                            });
+                          } else {
+                            setCompletingTask(task);
+                            setCompletionPhotoUrl(task.photoUrl || '');
+                            setCompletionNote('');
+                          }
+                        }}
+                        className={`px-2.5 py-1 rounded-full text-caption font-semibold flex items-center gap-1.5 transition-colors ${
+                          isDone
+                            ? 'bg-ok/15 text-ok'
+                            : 'bg-warn/15 text-warn hover:bg-ok/15 hover:text-ok'
+                        }`}
+                      >
+                        {isDone ? (
+                          <>
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>Done</span>
+                          </>
+                        ) : (
+                          <>
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Pending</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   <div className="flex flex-col gap-0.5">
@@ -519,6 +599,119 @@ export const ChallanDetailScreen: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Complete Task & Upload Proof Modal */}
+      <Sheet
+        open={Boolean(completingTask)}
+        onOpenChange={(open) => {
+          if (!open) setCompletingTask(null);
+        }}
+        title="Complete Task & Upload Proof"
+        description="Attach a completion photo (signed bilty or machine inspection) before marking this task done."
+      >
+        {completingTask && (
+          <form onSubmit={handleConfirmCompleteTask} className="flex flex-col gap-4 py-2">
+            <div className="p-3 bg-fill/40 rounded-xl border border-separator/40 flex flex-col gap-1">
+              <span className="text-caption uppercase font-bold text-label-3">
+                Task Instructions
+              </span>
+              <span className="text-subhead font-semibold text-label">
+                {completingTask.title}
+              </span>
+              {completingTask.description && (
+                <span className="text-footnote text-label-2">
+                  {completingTask.description}
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label className="text-footnote font-semibold uppercase text-label-2">
+                Completion Photo Proof (Camera / Gallery)
+              </label>
+
+              {completionPhotoUrl ? (
+                <div className="relative rounded-xl overflow-hidden border border-separator/60 w-fit h-32 bg-fill/40">
+                  <img
+                    src={completionPhotoUrl}
+                    alt="Completion proof preview"
+                    className="w-full h-full object-cover"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Remove completion photo"
+                    onClick={() => setCompletionPhotoUrl('')}
+                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center hover:bg-black"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center justify-center gap-2 p-3.5 border-2 border-dashed border-separator/60 rounded-xl cursor-pointer hover:border-accent hover:bg-fill/30 transition-colors">
+                    <Upload className="w-5 h-5 text-accent" />
+                    <span className="text-subhead font-semibold text-label">
+                      Take Photo or Upload Proof
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleCompletionFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-caption text-label-3">Quick preset:</span>
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPhotoUrl(SAMPLE_TASK_PHOTO_1)}
+                      className="text-caption text-accent font-semibold px-2 py-1 rounded bg-accent-soft hover:underline"
+                    >
+                      + Machine Inspection Photo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompletionPhotoUrl(SAMPLE_TASK_PHOTO_2)}
+                      className="text-caption text-accent font-semibold px-2 py-1 rounded bg-accent-soft hover:underline"
+                    >
+                      + Signed Bilty Photo
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-footnote font-semibold uppercase text-label-2">
+                Completion Note (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Verified machine serial & bilty signed by driver"
+                value={completionNote}
+                onChange={(e) => setCompletionNote(e.target.value)}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label placeholder:text-label-3 focus:outline-none focus:ring-2 focus:ring-accent/30"
+              />
+            </div>
+
+            <Button
+              type="submit"
+              fullWidth
+              disabled={updateTaskStatusMutation.isPending}
+              className="h-12 mt-1 flex items-center justify-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4 stroke-[2.2]" />
+              <span>
+                {updateTaskStatusMutation.isPending
+                  ? 'Saving...'
+                  : 'Mark Task Completed & Notify Assigner'}
+              </span>
+            </Button>
+          </form>
+        )}
+      </Sheet>
 
       {/* Assign Task Modal */}
       <Sheet
