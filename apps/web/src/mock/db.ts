@@ -407,6 +407,72 @@ export const mockApiClient: ApiClient = {
         const balances = db.balances.filter((b: StockBalance) => b.itemId === id);
         return { item, balances };
       },
+      create: async (data: any) => {
+        const activeCompanyId = useAppStore.getState().currentCompanyId;
+        const resolvedCompanyId = data.companyId || (activeCompanyId !== 'all' ? activeCompanyId : 'c1');
+        const newItem: StockItem = {
+          id: data.id || `item-${Date.now()}`,
+          companyId: resolvedCompanyId,
+          name: data.name,
+          partNo: data.partNo,
+          unit: data.unit || 'pcs',
+          group: data.group || 'General',
+          rate: typeof data.rate === 'number' ? data.rate : 0,
+          purchaseRate: typeof data.purchaseRate === 'number' ? data.purchaseRate : undefined,
+          reorderLevel: typeof data.reorderLevel === 'number' ? data.reorderLevel : 0,
+          alias: data.alias,
+          hsnCode: data.hsnCode,
+          gstRate: data.gstRate,
+          description: data.description,
+          customValues: data.customValues || {},
+        };
+        db.stock.unshift(newItem);
+        if (Array.isArray(data.balances)) {
+          for (const b of data.balances) {
+            db.balances.push({ itemId: newItem.id, godownId: b.godownId, qty: b.qty });
+          }
+        }
+        saveDB();
+        return newItem;
+      },
+      update: async (id: string, data: any) => {
+        const item = db.stock.find((s) => s.id === id);
+        if (!item) throw new Error('Stock item not found');
+        if (data.name !== undefined) item.name = data.name;
+        if (data.partNo !== undefined) item.partNo = data.partNo;
+        if (data.unit !== undefined) item.unit = data.unit;
+        if (data.group !== undefined) item.group = data.group;
+        if (data.rate !== undefined) item.rate = data.rate;
+        if (data.purchaseRate !== undefined) item.purchaseRate = data.purchaseRate;
+        if (data.reorderLevel !== undefined) item.reorderLevel = data.reorderLevel;
+        if (data.alias !== undefined) item.alias = data.alias;
+        if (data.hsnCode !== undefined) item.hsnCode = data.hsnCode;
+        if (data.gstRate !== undefined) item.gstRate = data.gstRate;
+        if (data.description !== undefined) item.description = data.description;
+        if (data.customValues !== undefined) item.customValues = data.customValues;
+
+        if (Array.isArray(data.balances)) {
+          for (const b of data.balances) {
+            const idx = db.balances.findIndex((bal) => bal.itemId === id && bal.godownId === b.godownId);
+            if (idx >= 0 && db.balances[idx]) {
+              db.balances[idx].qty = b.qty;
+            } else {
+              db.balances.push({ itemId: id, godownId: b.godownId, qty: b.qty });
+            }
+          }
+        }
+        saveDB();
+        return item;
+      },
+      delete: async (id: string) => {
+        const idx = db.stock.findIndex((s) => s.id === id);
+        if (idx >= 0) {
+          db.stock.splice(idx, 1);
+        }
+        db.balances = db.balances.filter((b) => b.itemId !== id);
+        saveDB();
+        return { success: true };
+      },
     },
     adjust: async (itemId, godownId, deltaQty, reason) => {
       const balanceIdx = db.balances.findIndex(
@@ -584,15 +650,28 @@ export const mockApiClient: ApiClient = {
   },
   notebooks: {
     list: async (companyId) => {
-      if (companyId === 'all') return db.notebooks;
-      let matched = db.notebooks.filter((n) => n.companyId === companyId);
+      const currentUser = useAppStore.getState().currentUser;
+      let matched =
+        companyId === 'all'
+          ? db.notebooks
+          : db.notebooks.filter((n) => n.companyId === companyId);
+
+      if (currentUser?.id) {
+        matched = matched.filter(
+          (n) => (n.userId || n.updatedBy) === currentUser.id
+        );
+      }
+
       if (matched.length === 0) {
+        const targetCompanyId = companyId === 'all' ? (db.companies[0]?.id || 'c1') : companyId;
+        const ownerUserId = currentUser?.id || 'u1';
         const defaultNb: Notebook = {
-          id: `nb-${Date.now()}`,
-          companyId,
+          id: `nb-${ownerUserId}-${Date.now()}`,
+          companyId: targetCompanyId,
+          userId: ownerUserId,
           title: 'Material & Delivery Calculation Notebook',
           updatedAt: new Date().toISOString(),
-          updatedBy: 'u1',
+          updatedBy: ownerUserId,
           columns: [
             { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
             { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
@@ -617,16 +696,30 @@ export const mockApiClient: ApiClient = {
       }
       return matched;
     },
-    get: async (id) => db.notebooks.find((n) => n.id === id) ?? null,
+    get: async (id) => {
+      const currentUser = useAppStore.getState().currentUser;
+      const nb = db.notebooks.find((n) => n.id === id) ?? null;
+      if (!nb) return null;
+      if (currentUser?.id && (nb.userId || nb.updatedBy) !== currentUser.id) {
+        return null;
+      }
+      return nb;
+    },
     save: async (nb) => {
-      const idx = db.notebooks.findIndex((n) => n.id === nb.id);
+      const currentUser = useAppStore.getState().currentUser;
+      const withOwner: Notebook = {
+        ...nb,
+        userId: nb.userId || currentUser?.id || nb.updatedBy || 'u1',
+        updatedBy: currentUser?.id || nb.updatedBy || 'u1',
+      };
+      const idx = db.notebooks.findIndex((n) => n.id === withOwner.id);
       if (idx >= 0) {
-        db.notebooks[idx] = nb;
+        db.notebooks[idx] = withOwner;
       } else {
-        db.notebooks.unshift(nb);
+        db.notebooks.unshift(withOwner);
       }
       saveDB();
-      return nb;
+      return withOwner;
     },
   },
   activity: {

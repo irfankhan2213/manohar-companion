@@ -7,6 +7,7 @@ export interface StockAdjustmentVoucherParams {
   qty: number; // positive = added to stock, negative = removed
   unit: string;
   rateRupees: number;
+  companyName?: string;
 }
 
 export interface DeliveryChallanVoucherParams {
@@ -16,6 +17,8 @@ export interface DeliveryChallanVoucherParams {
   narration: string;
   vehicleNo?: string;
   voucherType?: 'sales' | 'purchase' | 'delivery';
+  companyName?: string;
+  salesLedgerName?: string;
   items: Array<{
     itemName: string;
     godownName?: string;
@@ -154,6 +157,13 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
   const isAddition = params.qty > 0;
   const absQty = Math.abs(params.qty);
   const amount = (absQty * params.rateRupees).toFixed(2);
+  const staticVars = params.companyName
+    ? `<STATICVARIABLES>
+        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>`
+    : `<STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>`;
 
   // In Tally Stock Journal:
   // INVENTORYENTRIESIN.LIST is Production/Addition
@@ -161,6 +171,7 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
   const itemBlock = isAddition
     ? `<INVENTORYENTRIESIN.LIST>
         <STOCKITEMNAME>${escapeXml(params.itemName)}</STOCKITEMNAME>
+        <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
         <GODOWNNAME>${escapeXml(params.godownName)}</GODOWNNAME>
         <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
         <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
@@ -169,6 +180,7 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
       </INVENTORYENTRIESIN.LIST>`
     : `<INVENTORYENTRIESOUT.LIST>
         <STOCKITEMNAME>${escapeXml(params.itemName)}</STOCKITEMNAME>
+        <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
         <GODOWNNAME>${escapeXml(params.godownName)}</GODOWNNAME>
         <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
         <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
@@ -185,9 +197,7 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
   </HEADER>
   <BODY>
     <DESC>
-      <STATICVARIABLES>
-        <SVCURRENTCOMPANY>##SVCURRENTCOMPANY</SVCURRENTCOMPANY>
-      </STATICVARIABLES>
+      ${staticVars}
     </DESC>
     <DATA>
       <TALLYMESSAGE>
@@ -205,13 +215,27 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
 }
 
 export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherParams): string {
+  const isPurchase = params.voucherType === 'purchase';
   const tallyVchType =
     params.voucherType === 'sales'
       ? 'Sales'
-      : params.voucherType === 'purchase'
+      : isPurchase
         ? 'Purchase'
         : 'Delivery Note';
-  const signPrefix = params.voucherType === 'purchase' ? '' : '-';
+  const signPrefix = isPurchase ? '-' : '';
+  const partySignPrefix = isPurchase ? '' : '-';
+  const defaultLedger = params.salesLedgerName || (isPurchase ? 'Purchase Account' : 'Sales Account');
+
+  const staticVars = params.companyName
+    ? `<STATICVARIABLES>
+        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>
+      </STATICVARIABLES>`
+    : `<STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>`;
+
+  const totalAmountNum = params.items.reduce((sum, item) => sum + item.qty * item.rateRupees, 0);
+  const totalAmount = totalAmountNum.toFixed(2);
 
   const itemEntries = params.items
     .map((item) => {
@@ -221,11 +245,17 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
         : '';
       return `<ALLINVENTORYENTRIES.LIST>
           <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
+          <ISDEEMEDPOSITIVE>${isPurchase ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
           ${godownXml}
           <ACTUALQTY>${item.qty} ${escapeXml(item.unit)}</ACTUALQTY>
           <BILLEDQTY>${item.qty} ${escapeXml(item.unit)}</BILLEDQTY>
           <RATE>${item.rateRupees} / ${escapeXml(item.unit)}</RATE>
-          <AMOUNT>${signPrefix}${amount}</AMOUNT>
+          <AMOUNT>${isPurchase ? '-' + amount : amount}</AMOUNT>
+          <ACCOUNTINGALLOCATIONS.LIST>
+            <LEDGERNAME>${escapeXml(defaultLedger)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>${isPurchase ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+            <AMOUNT>${signPrefix}${amount}</AMOUNT>
+          </ACCOUNTINGALLOCATIONS.LIST>
         </ALLINVENTORYENTRIES.LIST>`;
     })
     .join('\n');
@@ -243,19 +273,25 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
   </HEADER>
   <BODY>
     <DESC>
-      <STATICVARIABLES>
-        <SVCURRENTCOMPANY>##SVCURRENTCOMPANY</SVCURRENTCOMPANY>
-      </STATICVARIABLES>
+      ${staticVars}
     </DESC>
     <DATA>
       <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create">
+        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create" OBJVIEW="Invoice Voucher View">
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
           <VOUCHERTYPENAME>${tallyVchType}</VOUCHERTYPENAME>
+          <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
+          <ISINVOICE>Yes</ISINVOICE>
           <PARTYLEDGERNAME>${escapeXml(params.partyName)}</PARTYLEDGERNAME>
           <BASICBUYERNAME>${escapeXml(params.partyName)}</BASICBUYERNAME>
           <NARRATION>${escapeXml(vehicleNarration)}</NARRATION>
+          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>${escapeXml(params.partyName)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>${isPurchase ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
+            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+            <AMOUNT>${partySignPrefix}${totalAmount}</AMOUNT>
+          </LEDGERENTRIES.LIST>
           ${itemEntries}
         </VOUCHER>
       </TALLYMESSAGE>

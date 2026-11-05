@@ -38,9 +38,9 @@ export const NotebookScreen: React.FC = () => {
     queryFn: () => api.companies.list(),
   });
 
-  // Fetch list of notebooks
+  // Fetch list of notebooks (scoped per user and company)
   const { data: notebooks = [], isLoading } = useQuery({
-    queryKey: ['notebooks', currentCompanyId],
+    queryKey: ['notebooks', currentCompanyId, currentUser?.id],
     queryFn: () => api.notebooks.list(currentCompanyId),
   });
 
@@ -81,12 +81,14 @@ export const NotebookScreen: React.FC = () => {
     } else if (!isLoading && notebooks.length === 0 && !notebook) {
       // Auto-initialize a default blank worksheet if none exist
       const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
+      const ownerId = currentUser?.id || 'staff';
       const initialNb: Notebook = {
-        id: `nb-${Date.now()}`,
+        id: `nb-${ownerId}-${Date.now()}`,
         companyId: targetCompanyId,
+        userId: ownerId,
         title: 'Material & Delivery Calculation Notebook',
         updatedAt: new Date().toISOString(),
-        updatedBy: currentUser?.id || 'staff',
+        updatedBy: ownerId,
         columns: [
           { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
           { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
@@ -129,11 +131,16 @@ export const NotebookScreen: React.FC = () => {
   // Mutation to persist notebook
   const saveMutation = useMutation({
     mutationFn: (nb: Notebook) => api.notebooks.save(nb),
-    onSuccess: (saved) => {
+    onSuccess: (res: any) => {
+      const saved: Notebook = res?.notebook || res;
+      if (!saved || !saved.id) return;
       queryClient.setQueryData(
-        ['notebooks', currentCompanyId],
-        (old: Notebook[] | undefined) =>
-          old ? old.map((n) => (n.id === saved.id ? saved : n)) : [saved]
+        ['notebooks', currentCompanyId, currentUser?.id],
+        (old: Notebook[] | undefined) => {
+          if (!old) return [saved];
+          const exists = old.some((n) => n.id === saved.id);
+          return exists ? old.map((n) => (n.id === saved.id ? saved : n)) : [saved, ...old];
+        }
       );
     },
   });
@@ -385,12 +392,14 @@ export const NotebookScreen: React.FC = () => {
     if (!newTitle.trim()) return;
 
     const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
+    const ownerId = currentUser?.id || 'staff';
     const newNb: Notebook = {
-      id: `nb-${Date.now()}`,
+      id: `nb-${ownerId}-${Date.now()}`,
       companyId: targetCompanyId,
+      userId: ownerId,
       title: newTitle.trim(),
       updatedAt: new Date().toISOString(),
-      updatedBy: currentUser?.id || 'staff',
+      updatedBy: ownerId,
       columns: [
         { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
         { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },

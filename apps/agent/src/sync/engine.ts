@@ -172,6 +172,7 @@ export class SyncEngine {
       body: JSON.stringify({
         companyId,
         alterId: payload.maxAlterId,
+        reconcilePaidBills: true,
         parties,
         bills,
         stockItems,

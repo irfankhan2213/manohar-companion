@@ -100,6 +100,9 @@ export interface ApiClient {
     items: {
       list: (companyId: Id | 'all', query?: string) => Promise<StockItem[]>;
       get: (id: Id) => Promise<{ item: StockItem; balances: StockBalance[] } | null>;
+      create: (data: Partial<StockItem> & { name: string; unit?: string; group?: string; rate?: number; balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;
+      update: (id: Id, data: Partial<StockItem> & { balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;
+      delete: (id: Id) => Promise<{ success: boolean }>;
     };
     adjust: (itemId: Id, godownId: Id, deltaQty: number, reason: string) => Promise<void>;
   };

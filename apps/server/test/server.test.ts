@@ -47,6 +47,88 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(names).toContain('TAI SET MACHINE');
   });
 
+  it('creates, edits, fetches and deletes a stock item with custom values like Tally', async () => {
+    // 1. Create stock item with custom values
+    const createRes = await request(app)
+      .post('/api/stock')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: 'Direct Drive Servo 750W',
+        partNo: 'DD-750-X',
+        unit: 'nos',
+        group: 'Motors',
+        rate: 580000,
+        purchaseRate: 460000,
+        reorderLevel: 8,
+        hsnCode: '8452',
+        gstRate: 18,
+        description: 'Heavy duty direct drive servo motor with needle positioner',
+        customValues: {
+          Brand: 'Jack',
+          'Rack Location': 'Shelf C-4',
+          Warranty: '2 Years',
+        },
+        balances: [
+          { godownId: 'g1', qty: 25 },
+        ],
+      });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body.name).toBe('Direct Drive Servo 750W');
+    expect(createRes.body.unit).toBe('nos');
+    expect(createRes.body.hsnCode).toBe('8452');
+    expect(createRes.body.gstRate).toBe(18);
+    expect(createRes.body.customValues).toEqual({
+      Brand: 'Jack',
+      'Rack Location': 'Shelf C-4',
+      Warranty: '2 Years',
+    });
+    const createdId = createRes.body.id;
+
+    // 2. Fetch created stock item
+    const getRes = await request(app)
+      .get(`/api/stock/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.item.name).toBe('Direct Drive Servo 750W');
+    expect(getRes.body.item.customValues['Rack Location']).toBe('Shelf C-4');
+    expect(getRes.body.totalQty).toBe(25);
+
+    // 3. Edit stock item and add more custom values
+    const updateRes = await request(app)
+      .put(`/api/stock/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        name: 'Direct Drive Servo 750W Pro',
+        rate: 620000,
+        customValues: {
+          Brand: 'Jack',
+          'Rack Location': 'Shelf C-9',
+          Warranty: '2 Years',
+          Color: 'White',
+        },
+      });
+
+    expect(updateRes.status).toBe(200);
+    expect(updateRes.body.name).toBe('Direct Drive Servo 750W Pro');
+    expect(updateRes.body.rate).toBe(620000);
+    expect(updateRes.body.customValues['Rack Location']).toBe('Shelf C-9');
+    expect(updateRes.body.customValues.Color).toBe('White');
+
+    // 4. Delete stock item
+    const deleteRes = await request(app)
+      .delete(`/api/stock/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(deleteRes.status).toBe(200);
+    expect(deleteRes.body.success).toBe(true);
+
+    // Verify 404 after deletion
+    const verifyDel = await request(app)
+      .get(`/api/stock/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(verifyDel.status).toBe(404);
+  });
+
   it('filters challans by itemIds query parameter', async () => {
     // All challans
     const all = await request(app)

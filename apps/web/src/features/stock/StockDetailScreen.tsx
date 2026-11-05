@@ -1,13 +1,16 @@
 import React, { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Plus,
   Minus,
   Warehouse,
   RotateCw,
+  Edit3,
+  Tag,
+  Sparkles,
 } from 'lucide-react';
-import { can } from '@saas/shared';
+import { can, formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -16,14 +19,17 @@ import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { StockItemEditorSheet } from './StockItemEditorSheet.js';
 
 export const StockDetailScreen: React.FC = () => {
   const { itemId = '' } = useParams<{ itemId: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { currentCompanyId, currentRole } = useAppStore();
   const { showToast } = useToast();
 
   const [adjustSheetOpen, setAdjustSheetOpen] = useState(false);
+  const [editSheetOpen, setEditSheetOpen] = useState(false);
   const [selectedGodownId, setSelectedGodownId] = useState<string>('g1');
   const [deltaQty, setDeltaQty] = useState<number>(1);
   const [reason, setReason] = useState<string>('Count correction');
@@ -121,13 +127,128 @@ export const StockDetailScreen: React.FC = () => {
         </div>
 
         {canAdjust && (
-          <div className="pt-2">
-            <Button fullWidth onClick={() => setAdjustSheetOpen(true)}>
-              Adjust stock
+          <div className="grid grid-cols-2 gap-2 pt-2">
+            <Button
+              variant="tinted"
+              onClick={() => setEditSheetOpen(true)}
+              className="flex items-center justify-center gap-1.5"
+            >
+              <Edit3 className="w-4 h-4" />
+              <span>Edit Details</span>
+            </Button>
+            <Button
+              onClick={() => setAdjustSheetOpen(true)}
+              className="flex items-center justify-center gap-1.5"
+            >
+              <span>Adjust Stock</span>
             </Button>
           </div>
         )}
       </div>
+
+      {/* Pricing & GST Master */}
+      <InsetGroup title="Pricing & Tax Master">
+        <Row
+          leading={<Tag className="w-4 h-4 text-accent" />}
+          title="Selling Rate"
+          trailing={
+            <span className="font-semibold text-label">
+              {item.rate ? `${formatINR(item.rate)} / ${item.unit}` : 'Not set'}
+            </span>
+          }
+        />
+        {item.purchaseRate ? (
+          <Row
+            leading={<Tag className="w-4 h-4 text-label-3" />}
+            title="Purchase Rate"
+            trailing={
+              <span className="font-medium text-label-2">
+                {formatINR(item.purchaseRate)} / {item.unit}
+              </span>
+            }
+          />
+        ) : null}
+        <Row
+          title="Stock Group"
+          trailing={<span className="font-medium text-label">{item.group}</span>}
+        />
+        {item.partNo ? (
+          <Row
+            title="Part No / Code"
+            trailing={<span className="font-mono text-label">{item.partNo}</span>}
+          />
+        ) : null}
+        {item.alias ? (
+          <Row
+            title="Alias / Barcode"
+            trailing={<span className="font-mono text-label">{item.alias}</span>}
+          />
+        ) : null}
+        {item.hsnCode ? (
+          <Row
+            title="HSN / SAC Code"
+            trailing={<span className="font-mono font-medium text-label">{item.hsnCode}</span>}
+          />
+        ) : null}
+        {item.gstRate !== undefined ? (
+          <Row
+            title="GST Rate"
+            trailing={<span className="font-medium text-label">{item.gstRate}%</span>}
+          />
+        ) : null}
+      </InsetGroup>
+
+      {/* Custom Attributes & Values */}
+      <InsetGroup
+        title="Custom Attributes & Specifications"
+        action={
+          canAdjust ? (
+            <button
+              type="button"
+              onClick={() => setEditSheetOpen(true)}
+              className="text-caption font-semibold text-accent hover:underline flex items-center gap-1"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit</span>
+            </button>
+          ) : undefined
+        }
+      >
+        {item.customValues && Object.keys(item.customValues).length > 0 ? (
+          Object.entries(item.customValues).map(([key, val]) => (
+            <Row
+              key={key}
+              leading={<Sparkles className="w-4 h-4 text-accent/80" />}
+              title={key}
+              trailing={<span className="font-semibold text-label">{val}</span>}
+            />
+          ))
+        ) : (
+          <div className="p-4 bg-surface text-center flex flex-col items-center justify-center gap-2">
+            <span className="text-footnote text-label-3">
+              No custom values added (e.g. Brand, Rack Location, Color).
+            </span>
+            {canAdjust && (
+              <button
+                type="button"
+                onClick={() => setEditSheetOpen(true)}
+                className="text-caption font-semibold text-accent hover:underline"
+              >
+                + Add Custom Attributes
+              </button>
+            )}
+          </div>
+        )}
+      </InsetGroup>
+
+      {/* Description & Notes */}
+      {item.description ? (
+        <InsetGroup title="Description & Specifications">
+          <div className="p-4 bg-surface text-subhead text-label-2 whitespace-pre-wrap leading-relaxed">
+            {item.description}
+          </div>
+        </InsetGroup>
+      ) : null}
 
       {/* Godown Breakdown */}
       <InsetGroup title="Godown Quantities">
@@ -281,6 +402,15 @@ export const StockDetailScreen: React.FC = () => {
           </Button>
         </div>
       </Sheet>
+
+      {/* Edit Stock Item Sheet */}
+      <StockItemEditorSheet
+        open={editSheetOpen}
+        onOpenChange={setEditSheetOpen}
+        initialItem={item}
+        initialBalances={balances}
+        onDeleted={() => navigate('/stock')}
+      />
     </LargeTitleScreen>
   );
 };

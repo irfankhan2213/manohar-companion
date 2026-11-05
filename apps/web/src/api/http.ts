@@ -142,6 +142,20 @@ export const httpApiClient: ApiClient = {
           return null;
         }
       },
+      create: (data: any) =>
+        fetchJSON<StockItem>('/stock', {
+          method: 'POST',
+          body: JSON.stringify(data),
+        }),
+      update: (id: Id, data: any) =>
+        fetchJSON<StockItem>(`/stock/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }),
+      delete: (id: Id) =>
+        fetchJSON<{ success: boolean }>(`/stock/${id}`, {
+          method: 'DELETE',
+        }),
     },
     adjust: (itemId: Id, godownId: Id, deltaQty: number, reason: string) =>
       fetchJSON<void>('/stock/adjust', {

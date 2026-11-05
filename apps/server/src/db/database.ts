@@ -274,6 +274,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     CREATE TABLE IF NOT EXISTS notebooks (
       id TEXT PRIMARY KEY,
       companyId TEXT,
+      userId TEXT,
       title TEXT,
       columns TEXT,
       rows TEXT,
@@ -318,7 +319,16 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
     CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
     CREATE INDEX IF NOT EXISTS idx_users_tenant ON users (tenantId);
+    CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks (userId);
   `);
+
+  try {
+    db.prepare('ALTER TABLE notebooks ADD COLUMN userId TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE outbox_items ADD COLUMN payload TEXT').run();
+  } catch {}
 
   try {
     db.prepare('ALTER TABLE reminder_rules ADD COLUMN whatsappEnabled INTEGER DEFAULT 0').run();
@@ -342,6 +352,26 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   try {
     db.prepare('ALTER TABLE companies ADD COLUMN phone TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE stock_items ADD COLUMN purchaseRate INTEGER DEFAULT 0').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE stock_items ADD COLUMN hsnCode TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE stock_items ADD COLUMN gstRate REAL DEFAULT 0').run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE stock_items ADD COLUMN description TEXT').run();
+  } catch {}
+
+  try {
+    db.prepare("ALTER TABLE stock_items ADD COLUMN customValues TEXT DEFAULT '{}'").run();
   } catch {}
 
   // Ensure dev user and platform tenant exist in database (with scrypt-hashed PIN)
@@ -593,11 +623,20 @@ export function seedDatabase(db: any) {
 
   // Notebooks
   const insertNotebook = db.prepare(`
-    INSERT INTO notebooks (id, companyId, title, columns, rows, updatedAt, updatedBy)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const nb of INITIAL_NOTEBOOKS) {
-    insertNotebook.run(nb.id, nb.companyId, nb.title, JSON.stringify(nb.columns), JSON.stringify(nb.rows), nb.updatedAt, nb.updatedBy);
+    insertNotebook.run(
+      nb.id,
+      nb.companyId,
+      (nb as any).userId || nb.updatedBy || 'u1',
+      nb.title,
+      JSON.stringify(nb.columns),
+      JSON.stringify(nb.rows),
+      nb.updatedAt,
+      nb.updatedBy
+    );
   }
 
   // Activities

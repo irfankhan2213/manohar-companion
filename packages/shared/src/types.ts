@@ -106,11 +106,16 @@ export const StockItemSchema = z.object({
   companyId: z.string(),
   name: z.string(),
   partNo: z.string().optional(),
-  unit: z.enum(['pcs', 'set', 'box', 'mtr']),
+  unit: z.string().min(1),
   group: z.string(),
   rate: z.number().int(),
+  purchaseRate: z.number().int().optional(),
   reorderLevel: z.number(),
   alias: z.string().optional(),
+  hsnCode: z.string().optional(),
+  gstRate: z.number().optional(),
+  description: z.string().optional(),
+  customValues: z.record(z.string(), z.string()).optional(),
 });
 export type StockItem = z.infer<typeof StockItemSchema>;
 
@@ -192,6 +197,7 @@ export type NotebookRow = z.infer<typeof NotebookRowSchema>;
 export const NotebookSchema = z.object({
   id: z.string(),
   companyId: z.string(),
+  userId: z.string().optional(),
   title: z.string(),
   columns: z.array(NotebookColumnSchema),
   rows: z.array(NotebookRowSchema),

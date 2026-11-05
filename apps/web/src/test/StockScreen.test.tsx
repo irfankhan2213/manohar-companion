@@ -47,4 +47,20 @@ describe('StockScreen Component', () => {
       expect(screen.getByText('Rotary Hook Assembly (Japanese Type)')).toBeInTheDocument();
     });
   });
+
+  it('renders New Item button and allows opening create sheet with custom values', async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('New Item')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText('New Item'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Tally Master Details')).toBeInTheDocument();
+      expect(screen.getByText('Custom Values & Specifications')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/Servo Motor 550W/i)).toBeInTheDocument();
+    });
+  });
 });

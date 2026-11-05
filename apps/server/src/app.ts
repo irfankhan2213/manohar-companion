@@ -1425,6 +1425,16 @@ export function createApp(dbPath?: string): express.Express {
       balancesByItem.get(b.itemId)!.push(b);
     }
 
+    const parseCustomValues = (val: any): Record<string, string> => {
+      if (!val) return {};
+      if (typeof val === 'object' && !Array.isArray(val)) return val;
+      try {
+        const parsed = JSON.parse(val);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
+      } catch {}
+      return {};
+    };
+
     const result = items.map(it => {
       const bList = balancesByItem.get(it.id) || [];
       const totalQty = bList.reduce((acc, b) => acc + b.qty, 0);
@@ -1437,8 +1447,13 @@ export function createApp(dbPath?: string): express.Express {
           unit: it.unit,
           group: it.itemGroup,
           rate: it.rate,
+          purchaseRate: it.purchaseRate !== null && it.purchaseRate !== undefined ? it.purchaseRate : undefined,
           reorderLevel: it.reorderLevel,
           alias: it.alias || undefined,
+          hsnCode: it.hsnCode || undefined,
+          gstRate: it.gstRate !== null && it.gstRate !== undefined ? it.gstRate : undefined,
+          description: it.description || undefined,
+          customValues: parseCustomValues(it.customValues),
         },
         totalQty,
         balances: bList,
@@ -1462,6 +1477,16 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
     }
 
+    const parseCustomValues = (val: any): Record<string, string> => {
+      if (!val) return {};
+      if (typeof val === 'object' && !Array.isArray(val)) return val;
+      try {
+        const parsed = JSON.parse(val);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
+      } catch {}
+      return {};
+    };
+
     const balances = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(it.id) as any[];
     const totalQty = balances.reduce((acc, b) => acc + b.qty, 0);
 
@@ -1474,14 +1499,282 @@ export function createApp(dbPath?: string): express.Express {
         unit: it.unit,
         group: it.itemGroup,
         rate: it.rate,
+        purchaseRate: it.purchaseRate !== null && it.purchaseRate !== undefined ? it.purchaseRate : undefined,
         reorderLevel: it.reorderLevel,
         alias: it.alias || undefined,
+        hsnCode: it.hsnCode || undefined,
+        gstRate: it.gstRate !== null && it.gstRate !== undefined ? it.gstRate : undefined,
+        description: it.description || undefined,
+        customValues: parseCustomValues(it.customValues),
       },
       totalQty,
       balances,
       lowStock: totalQty <= it.reorderLevel,
       recentTransactions: [],
     });
+  });
+
+  // 6c. Create Stock Item
+  app.post('/api/stock', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'stock.adjust') && !hasPermission(user, 'tally.write.stock')) {
+      return res.status(403).json({ error: 'Forbidden: Missing stock modification permission' });
+    }
+    const {
+      id: customId,
+      companyId,
+      name,
+      partNo,
+      unit,
+      group,
+      rate,
+      purchaseRate,
+      reorderLevel,
+      alias,
+      hsnCode,
+      gstRate,
+      description,
+      customValues,
+      balances,
+    } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Item name is required' });
+    }
+
+    const resolvedCompanyId = companyId || (user?.companyIds === 'all' ? 'c1' : user?.companyIds?.[0]) || 'c1';
+    if (!canAccessCompany(user, resolvedCompanyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant creation denied' });
+    }
+
+    const itemId = customId || `s-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    const parsedCustomValues = customValues && typeof customValues === 'object' ? JSON.stringify(customValues) : '{}';
+
+    db.prepare(`
+      INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, purchaseRate, reorderLevel, alias, hsnCode, gstRate, description, customValues)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      itemId,
+      resolvedCompanyId,
+      name.trim(),
+      partNo ? String(partNo).trim() : null,
+      unit ? String(unit).trim() : 'pcs',
+      group ? String(group).trim() : 'General',
+      typeof rate === 'number' ? Math.round(rate) : 0,
+      typeof purchaseRate === 'number' ? Math.round(purchaseRate) : 0,
+      typeof reorderLevel === 'number' ? reorderLevel : 0,
+      alias ? String(alias).trim() : null,
+      hsnCode ? String(hsnCode).trim() : null,
+      typeof gstRate === 'number' ? gstRate : 0,
+      description ? String(description).trim() : null,
+      parsedCustomValues
+    );
+
+    if (Array.isArray(balances)) {
+      for (const b of balances) {
+        if (b.godownId && typeof b.qty === 'number') {
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = excluded.qty
+          `).run(itemId, b.godownId, b.qty);
+        }
+      }
+    }
+
+    const parseCustomValues = (val: any): Record<string, string> => {
+      if (!val) return {};
+      if (typeof val === 'object' && !Array.isArray(val)) return val;
+      try {
+        const parsed = JSON.parse(val);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
+      } catch {}
+      return {};
+    };
+
+    const tenantId = user?.tenantId || 'platform';
+    const actorId = user?.id || 'staff';
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}`, tenantId, resolvedCompanyId, actorId, 'stock_created', `Created stock item: ${name}`, new Date().toISOString(), 'Desktop');
+
+    const created = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(itemId) as any;
+    const bList = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(itemId) as any[];
+
+    res.status(201).json({
+      id: created.id,
+      companyId: created.companyId,
+      name: created.name,
+      partNo: created.partNo || undefined,
+      unit: created.unit,
+      group: created.itemGroup,
+      rate: created.rate,
+      purchaseRate: created.purchaseRate || undefined,
+      reorderLevel: created.reorderLevel,
+      alias: created.alias || undefined,
+      hsnCode: created.hsnCode || undefined,
+      gstRate: created.gstRate ?? undefined,
+      description: created.description || undefined,
+      customValues: parseCustomValues(created.customValues),
+      balances: bList,
+    });
+  });
+
+  // 6d. Update Stock Item
+  app.put('/api/stock/:itemId', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'stock.adjust') && !hasPermission(user, 'tally.write.stock')) {
+      return res.status(403).json({ error: 'Forbidden: Missing stock modification permission' });
+    }
+    const it = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(req.params.itemId) as any;
+    if (!it) {
+      return res.status(404).json({ error: 'Stock item not found' });
+    }
+    if (it.companyId && !canAccessCompany(user, it.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+
+    const {
+      name,
+      partNo,
+      unit,
+      group,
+      rate,
+      purchaseRate,
+      reorderLevel,
+      alias,
+      hsnCode,
+      gstRate,
+      description,
+      customValues,
+      balances,
+    } = req.body;
+
+    const updatedName = name !== undefined ? String(name).trim() : it.name;
+    const updatedPartNo = partNo !== undefined ? (partNo ? String(partNo).trim() : null) : it.partNo;
+    const updatedUnit = unit !== undefined ? String(unit).trim() : it.unit;
+    const updatedGroup = group !== undefined ? String(group).trim() : it.itemGroup;
+    const updatedRate = typeof rate === 'number' ? Math.round(rate) : it.rate;
+    const updatedPurchaseRate = typeof purchaseRate === 'number' ? Math.round(purchaseRate) : (purchaseRate === null ? null : it.purchaseRate);
+    const updatedReorderLevel = typeof reorderLevel === 'number' ? reorderLevel : it.reorderLevel;
+    const updatedAlias = alias !== undefined ? (alias ? String(alias).trim() : null) : it.alias;
+    const updatedHsnCode = hsnCode !== undefined ? (hsnCode ? String(hsnCode).trim() : null) : it.hsnCode;
+    const updatedGstRate = typeof gstRate === 'number' ? gstRate : (gstRate === null ? null : it.gstRate);
+    const updatedDescription = description !== undefined ? (description ? String(description).trim() : null) : it.description;
+    
+    let updatedCustomValues = it.customValues || '{}';
+    if (customValues !== undefined) {
+      updatedCustomValues = customValues && typeof customValues === 'object' ? JSON.stringify(customValues) : '{}';
+    }
+
+    db.prepare(`
+      UPDATE stock_items SET
+        name = ?,
+        partNo = ?,
+        unit = ?,
+        itemGroup = ?,
+        rate = ?,
+        purchaseRate = ?,
+        reorderLevel = ?,
+        alias = ?,
+        hsnCode = ?,
+        gstRate = ?,
+        description = ?,
+        customValues = ?
+      WHERE id = ?
+    `).run(
+      updatedName,
+      updatedPartNo,
+      updatedUnit,
+      updatedGroup,
+      updatedRate,
+      updatedPurchaseRate,
+      updatedReorderLevel,
+      updatedAlias,
+      updatedHsnCode,
+      updatedGstRate,
+      updatedDescription,
+      updatedCustomValues,
+      it.id
+    );
+
+    if (Array.isArray(balances)) {
+      for (const b of balances) {
+        if (b.godownId && typeof b.qty === 'number') {
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = excluded.qty
+          `).run(it.id, b.godownId, b.qty);
+        }
+      }
+    }
+
+    const parseCustomValues = (val: any): Record<string, string> => {
+      if (!val) return {};
+      if (typeof val === 'object' && !Array.isArray(val)) return val;
+      try {
+        const parsed = JSON.parse(val);
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) return parsed;
+      } catch {}
+      return {};
+    };
+
+    const tenantId = user?.tenantId || 'platform';
+    const actorId = user?.id || 'staff';
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}`, tenantId, it.companyId || 'c1', actorId, 'stock_updated', `Updated stock item: ${updatedName}`, new Date().toISOString(), 'Desktop');
+
+    const updated = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(it.id) as any;
+    const bList = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(it.id) as any[];
+
+    res.json({
+      id: updated.id,
+      companyId: updated.companyId,
+      name: updated.name,
+      partNo: updated.partNo || undefined,
+      unit: updated.unit,
+      group: updated.itemGroup,
+      rate: updated.rate,
+      purchaseRate: updated.purchaseRate || undefined,
+      reorderLevel: updated.reorderLevel,
+      alias: updated.alias || undefined,
+      hsnCode: updated.hsnCode || undefined,
+      gstRate: updated.gstRate ?? undefined,
+      description: updated.description || undefined,
+      customValues: parseCustomValues(updated.customValues),
+      balances: bList,
+    });
+  });
+
+  // 6e. Delete Stock Item
+  app.delete('/api/stock/:itemId', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'stock.adjust') && !hasPermission(user, 'tally.write.stock')) {
+      return res.status(403).json({ error: 'Forbidden: Missing stock modification permission' });
+    }
+    const it = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(req.params.itemId) as any;
+    if (!it) {
+      return res.status(404).json({ error: 'Stock item not found' });
+    }
+    if (it.companyId && !canAccessCompany(user, it.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+
+    db.prepare('DELETE FROM stock_balances WHERE itemId = ?').run(it.id);
+    db.prepare('DELETE FROM stock_items WHERE id = ?').run(it.id);
+
+    const tenantId = user?.tenantId || 'platform';
+    const actorId = user?.id || 'staff';
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}`, tenantId, it.companyId || 'c1', actorId, 'stock_deleted', `Deleted stock item: ${it.name}`, new Date().toISOString(), 'Desktop');
+
+    res.json({ success: true, id: it.id });
   });
 
   // 6b. Stock Adjust
@@ -2077,14 +2370,15 @@ export function createApp(dbPath?: string): express.Express {
     res.json({ success: true });
   });
 
-  // 12. Notebooks
+  // 12. Notebooks (Strictly isolated per user)
   app.get('/api/notebooks', (req, res) => {
     const user = getRequestUser(req);
     if (!hasPermission(user, 'notebook.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing notebook.view permission' });
     }
-    let query = 'SELECT * FROM notebooks WHERE 1=1';
-    const params: any[] = [];
+    const ownerUserId = user?.id || 'owner';
+    let query = 'SELECT * FROM notebooks WHERE (userId = ? OR (userId IS NULL AND updatedBy = ?))';
+    const params: any[] = [ownerUserId, ownerUserId];
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
@@ -2106,8 +2400,9 @@ export function createApp(dbPath?: string): express.Express {
         }
       }
       const defaultNb = {
-        id: `nb-${Date.now()}`,
+        id: `nb-${ownerUserId}-${Date.now()}`,
         companyId: targetCompanyId,
+        userId: ownerUserId,
         title: 'Material & Delivery Calculation Notebook',
         columns: JSON.stringify([
           { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
@@ -2127,14 +2422,15 @@ export function createApp(dbPath?: string): express.Express {
           },
         ]),
         updatedAt: new Date().toISOString(),
-        updatedBy: user?.id || 'owner',
+        updatedBy: ownerUserId,
       };
       try {
         db.prepare(
-          'INSERT INTO notebooks (id, companyId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?)'
+          'INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         ).run(
           defaultNb.id,
           defaultNb.companyId,
+          defaultNb.userId,
           defaultNb.title,
           defaultNb.columns,
           defaultNb.rows,
@@ -2148,6 +2444,7 @@ export function createApp(dbPath?: string): express.Express {
     res.json(
       rows.map(r => ({
         ...r,
+        userId: r.userId || r.updatedBy,
         columns: JSON.parse(r.columns || '[]'),
         rows: JSON.parse(r.rows || '[]'),
       }))
@@ -2159,51 +2456,21 @@ export function createApp(dbPath?: string): express.Express {
     if (!hasPermission(user, 'notebook.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing notebook.view permission' });
     }
-    let r = db.prepare('SELECT * FROM notebooks WHERE id = ?').get(req.params.id) as any;
+    const ownerUserId = user?.id || 'owner';
+    const r = db.prepare('SELECT * FROM notebooks WHERE id = ?').get(req.params.id) as any;
     if (!r) {
-      let targetCompanyId = '';
-      if (user && user.tenantId && user.role !== 'dev') {
-        const c = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any;
-        targetCompanyId = c?.id || '';
-      } else {
-        const c = db.prepare('SELECT id FROM companies LIMIT 1').get() as any;
-        targetCompanyId = c?.id || 'c1';
-      }
-      r = {
-        id: `nb-${Date.now()}`,
-        companyId: targetCompanyId,
-        title: 'Material & Delivery Calculation Notebook',
-        columns: JSON.stringify([
-          { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
-          { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
-          { id: 'c-rate', key: 'rate', title: 'Rate (₹)', type: 'number' },
-          { id: 'c-total', key: 'total', title: 'Total (₹)', type: 'computed', formula: '{qty} * {rate}', total: 'sum' },
-        ]),
-        rows: JSON.stringify([
-          {
-            id: 'r-1',
-            cells: {
-              desc: { raw: 'Servo Motor 550W (Batch A)', value: 'Servo Motor 550W (Batch A)' },
-              qty: { raw: '10*2', value: '20' },
-              rate: { raw: '4200', value: '4200' },
-              total: { raw: '{qty} * {rate}', value: '84000' },
-            },
-          },
-        ]),
-        updatedAt: new Date().toISOString(),
-        updatedBy: user?.id || 'owner',
-      };
-      try {
-        db.prepare(
-          'INSERT INTO notebooks (id, companyId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(r.id, r.companyId, r.title, r.columns, r.rows, r.updatedAt, r.updatedBy);
-      } catch {}
+      return res.status(404).json({ error: 'Notebook not found' });
     }
     if (r.companyId && !canAccessCompany(user, r.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
     }
+    const recordOwnerId = r.userId || r.updatedBy;
+    if (user && recordOwnerId && recordOwnerId !== user.id) {
+      return res.status(403).json({ error: "Forbidden: Cannot access another user's private notebook" });
+    }
     res.json({
       ...r,
+      userId: recordOwnerId || ownerUserId,
       columns: JSON.parse(r.columns || '[]'),
       rows: JSON.parse(r.rows || '[]'),
     });
@@ -2225,18 +2492,16 @@ export function createApp(dbPath?: string): express.Express {
     res.json(rows);
   });
 
-  // 12c. Single Notebook Endpoint
+  // 12c. Single Notebook Endpoint (Isolated per user)
   app.get('/api/notebook', (req, res) => {
     const user = getRequestUser(req);
     if (!hasPermission(user, 'notebook.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing notebook.view permission' });
     }
-    let r: any = null;
-    if (user && user.role !== 'dev' && user.tenantId) {
-      r = db.prepare('SELECT * FROM notebooks WHERE companyId IN (SELECT id FROM companies WHERE tenantId = ?) LIMIT 1').get(user.tenantId) as any;
-    } else {
-      r = db.prepare('SELECT * FROM notebooks LIMIT 1').get() as any;
-    }
+    const ownerUserId = user?.id || 'owner';
+    let r = db
+      .prepare('SELECT * FROM notebooks WHERE (userId = ? OR (userId IS NULL AND updatedBy = ?)) ORDER BY updatedAt DESC LIMIT 1')
+      .get(ownerUserId, ownerUserId) as any;
     if (!r) {
       let targetCompanyId = '';
       if (user && user.tenantId && user.role !== 'dev') {
@@ -2247,8 +2512,9 @@ export function createApp(dbPath?: string): express.Express {
         targetCompanyId = c?.id || 'c1';
       }
       r = {
-        id: `nb-${Date.now()}`,
+        id: `nb-${ownerUserId}-${Date.now()}`,
         companyId: targetCompanyId,
+        userId: ownerUserId,
         title: 'Material & Delivery Calculation Notebook',
         columns: JSON.stringify([
           { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
@@ -2268,16 +2534,17 @@ export function createApp(dbPath?: string): express.Express {
           },
         ]),
         updatedAt: new Date().toISOString(),
-        updatedBy: user?.id || 'owner',
+        updatedBy: ownerUserId,
       };
       try {
         db.prepare(
-          'INSERT INTO notebooks (id, companyId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).run(r.id, r.companyId, r.title, r.columns, r.rows, r.updatedAt, r.updatedBy);
+          'INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(r.id, r.companyId, r.userId, r.title, r.columns, r.rows, r.updatedAt, r.updatedBy);
       } catch {}
     }
     res.json({
       ...r,
+      userId: r.userId || r.updatedBy,
       columns: JSON.parse(r.columns || '[]'),
       rows: JSON.parse(r.rows || '[]'),
     });
@@ -2289,9 +2556,16 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Missing notebook.edit permission' });
     }
     const nb = req.body;
+    const ownerUserId = user?.id || nb.userId || nb.updatedBy || 'staff';
     const existing = db.prepare('SELECT * FROM notebooks WHERE id = ?').get(nb.id) as any;
-    if (existing && existing.companyId && !canAccessCompany(user, existing.companyId)) {
-      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    if (existing) {
+      if (existing.companyId && !canAccessCompany(user, existing.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+      }
+      const existingOwner = existing.userId || existing.updatedBy;
+      if (user && existingOwner && existingOwner !== user.id) {
+        return res.status(403).json({ error: "Forbidden: Cannot modify another user's private notebook" });
+      }
     }
     const defaultComp = user?.tenantId
       ? (db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any)
@@ -2301,25 +2575,40 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cannot save notebook to another organization' });
     }
 
+    const savedId = nb.id || `nb-${ownerUserId}-${Date.now()}`;
+    const updatedAt = new Date().toISOString();
+    const savedNb = {
+      id: savedId,
+      companyId,
+      userId: ownerUserId,
+      title: nb.title || 'Untitled Notebook',
+      columns: nb.columns || [],
+      rows: nb.rows || [],
+      updatedAt,
+      updatedBy: ownerUserId,
+    };
+
     db.prepare(`
-      INSERT INTO notebooks (id, companyId, title, columns, rows, updatedAt, updatedBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         columns = excluded.columns,
         rows = excluded.rows,
         updatedAt = excluded.updatedAt,
-        updatedBy = excluded.updatedBy
+        updatedBy = excluded.updatedBy,
+        userId = COALESCE(notebooks.userId, excluded.userId)
     `).run(
-      nb.id || `nb-${Date.now()}`,
-      companyId,
-      nb.title || 'Untitled Notebook',
-      JSON.stringify(nb.columns || []),
-      JSON.stringify(nb.rows || []),
-      new Date().toISOString(),
-      nb.updatedBy || user?.id || 'staff'
+      savedNb.id,
+      savedNb.companyId,
+      savedNb.userId,
+      savedNb.title,
+      JSON.stringify(savedNb.columns),
+      JSON.stringify(savedNb.rows),
+      savedNb.updatedAt,
+      savedNb.updatedBy
     );
-    res.json({ success: true, notebook: nb });
+    res.json(savedNb);
   });
 
   // 13. Activities
@@ -2637,6 +2926,7 @@ export function createApp(dbPath?: string): express.Express {
         INSERT OR REPLACE INTO bills (id, companyId, partyId, billNo, date, dueDate, dueDays, amount, pending, source)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      const activeSyncedBillIds: string[] = [];
       for (const b of bills) {
         const existingBill = db.prepare('SELECT companyId FROM bills WHERE id = ?').get(b.id) as any;
         const safeBillId =
@@ -2644,7 +2934,22 @@ export function createApp(dbPath?: string): express.Express {
             ? `${resolvedCompanyId}_${b.id}`
             : b.id;
         stmt.run(safeBillId, resolvedCompanyId, b.partyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
+        activeSyncedBillIds.push(safeBillId);
         billsUpdated++;
+      }
+
+      // Reconcile settled/paid bills when a full Tally bill snapshot is pushed
+      if (req.body.reconcilePaidBills) {
+        if (activeSyncedBillIds.length > 0) {
+          const placeholders = activeSyncedBillIds.map(() => '?').join(',');
+          db.prepare(
+            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending > 0 AND id NOT IN (${placeholders})`
+          ).run(resolvedCompanyId, ...activeSyncedBillIds);
+        } else {
+          db.prepare(
+            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending > 0`
+          ).run(resolvedCompanyId);
+        }
       }
     }
 

@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Search, X, Layers } from 'lucide-react';
-import { StockItem } from '@saas/shared';
+import { Search, X, Layers, Plus } from 'lucide-react';
+import { StockItem, can } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
 import { StatusText } from '../../components/ui/StatusText.js';
+import { StockItemEditorSheet } from './StockItemEditorSheet.js';
 
 interface StockItemWithTotal {
   item: StockItem;
@@ -18,11 +19,14 @@ interface StockItemWithTotal {
 
 export const StockScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentRole } = useAppStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tabFilter, setTabFilter] = useState<'all' | 'low'>('all');
   const [isCombined, setIsCombined] = useState(false);
+  const [createSheetOpen, setCreateSheetOpen] = useState(false);
+
+  const canEditStock = can(currentRole, 'stock.adjust') || can(currentRole, 'tally.write.stock');
 
   // Fetch stock items
   const { data: stockItems = [], isLoading: itemsLoading } = useQuery({
@@ -84,7 +88,21 @@ export const StockScreen: React.FC = () => {
   }, [stockWithTotals, searchQuery, tabFilter]);
 
   return (
-    <LargeTitleScreen title="Stock">
+    <LargeTitleScreen
+      title="Stock"
+      subtitle={
+        canEditStock ? (
+          <button
+            type="button"
+            onClick={() => setCreateSheetOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white font-semibold text-subhead rounded-xl shadow-xs hover:opacity-95 active:scale-95 transition-all"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>New Item</span>
+          </button>
+        ) : undefined
+      }
+    >
       {/* Search Input */}
       <div className="relative w-full">
         <Search className="w-4 h-4 text-label-3 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -149,8 +167,18 @@ export const StockScreen: React.FC = () => {
             Loading inventory...
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="p-8 text-center text-label-2 text-subhead">
-            No stock items found.
+          <div className="p-8 text-center flex flex-col items-center justify-center gap-3">
+            <span className="text-subhead text-label-2">No stock items found.</span>
+            {canEditStock && (
+              <button
+                type="button"
+                onClick={() => setCreateSheetOpen(true)}
+                className="text-subhead font-semibold text-accent hover:underline flex items-center gap-1"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Create a new stock item</span>
+              </button>
+            )}
           </div>
         ) : (
           filteredItems.map(({ item, totalQty, isLow }) => (
@@ -176,6 +204,14 @@ export const StockScreen: React.FC = () => {
           ))
         )}
       </InsetGroup>
+
+      {/* Create Stock Item Sheet */}
+      <StockItemEditorSheet
+        open={createSheetOpen}
+        onOpenChange={setCreateSheetOpen}
+        initialItem={null}
+        onSuccess={(created) => navigate(`/stock/${created.id}`)}
+      />
     </LargeTitleScreen>
   );
 };
