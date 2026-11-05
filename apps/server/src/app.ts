@@ -2019,12 +2019,12 @@ export function createApp(dbPath?: string): express.Express {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
     } else if (user && user.role !== 'dev' && user.tenantId) {
-      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
-      params.push(user.tenantId);
+      query += ' AND (companyId IN (SELECT id FROM companies WHERE tenantId = ?) OR assignedToUserId = ?)';
+      params.push(user.tenantId, user.id);
       if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
-        query += ` AND companyId IN (${placeholders})`;
-        params.push(...user.companyIds);
+        query += ` AND (companyId IN (${placeholders}) OR assignedToUserId = ?)`;
+        params.push(...user.companyIds, user.id);
       }
     }
 
@@ -2032,10 +2032,18 @@ export function createApp(dbPath?: string): express.Express {
       query += ' AND status = ?';
       params.push(req.query.status);
     }
-    if (req.query.assignedToUserId) {
+
+    // Strict task visibility: non-admin staff can only ever view tasks assigned to them,
+    // and explicit assignedToUserId filters are honored for all users.
+    const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
+    if (user && !isAdminRole) {
+      query += ' AND assignedToUserId = ?';
+      params.push(user.id);
+    } else if (req.query.assignedToUserId) {
       query += ' AND assignedToUserId = ?';
       params.push(req.query.assignedToUserId);
     }
+
     if (req.query.challanId) {
       query += ' AND challanId = ?';
       params.push(req.query.challanId);
@@ -2060,8 +2068,12 @@ export function createApp(dbPath?: string): express.Express {
     const user = getRequestUser(req);
     const r = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as any;
     if (!r) return res.status(404).json({ error: 'Task not found' });
-    if (r.companyId && !canAccessCompany(user, r.companyId)) {
+    if (r.companyId && r.companyId !== 'all' && !canAccessCompany(user, r.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
+    }
+    const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
+    if (user && !isAdminRole && r.assignedToUserId !== user.id && r.assignedByUserId !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: Task is only visible to the assigned user' });
     }
     res.json(r);
   });
@@ -2069,12 +2081,33 @@ export function createApp(dbPath?: string): express.Express {
   app.post('/api/tasks', (req, res) => {
     const user = getRequestUser(req);
     const body = req.body;
+    if (!body.title || typeof body.title !== 'string' || !body.title.trim()) {
+      return res.status(400).json({ error: 'Task title is required' });
+    }
+    if (!body.assignedToUserId || typeof body.assignedToUserId !== 'string') {
+      return res.status(400).json({ error: 'assignedToUserId is required' });
+    }
+
     const id = body.id || `task-${Date.now()}`;
     const createdAt = new Date().toISOString();
     const tenantId = user?.tenantId || 'platform';
+
+    // Verify assignee exists and belongs to the same tenant (unless dev)
+    const assignee = db.prepare('SELECT id, tenantId, name FROM users WHERE id = ?').get(body.assignedToUserId) as any;
+    if (assignee && user && user.role !== 'dev' && user.tenantId && assignee.tenantId && assignee.tenantId !== user.tenantId) {
+      return res.status(403).json({ error: 'Forbidden: Cannot assign task to a user outside your organization' });
+    }
+
+    // Resolve concrete companyId (never store 'all')
+    let linkedChallan: any = null;
+    if (body.challanId) {
+      linkedChallan = db.prepare('SELECT id, companyId, number FROM challans WHERE id = ?').get(body.challanId) as any;
+    }
     const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
-    const companyId = body.companyId || defaultComp?.id || 'comp-default';
-    if (body.companyId && !canAccessCompany(user, body.companyId)) {
+    const requestedCompanyId = body.companyId && body.companyId !== 'all' ? body.companyId : null;
+    const companyId = requestedCompanyId || linkedChallan?.companyId || defaultComp?.id || 'c1';
+
+    if (requestedCompanyId && !canAccessCompany(user, requestedCompanyId)) {
       return res.status(403).json({ error: 'Forbidden: Cannot create task in another organization' });
     }
     const assignedByUserId = user?.id || body.assignedByUserId || 'staff';
@@ -2085,7 +2118,7 @@ export function createApp(dbPath?: string): express.Express {
     `).run(
       id,
       companyId,
-      body.title,
+      body.title.trim(),
       body.description || null,
       body.assignedToUserId,
       assignedByUserId,
@@ -2097,7 +2130,7 @@ export function createApp(dbPath?: string): express.Express {
       null
     );
 
-    // Auto-create notification for assignee
+    // Auto-create notification strictly for the assigned user
     const notifId = `notif-${Date.now()}`;
     db.prepare(`
       INSERT INTO notifications (id, userId, companyId, title, body, taskId, challanId, photoUrl, read, createdAt)
@@ -2107,7 +2140,7 @@ export function createApp(dbPath?: string): express.Express {
       body.assignedToUserId,
       companyId,
       'New Task Assigned',
-      body.title,
+      body.title.trim(),
       id,
       body.challanId || null,
       body.photoUrl || null,
@@ -2123,18 +2156,23 @@ export function createApp(dbPath?: string): express.Express {
     const user = getRequestUser(req);
     const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as any;
     if (!existing) return res.status(404).json({ error: 'Task not found' });
-    if (existing.companyId && !canAccessCompany(user, existing.companyId)) {
+    if (existing.companyId && existing.companyId !== 'all' && !canAccessCompany(user, existing.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
+    const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
+    if (user && !isAdminRole && existing.assignedToUserId !== user.id && existing.assignedByUserId !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: Only the assigned user can update this task' });
+    }
+
     const { status, photoUrl, description } = req.body;
-    const completedAt = status === 'completed' ? new Date().toISOString() : null;
+    const completedAt = status === 'completed' ? new Date().toISOString() : (status === 'pending' || status === 'in_progress' ? null : existing.completedAt);
 
     db.prepare(`
       UPDATE tasks
       SET status = COALESCE(?, status),
           photoUrl = COALESCE(?, photoUrl),
           description = COALESCE(?, description),
-          completedAt = COALESCE(?, completedAt)
+          completedAt = ?
       WHERE id = ?
     `).run(
       status ?? null,
@@ -2143,6 +2181,32 @@ export function createApp(dbPath?: string): express.Express {
       completedAt ?? null,
       req.params.id
     );
+
+    // Notify assigner when task transitions to completed
+    if (
+      status === 'completed' &&
+      existing.status !== 'completed' &&
+      existing.assignedByUserId &&
+      existing.assignedByUserId !== (user?.id || existing.assignedToUserId)
+    ) {
+      const notifId = `notif-done-${Date.now()}`;
+      const actorName = user?.name || 'Assignee';
+      db.prepare(`
+        INSERT INTO notifications (id, userId, companyId, title, body, taskId, challanId, photoUrl, read, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        notifId,
+        existing.assignedByUserId,
+        existing.companyId,
+        'Task Completed',
+        `${actorName} completed: "${existing.title}"`,
+        existing.id,
+        existing.challanId || null,
+        photoUrl || existing.photoUrl || null,
+        0,
+        new Date().toISOString()
+      );
+    }
 
     const task = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id);
     res.json(task);
@@ -2156,17 +2220,23 @@ export function createApp(dbPath?: string): express.Express {
       rows = db.prepare(`
         SELECT n.* FROM notifications n
         LEFT JOIN companies c ON n.companyId = c.id
-        WHERE c.tenantId = ? OR (n.companyId IS NULL AND n.userId = ?)
+        WHERE c.tenantId = ? OR n.userId = ?
         ORDER BY n.createdAt DESC
       `).all(user.tenantId, user.id) as any[];
     } else {
       rows = db.prepare('SELECT * FROM notifications ORDER BY createdAt DESC').all() as any[];
     }
-    if (req.query.userId) {
+
+    const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
+    if (user && !isAdminRole) {
+      // Non-admin staff strictly only ever receive their own notifications
+      rows = rows.filter(r => r.userId === user.id);
+    } else if (req.query.userId) {
       rows = rows.filter(r => r.userId === req.query.userId);
     }
+
     if (req.query.companyId && req.query.companyId !== 'all') {
-      rows = rows.filter(r => r.companyId === req.query.companyId);
+      rows = rows.filter(r => r.companyId === req.query.companyId || r.companyId === 'all');
     }
     res.json(rows.map(r => ({ ...r, read: Boolean(r.read) })));
   });
@@ -2175,8 +2245,11 @@ export function createApp(dbPath?: string): express.Express {
     const user = getRequestUser(req);
     const notif = db.prepare('SELECT * FROM notifications WHERE id = ?').get(req.params.id) as any;
     if (!notif) return res.status(404).json({ error: 'Notification not found' });
-    if (notif.companyId && !canAccessCompany(user, notif.companyId)) {
+    if (notif.companyId && notif.companyId !== 'all' && !canAccessCompany(user, notif.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+    if (user && user.role !== 'dev' && notif.userId !== user.id) {
+      return res.status(403).json({ error: 'Forbidden: Cannot mark another user notification as read' });
     }
     db.prepare('UPDATE notifications SET read = 1 WHERE id = ?').run(req.params.id);
     res.json({ success: true });
@@ -2184,13 +2257,10 @@ export function createApp(dbPath?: string): express.Express {
 
   app.post('/api/notifications/read-all', (req, res) => {
     const user = getRequestUser(req);
-    if (user && user.role !== 'dev' && user.tenantId) {
-      db.prepare(`
-        UPDATE notifications SET read = 1
-        WHERE companyId IN (SELECT id FROM companies WHERE tenantId = ?) OR userId = ?
-      `).run(user.tenantId, user.id);
-    } else {
-      db.prepare('UPDATE notifications SET read = 1').run();
+    const isAdminRole = user && (user.role === 'owner' || user.role === 'admin' || user.role === 'dev');
+    const targetUserId = isAdminRole && req.body?.userId ? req.body.userId : user?.id;
+    if (targetUserId) {
+      db.prepare('UPDATE notifications SET read = 1 WHERE userId = ?').run(targetUserId);
     }
     res.json({ success: true });
   });

@@ -10,12 +10,18 @@ import type { Notification as AppNotification } from '@saas/shared';
 export const NotificationBell: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const [open, setOpen] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
   const seenNotificationIds = React.useRef<Set<string>>(new Set());
   const initialLoadRef = React.useRef<boolean>(true);
+
+  // Reset seen notifications tracker when switching logged-in users
+  React.useEffect(() => {
+    seenNotificationIds.current.clear();
+    initialLoadRef.current = true;
+  }, [currentUser?.id]);
 
   // Request browser notification permission if running as Web PWA
   React.useEffect(() => {
@@ -24,11 +30,20 @@ export const NotificationBell: React.FC = () => {
     }
   }, []);
 
-  const { data: notifications = [] } = useQuery({
-    queryKey: ['notifications', currentCompanyId],
-    queryFn: () => api.notifications.list(undefined, currentCompanyId),
+  const { data: rawNotifications = [] } = useQuery({
+    queryKey: ['notifications', currentCompanyId, currentUser?.id],
+    queryFn: () => api.notifications.list(currentUser?.id, currentCompanyId),
     refetchInterval: 5000,
   });
+
+  // Strictly isolate notifications to the currently logged-in user
+  const notifications = React.useMemo(
+    () =>
+      currentUser?.id
+        ? rawNotifications.filter((n) => n.userId === currentUser.id)
+        : rawNotifications,
+    [rawNotifications, currentUser?.id]
+  );
 
   // Watch for incoming new notifications and trigger native Android/Web popup notifications
   React.useEffect(() => {
@@ -102,7 +117,7 @@ export const NotificationBell: React.FC = () => {
   });
 
   const markAllReadMutation = useMutation({
-    mutationFn: () => api.notifications.markAllAsRead(),
+    mutationFn: () => api.notifications.markAllAsRead(currentUser?.id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },

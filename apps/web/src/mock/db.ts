@@ -956,39 +956,57 @@ export const mockApiClient: ApiClient = {
   },
   tasks: {
     list: async (companyId, filter) => {
+      const currentUser = useAppStore.getState().currentUser;
       let list =
         companyId === 'all'
           ? db.tasks
-          : db.tasks.filter((t) => t.companyId === companyId);
+          : db.tasks.filter((t) => t.companyId === companyId || t.companyId === 'all');
 
       if (filter?.challanId) {
         list = list.filter((t) => t.challanId === filter.challanId);
       }
-      if (filter?.assignedToUserId) {
-        list = list.filter((t) => t.assignedToUserId === filter.assignedToUserId);
+
+      const targetAssigneeId = filter?.assignedToUserId || currentUser?.id;
+      if (targetAssigneeId) {
+        list = list.filter((t) => t.assignedToUserId === targetAssigneeId);
       }
+
       if (filter?.status) {
         list = list.filter((t) => t.status === filter.status);
       }
       return list;
     },
-    get: async (id) => db.tasks.find((t) => t.id === id) ?? null,
+    get: async (id) => {
+      const currentUser = useAppStore.getState().currentUser;
+      const task = db.tasks.find((t) => t.id === id) ?? null;
+      if (!task) return null;
+      if (currentUser?.id && task.assignedToUserId !== currentUser.id && task.assignedByUserId !== currentUser.id) {
+        return null;
+      }
+      return task;
+    },
     create: async (data) => {
+      const challan = data.challanId ? db.challans.find((c) => c.id === data.challanId) : null;
+      const resolvedCompanyId =
+        data.companyId && data.companyId !== 'all'
+          ? data.companyId
+          : challan?.companyId || db.companies[0]?.id || 'c1';
+
       const newTask: Task = {
         ...data,
+        companyId: resolvedCompanyId,
         id: `task-${Date.now()}`,
         createdAt: new Date().toISOString(),
       };
       db.tasks.unshift(newTask);
 
-      // Automatically generate a notification for the assigned user!
+      // Automatically generate a notification strictly for the assigned user!
       const assigner = db.users.find((u) => u.id === data.assignedByUserId);
-      const challan = data.challanId ? db.challans.find((c) => c.id === data.challanId) : null;
 
       const newNotif: Notification = {
         id: `notif-${Date.now()}`,
         userId: data.assignedToUserId,
-        companyId: data.companyId,
+        companyId: resolvedCompanyId,
         title: 'New Task Assigned',
         body: `${assigner?.name ?? 'Team Member'} assigned: "${data.title}"${
           challan ? ` on Challan ${challan.number}` : ''
@@ -1007,38 +1025,70 @@ export const mockApiClient: ApiClient = {
     update: async (id, updates) => {
       const idx = db.tasks.findIndex((t) => t.id === id);
       if (idx === -1) throw new Error('Task not found');
+      const existing = db.tasks[idx]!;
+      const currentUser = useAppStore.getState().currentUser;
+
       db.tasks[idx] = {
-        ...db.tasks[idx]!,
+        ...existing,
         ...updates,
-        ...(updates.status === 'completed' && !db.tasks[idx]!.completedAt
+        ...(updates.status === 'completed' && !existing.completedAt
           ? { completedAt: new Date().toISOString() }
+          : updates.status === 'pending'
+          ? { completedAt: undefined }
           : {}),
       };
+
+      if (
+        updates.status === 'completed' &&
+        existing.status !== 'completed' &&
+        existing.assignedByUserId &&
+        existing.assignedByUserId !== (currentUser?.id || existing.assignedToUserId)
+      ) {
+        const assigneeUser = db.users.find((u) => u.id === existing.assignedToUserId);
+        db.notifications.unshift({
+          id: `notif-done-${Date.now()}`,
+          userId: existing.assignedByUserId,
+          companyId: existing.companyId,
+          title: 'Task Completed',
+          body: `${assigneeUser?.name ?? 'Assignee'} completed: "${existing.title}"`,
+          taskId: existing.id,
+          challanId: existing.challanId,
+          photoUrl: updates.photoUrl || existing.photoUrl,
+          read: false,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       saveDB();
       return db.tasks[idx]!;
     },
   },
   notifications: {
     list: async (userId, companyId) => {
+      const currentUser = useAppStore.getState().currentUser;
+      const effectiveUserId = userId || currentUser?.id;
       let list = db.notifications;
-      if (userId) {
-        list = list.filter((n) => n.userId === userId);
+      if (effectiveUserId) {
+        list = list.filter((n) => n.userId === effectiveUserId);
       }
       if (companyId && companyId !== 'all') {
-        list = list.filter((n) => n.companyId === companyId);
+        list = list.filter((n) => n.companyId === companyId || n.companyId === 'all');
       }
       return list;
     },
     markAsRead: async (id) => {
+      const currentUser = useAppStore.getState().currentUser;
       const target = db.notifications.find((n) => n.id === id);
-      if (target) {
+      if (target && (!currentUser?.id || target.userId === currentUser.id)) {
         target.read = true;
         saveDB();
       }
     },
     markAllAsRead: async (userId) => {
+      const currentUser = useAppStore.getState().currentUser;
+      const effectiveUserId = userId || currentUser?.id;
       db.notifications.forEach((n) => {
-        if (!userId || n.userId === userId) {
+        if (!effectiveUserId || n.userId === effectiveUserId) {
           n.read = true;
         }
       });

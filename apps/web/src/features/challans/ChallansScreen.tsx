@@ -26,7 +26,7 @@ type ChallanFilter = 'all' | 'sales' | 'purchase' | 'delivery';
 
 export const ChallansScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { currentCompanyId } = useAppStore();
+  const { currentCompanyId, currentUser } = useAppStore();
   const [filter, setFilter] = useState<ChallanFilter>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
@@ -46,10 +46,22 @@ export const ChallansScreen: React.FC = () => {
     queryFn: () => api.parties.list(currentCompanyId),
   });
 
-  const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks', currentCompanyId],
-    queryFn: () => api.tasks.list(currentCompanyId),
+  const { data: rawTasks = [] } = useQuery({
+    queryKey: ['tasks', currentCompanyId, currentUser?.id],
+    queryFn: () =>
+      api.tasks.list(
+        currentCompanyId,
+        currentUser?.id ? { assignedToUserId: currentUser.id } : undefined
+      ),
   });
+
+  const tasks = React.useMemo(
+    () =>
+      currentUser?.id
+        ? rawTasks.filter((t) => t.assignedToUserId === currentUser.id)
+        : rawTasks,
+    [rawTasks, currentUser?.id]
+  );
 
   const partyMap = new Map(parties.map((p) => [p.id, p]));
 

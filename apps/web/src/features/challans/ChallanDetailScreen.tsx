@@ -62,15 +62,33 @@ export const ChallanDetailScreen: React.FC = () => {
     queryFn: () => api.godowns.list(currentCompanyId),
   });
 
-  const { data: tasks = [] } = useQuery({
-    queryKey: ['tasks', currentCompanyId, id],
-    queryFn: () => api.tasks.list(currentCompanyId, { challanId: id }),
+  const { data: rawTasks = [] } = useQuery({
+    queryKey: ['tasks', currentCompanyId, id, currentUser?.id],
+    queryFn: () =>
+      api.tasks.list(currentCompanyId, {
+        challanId: id,
+        ...(currentUser?.id ? { assignedToUserId: currentUser.id } : {}),
+      }),
   });
+
+  const tasks = React.useMemo(
+    () =>
+      currentUser?.id
+        ? rawTasks.filter((t) => t.assignedToUserId === currentUser.id)
+        : rawTasks,
+    [rawTasks, currentUser?.id]
+  );
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.users.list(),
   });
+
+  React.useEffect(() => {
+    if (users.length > 0 && !users.some((u) => u.id === taskAssigneeId)) {
+      setTaskAssigneeId(currentUser?.id || users[0]!.id);
+    }
+  }, [users, taskAssigneeId, currentUser?.id]);
 
   const userMap = new Map<string, User>(users.map((u) => [u.id, u]));
 
@@ -105,6 +123,7 @@ export const ChallanDetailScreen: React.FC = () => {
       api.tasks.update(taskId, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
       showToast({ message: 'Task status updated' });
     },
   });
@@ -126,8 +145,11 @@ export const ChallanDetailScreen: React.FC = () => {
     e.preventDefault();
     if (!taskTitle.trim() || !challan) return;
 
+    const resolvedCompanyId =
+      challan.companyId || (currentCompanyId !== 'all' ? currentCompanyId : 'c1');
+
     createTaskMutation.mutate({
-      companyId: currentCompanyId,
+      companyId: resolvedCompanyId,
       title: taskTitle.trim(),
       description: taskNotes.trim() || undefined,
       assignedToUserId: taskAssigneeId,

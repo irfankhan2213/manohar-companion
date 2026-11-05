@@ -38,16 +38,35 @@ export const TasksScreen: React.FC = () => {
   const [selectedChallanId, setSelectedChallanId] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState<string>('');
 
-  // Fetch data
-  const { data: tasks = [], isLoading } = useQuery({
-    queryKey: ['tasks', currentCompanyId],
-    queryFn: () => api.tasks.list(currentCompanyId),
+  // Fetch data (strictly scoped to tasks assigned to the logged-in user)
+  const { data: rawTasks = [], isLoading } = useQuery({
+    queryKey: ['tasks', currentCompanyId, currentUser?.id],
+    queryFn: () =>
+      api.tasks.list(
+        currentCompanyId,
+        currentUser?.id ? { assignedToUserId: currentUser.id } : undefined
+      ),
   });
+
+  const tasks = React.useMemo(
+    () =>
+      currentUser?.id
+        ? rawTasks.filter((t) => t.assignedToUserId === currentUser.id)
+        : rawTasks,
+    [rawTasks, currentUser?.id]
+  );
 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.users.list(),
   });
+
+  // Ensure default assignee ID exists in current tenant's users list
+  React.useEffect(() => {
+    if (users.length > 0 && !users.some((u) => u.id === assignedToUserId)) {
+      setAssignedToUserId(currentUser?.id || users[0]!.id);
+    }
+  }, [users, assignedToUserId, currentUser?.id]);
 
   const { data: challans = [] } = useQuery({
     queryKey: ['challans', currentCompanyId],
@@ -81,6 +100,7 @@ export const TasksScreen: React.FC = () => {
       api.tasks.update(id, { status }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['notifications'] });
       showToast({ message: 'Task status updated' });
     },
   });
@@ -103,8 +123,13 @@ export const TasksScreen: React.FC = () => {
     e.preventDefault();
     if (!title.trim()) return;
 
+    const selectedChallan = selectedChallanId ? challanMap.get(selectedChallanId) : undefined;
+    const resolvedCompanyId =
+      selectedChallan?.companyId ||
+      (currentCompanyId !== 'all' ? currentCompanyId : challans[0]?.companyId || 'c1');
+
     createTaskMutation.mutate({
-      companyId: currentCompanyId,
+      companyId: resolvedCompanyId,
       title: title.trim(),
       description: description.trim() || undefined,
       assignedToUserId,
