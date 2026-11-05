@@ -36,7 +36,9 @@ export const ChallanPrintScreen: React.FC = () => {
   }
 
   const subtotalPaise = challan.lines.reduce((acc, l) => acc + l.amount, 0);
-  const isInterstate = party?.gstin?.startsWith('03') === false; // Punjab is 03
+  const companyStateCode = company?.gstin && company.gstin.length >= 2 ? company.gstin.slice(0, 2) : '03';
+  const partyStateCode = party?.gstin && party.gstin.length >= 2 ? party.gstin.slice(0, 2) : companyStateCode;
+  const isInterstate = partyStateCode !== companyStateCode;
   const igstPaise = isInterstate ? Math.round(subtotalPaise * 0.18) : 0;
   const cgstPaise = !isInterstate ? Math.round(subtotalPaise * 0.09) : 0;
   const sgstPaise = !isInterstate ? Math.round(subtotalPaise * 0.09) : 0;
@@ -265,8 +267,8 @@ export const ChallanPrintScreen: React.FC = () => {
             </div>
 
             <div className="flex flex-col justify-between pl-2 min-h-[90px]">
-              <div className="text-right font-bold">
-                For MANOHAR TRADERS
+              <div className="text-right font-bold uppercase">
+                For {company?.name || 'MANOHAR TRADERS'}
               </div>
               <div className="flex justify-between items-end text-[11px] text-gray-500 pt-8">
                 <span>Receiver's Signature</span>

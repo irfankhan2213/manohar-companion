@@ -62,9 +62,11 @@ export const ActivityScreen: React.FC = () => {
     return true;
   });
 
-  // Group by date (Today vs Earlier)
-  const todayActs = filteredActivities.filter((a) => a.at.startsWith('2026-10-17'));
-  const earlierActs = filteredActivities.filter((a) => !a.at.startsWith('2026-10-17'));
+  // Group by date (Today vs Earlier — supports both live current date and seeded demo date)
+  const todayIsoPrefix = new Date().toISOString().slice(0, 10);
+  const isTodayEvent = (at: string) => at.startsWith(todayIsoPrefix) || at.startsWith('2026-10-17');
+  const todayActs = filteredActivities.filter((a) => isTodayEvent(a.at));
+  const earlierActs = filteredActivities.filter((a) => !isTodayEvent(a.at));
 
   const getActionIcon = (action: string) => {
     if (action.includes('sync')) {

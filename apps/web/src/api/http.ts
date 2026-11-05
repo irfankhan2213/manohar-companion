@@ -164,9 +164,10 @@ export const httpApiClient: ApiClient = {
       }),
   },
   challans: {
-    list: (companyId: Id | 'all', _query?: string, type?: 'sales' | 'purchase' | 'delivery' | 'all', itemIds?: string[]) => {
+    list: (companyId: Id | 'all', query?: string, type?: 'sales' | 'purchase' | 'delivery' | 'all', itemIds?: string[]) => {
       const params = new URLSearchParams();
       if (companyId && companyId !== 'all') params.append('companyId', companyId);
+      if (query && query.trim()) params.append('q', query.trim());
       if (type && type !== 'all') params.append('type', type);
       if (itemIds && itemIds.length > 0) params.append('itemIds', itemIds.join(','));
       return fetchJSON<Challan[]>(`/challans?${params.toString()}`);

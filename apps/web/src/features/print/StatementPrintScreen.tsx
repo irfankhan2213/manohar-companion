@@ -236,19 +236,19 @@ export const StatementPrintScreen: React.FC = () => {
                 <span className="text-gray-600">Bank:</span>
                 <span className="col-span-2 font-semibold">HDFC Bank Ltd</span>
                 <span className="text-gray-600">A/C Name:</span>
-                <span className="col-span-2 font-semibold">Manohar Traders</span>
+                <span className="col-span-2 font-semibold">{company?.name || 'Manohar Traders'}</span>
                 <span className="text-gray-600">A/C No:</span>
                 <span className="col-span-2 font-mono font-bold">50200012345678</span>
                 <span className="text-gray-600">IFSC Code:</span>
                 <span className="col-span-2 font-mono font-semibold">HDFC0001234</span>
                 <span className="text-gray-600">Branch:</span>
-                <span className="col-span-2">Industrial Area, Ludhiana</span>
+                <span className="col-span-2">{company?.address || 'Industrial Area, Ludhiana'}</span>
               </div>
             </div>
 
             <div className="flex flex-col justify-between pl-3 min-h-[90px]">
-              <div className="text-right font-bold text-xs">
-                For MANOHAR TRADERS
+              <div className="text-right font-bold text-xs uppercase">
+                For {company?.name || 'MANOHAR TRADERS'}
               </div>
               <div className="flex justify-between items-end text-[11px] text-gray-500 pt-8">
                 <span>Accounts Department</span>

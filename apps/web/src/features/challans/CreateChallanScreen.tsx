@@ -121,7 +121,10 @@ export const CreateChallanScreen: React.FC = () => {
 
   const createMutation = useMutation({
     mutationFn: async (status: 'draft' | 'queued') => {
-      const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
+      const targetCompanyId =
+        currentCompanyId && currentCompanyId !== 'all'
+          ? currentCompanyId
+          : selectedParty?.companyId || companies[0]?.id || 'c1';
       return api.challans.create({
         companyId: targetCompanyId,
         type: challanType,
@@ -141,6 +144,8 @@ export const CreateChallanScreen: React.FC = () => {
     onSuccess: (newChallan) => {
       queryClient.invalidateQueries({ queryKey: ['challans'] });
       queryClient.invalidateQueries({ queryKey: ['outbox'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
 
       if (newChallan.status === 'queued') {
         showToast({ message: 'Challan queued for Tally sync' });

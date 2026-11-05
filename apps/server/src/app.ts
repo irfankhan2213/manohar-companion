@@ -484,6 +484,9 @@ export function createApp(dbPath?: string): express.Express {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, tenantId, name.trim(), tallyName || name.trim(), financialYear || '2026-27', gstin || null, address || null, phone || null, now, 'online');
 
+    // Ensure every new company has a default Main Location godown
+    db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(`g-${id}-main`, id, 'Main Location');
+
     const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
     res.status(201).json(created);
   });
@@ -640,11 +643,12 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(ownerId, tenantId, ownerName, ownerPhone, pin, 'owner', JSON.stringify('all'), 1);
 
-      // 3. Create initial Company for this client
+      // 3. Create initial Company and default Main Location godown for this client
       db.prepare(`
         INSERT INTO companies (id, tenantId, name, tallyName, financialYear, lastSyncedAt, agentStatus)
         VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(companyId, tenantId, compName, compName, financialYear || '2026-27', now, 'offline');
+      db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(`g-${companyId}-main`, companyId, 'Main Location');
 
       // 4. Create default reminder rules for this tenant
       db.prepare(`
@@ -834,13 +838,21 @@ export function createApp(dbPath?: string): express.Express {
     const body = req.body;
     db.prepare(`
       UPDATE parties
-      SET notes = COALESCE(?, notes),
+      SET name = COALESCE(?, name),
+          city = COALESCE(?, city),
+          gstin = COALESCE(?, gstin),
+          creditDays = COALESCE(?, creditDays),
+          notes = COALESCE(?, notes),
           promiseToPay = COALESCE(?, promiseToPay),
           remindersPaused = COALESCE(?, remindersPaused),
           collectorId = COALESCE(?, collectorId),
           phones = COALESCE(?, phones)
       WHERE id = ?
     `).run(
+      body.name !== undefined ? String(body.name).trim() : null,
+      body.city !== undefined ? String(body.city).trim() : null,
+      body.gstin !== undefined ? String(body.gstin).trim() : null,
+      typeof body.creditDays === 'number' ? body.creditDays : null,
       body.notes ?? null,
       body.promiseToPay ?? null,
       body.remindersPaused !== undefined ? (body.remindersPaused ? 1 : 0) : null,
@@ -884,7 +896,7 @@ export function createApp(dbPath?: string): express.Express {
     res.json(rows);
   });
 
-  // 2d. Ledger lines
+  // 2d. Ledger lines (falls back to synthesized bill entries when raw ledger_lines are not yet populated)
   app.get('/api/ledger/:partyId', (req, res) => {
     const user = getRequestUser(req);
     if (!hasPermission(user, 'ledgers.view')) {
@@ -897,7 +909,31 @@ export function createApp(dbPath?: string): express.Express {
     if (user && user.role !== 'dev' && user.tenantId && party.tenantId && party.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
     }
-    const rows = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId);
+    let rows = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
+    if (rows.length === 0) {
+      const partyBills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
+      rows = [];
+      for (const b of partyBills) {
+        rows.push({
+          date: b.date,
+          particulars: 'Sales Account',
+          voucherType: 'Sales',
+          voucherNo: b.billNo,
+          debit: b.amount,
+          credit: 0,
+        });
+        if (b.amount > b.pending) {
+          rows.push({
+            date: b.date,
+            particulars: 'Bank / Receipt Settlement',
+            voucherType: 'Receipt',
+            voucherNo: `RCPT-${b.billNo}`,
+            debit: 0,
+            credit: b.amount - b.pending,
+          });
+        }
+      }
+    }
     res.json(rows);
   });
 
@@ -1166,7 +1202,7 @@ export function createApp(dbPath?: string): express.Express {
     let late1_30 = 0;
     let late30Plus = 0;
 
-    const overdueList: Array<{ party: any; amount: number; daysLate: number; invoiceRef?: string }> = [];
+    const partyOverdueMap = new Map<string, { party: any; amount: number; daysLate: number; invoiceRef?: string }>();
 
     for (const b of bills) {
       if (b.pending <= 0) continue;
@@ -1176,12 +1212,21 @@ export function createApp(dbPath?: string): express.Express {
         totalOverdue += b.pending;
         const p = partyMap.get(b.partyId);
         if (p) {
-          overdueList.push({
-            party: p,
-            amount: b.pending,
-            daysLate: days,
-            invoiceRef: b.billNo,
-          });
+          const existing = partyOverdueMap.get(b.partyId);
+          if (existing) {
+            existing.amount += b.pending;
+            if (days > existing.daysLate) {
+              existing.daysLate = days;
+              existing.invoiceRef = b.billNo;
+            }
+          } else {
+            partyOverdueMap.set(b.partyId, {
+              party: p,
+              amount: b.pending,
+              daysLate: days,
+              invoiceRef: b.billNo,
+            });
+          }
         }
         if (days <= 30) late1_30 += b.pending;
         else late30Plus += b.pending;
@@ -1190,7 +1235,7 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
-    overdueList.sort((a, b) => b.amount - a.amount);
+    const overdueList = Array.from(partyOverdueMap.values()).sort((a, b) => b.daysLate - a.daysLate || b.amount - a.amount);
 
     let rRules: any = null;
     if (user && user.role !== 'dev' && user.tenantId) {
@@ -1210,7 +1255,7 @@ export function createApp(dbPath?: string): express.Express {
       actionPath: string;
     }> = [];
 
-    const overdueOver30 = overdueList.filter(o => o.daysLate > 30);
+    const overdueOver30 = overdueList.filter(o => o.daysLate >= 30);
     if (overdueOver30.length > 0) {
       const sum = overdueOver30.reduce((acc, curr) => acc + curr.amount, 0);
       const sumLakhs = (sum / 10000000).toFixed(1);
@@ -1236,27 +1281,52 @@ export function createApp(dbPath?: string): express.Express {
       stockQuery += ' GROUP BY s.id';
     }
     const stockRows = db.prepare(stockQuery).all(...stockParams) as any[];
-    const lowStockItems = stockRows.filter((s: any) => s.reorderLevel > 0 && (s.totalQty === null || s.totalQty < s.reorderLevel));
+    const lowStockItems = stockRows.filter((s: any) => s.reorderLevel > 0 && (s.totalQty === null || s.totalQty <= s.reorderLevel));
     if (lowStockItems.length > 0) {
       needsAttention.push({
         id: 'attn-stock',
         type: 'stock',
-        title: `${lowStockItems.length} item${lowStockItems.length > 1 ? 's' : ''} below reorder level`,
+        title: `${lowStockItems.length} item${lowStockItems.length > 1 ? 's' : ''} at or below reorder level`,
         subtitle: `${lowStockItems.slice(0, 2).map((i: any) => i.name).join(', ')} running low`,
         actionLabel: 'View Stock',
         actionPath: '/stock',
       });
     }
 
+    // Compute per-company breakdown when viewing 'all'
+    let companyBreakdown: Array<{ company: any; totalAmount: number; overdueAmount: number }> | undefined = undefined;
+    if (!companyId || companyId === 'all') {
+      let comps = user && user.role !== 'dev' && user.tenantId
+        ? (db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId) as any[])
+        : (db.prepare('SELECT * FROM companies').all() as any[]);
+      if (user && user.role !== 'dev' && Array.isArray(user.companyIds)) {
+        comps = comps.filter(c => user.companyIds.includes(c.id));
+      }
+      companyBreakdown = comps.map(comp => {
+        const cBills = bills.filter(b => b.companyId === comp.id && b.pending > 0);
+        const cAging = calculateAgingSummary(cBills, today);
+        return {
+          company: comp,
+          totalAmount: cAging.total,
+          overdueAmount: cAging.overdue,
+        };
+      });
+    }
+
+    const notDuePct = totalReceivables > 0 ? Math.round((notDue / totalReceivables) * 100) : 100;
+    const latePct = totalReceivables > 0 ? Math.round((late1_30 / totalReceivables) * 100) : 0;
+    const over30Pct = totalReceivables > 0 ? Math.max(0, 100 - notDuePct - latePct) : 0;
+
     res.json({
       totalReceivables,
       totalOverdue,
-      notDuePercentage: totalReceivables ? Math.round((notDue / totalReceivables) * 100) : 0,
-      latePercentage: totalReceivables ? Math.round((late1_30 / totalReceivables) * 100) : 0,
-      over30Percentage: totalReceivables ? Math.round((late30Plus / totalReceivables) * 100) : 0,
+      notDuePercentage: notDuePct,
+      latePercentage: latePct,
+      over30Percentage: over30Pct,
       whatsappAttached: isWhatsAppAttached,
       needsAttention,
       mostOverdue: overdueList.slice(0, 5),
+      companyBreakdown,
     });
   });
 
@@ -1542,7 +1612,16 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(400).json({ error: 'Item name is required' });
     }
 
-    const resolvedCompanyId = companyId || (user?.companyIds === 'all' ? 'c1' : user?.companyIds?.[0]) || 'c1';
+    const defaultTenantComp = user?.tenantId
+      ? (db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any)
+      : null;
+    const requestedCompanyId = companyId && companyId !== 'all' ? companyId : null;
+    const resolvedCompanyId =
+      (requestedCompanyId && canAccessCompany(user, requestedCompanyId) ? requestedCompanyId : null) ||
+      (Array.isArray(user?.companyIds) && user.companyIds.length > 0 ? user.companyIds[0] : null) ||
+      defaultTenantComp?.id ||
+      requestedCompanyId ||
+      'c1';
     if (!canAccessCompany(user, resolvedCompanyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant creation denied' });
     }
@@ -1845,7 +1924,30 @@ export function createApp(dbPath?: string): express.Express {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
     }
-    const rows = db.prepare(query).all(...params);
+    let rows = db.prepare(query).all(...params) as any[];
+    if (rows.length === 0) {
+      const targetCompanyId =
+        req.query.companyId && req.query.companyId !== 'all'
+          ? (req.query.companyId as string)
+          : user?.tenantId
+          ? (db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any)?.id
+          : null;
+      if (targetCompanyId) {
+        const defaultGodown = {
+          id: `g-${targetCompanyId}-main`,
+          companyId: targetCompanyId,
+          name: 'Main Location',
+        };
+        try {
+          db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
+            defaultGodown.id,
+            defaultGodown.companyId,
+            defaultGodown.name
+          );
+          rows = [defaultGodown];
+        } catch {}
+      }
+    }
     res.json(rows);
   });
 
@@ -1879,6 +1981,22 @@ export function createApp(dbPath?: string): express.Express {
       ...r,
       lines: JSON.parse(r.lines || '[]'),
     }));
+
+    if (req.query.q && typeof req.query.q === 'string' && req.query.q.trim()) {
+      const q = req.query.q.trim().toLowerCase();
+      const allParties = db.prepare('SELECT id, name FROM parties').all() as Array<{ id: string; name: string }>;
+      const partyNameMap = new Map(allParties.map(p => [p.id, (p.name || '').toLowerCase()]));
+      challans = challans.filter(c => {
+        const pName = partyNameMap.get(c.partyId) || '';
+        return (
+          c.number.toLowerCase().includes(q) ||
+          pName.includes(q) ||
+          (c.vehicleNo?.toLowerCase().includes(q) ?? false) ||
+          (c.lrNo?.toLowerCase().includes(q) ?? false) ||
+          c.lines.some(l => l.description.toLowerCase().includes(q))
+        );
+      });
+    }
 
     const itemIds = req.query.itemIds;
     if (itemIds) {
@@ -1926,13 +2044,25 @@ export function createApp(dbPath?: string): express.Express {
     const body = req.body;
     const id = body.id || `ch-${Date.now()}`;
     const tenantId = user?.tenantId || 'platform';
+    const partyRow = body.partyId ? (db.prepare('SELECT companyId FROM parties WHERE id = ?').get(body.partyId) as any) : null;
     const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
-    const companyId = body.companyId || defaultComp?.id || 'comp-default';
-    if (body.companyId && !canAccessCompany(user, body.companyId)) {
+    const requestedCompId = body.companyId && body.companyId !== 'all' ? body.companyId : null;
+    const companyId = requestedCompId || partyRow?.companyId || defaultComp?.id || 'c1';
+    if (requestedCompId && !canAccessCompany(user, requestedCompId)) {
       return res.status(403).json({ error: 'Forbidden: Cannot create challan in another organization' });
     }
     const actorId = user?.id || body.createdBy || 'staff';
     const status = body.status || 'queued';
+    const challanType = body.type || 'delivery';
+    const prefix = challanType === 'sales' ? 'SC' : challanType === 'purchase' ? 'PC' : 'DC';
+    const existingCount = (db.prepare('SELECT count(*) as cnt FROM challans WHERE companyId = ? AND type = ?').get(companyId, challanType) as any)?.cnt || 0;
+    const autoNumber = `${prefix}/${String(existingCount + 46).padStart(3, '0')}/26-27`;
+    const parsedLines = Array.isArray(body.lines) ? body.lines : [];
+    const resolvedGodownId =
+      body.godownId ||
+      (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(companyId) as any)?.id ||
+      `g-${companyId}-main`;
+
     const insert = db.prepare(`
       INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1941,12 +2071,12 @@ export function createApp(dbPath?: string): express.Express {
     insert.run(
       id,
       companyId,
-      body.type || 'delivery',
-      body.number || `DC/${Math.floor(100 + Math.random() * 900)}/26-27`,
+      challanType,
+      body.number || autoNumber,
       body.date || new Date().toISOString().split('T')[0],
       body.partyId,
-      body.godownId || null,
-      JSON.stringify(body.lines || []),
+      resolvedGodownId,
+      JSON.stringify(parsedLines),
       body.vehicleNo || null,
       body.lrNo || null,
       body.transporter || null,
@@ -1955,6 +2085,21 @@ export function createApp(dbPath?: string): express.Express {
       null,
       actorId
     );
+
+    // Automatically update stock balances when challan is queued/synced (not draft)
+    if (status !== 'draft' && resolvedGodownId) {
+      const direction = challanType === 'purchase' ? 1 : -1;
+      for (const line of parsedLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          const delta = direction * line.qty;
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+          `).run(line.itemId, resolvedGodownId, delta, delta);
+        }
+      }
+    }
 
     if (status === 'queued') {
       db.prepare(`
@@ -1967,7 +2112,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, companyId, actorId, 'created_challan', id, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}`, tenantId, companyId, actorId, 'created_challan', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM challans WHERE id = ?').get(id) as any;
     res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]') });
@@ -2004,7 +2149,13 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
     db.prepare("UPDATE challans SET status = 'queued', failureReason = NULL WHERE id = ?").run(req.params.id);
-    db.prepare("UPDATE outbox_items SET status = 'queued', attempts = attempts + 1, lastError = NULL WHERE refId = ?").run(req.params.id);
+    const outRes = db.prepare("UPDATE outbox_items SET status = 'queued', attempts = attempts + 1, lastError = NULL WHERE refId = ?").run(req.params.id);
+    if (outRes.changes === 0) {
+      db.prepare(`
+        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
+        VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
+      `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
+    }
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
   });

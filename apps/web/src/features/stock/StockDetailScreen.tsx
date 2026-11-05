@@ -41,11 +41,18 @@ export const StockDetailScreen: React.FC = () => {
     queryFn: () => api.stock.items.get(itemId),
   });
 
-  // Fetch godowns
+  // Fetch godowns scoped to the stock item's company
+  const targetCompanyId = stockData?.item?.companyId || currentCompanyId;
   const { data: godowns = [] } = useQuery({
-    queryKey: ['godowns', currentCompanyId],
-    queryFn: () => api.godowns.list(currentCompanyId),
+    queryKey: ['godowns', targetCompanyId],
+    queryFn: () => api.godowns.list(targetCompanyId),
   });
+
+  React.useEffect(() => {
+    if (godowns.length > 0 && !godowns.some((g) => g.id === selectedGodownId)) {
+      setSelectedGodownId(godowns[0]!.id);
+    }
+  }, [godowns, selectedGodownId]);
 
   // Fetch outbox updates
   const { data: outboxItems = [] } = useQuery({

@@ -577,14 +577,46 @@ export const mockApiClient: ApiClient = {
       const prefix = data.type === 'sales' ? 'SC' : data.type === 'purchase' ? 'PC' : 'DC';
       const count = db.challans.filter((c) => c.type === data.type).length + 1;
       const formattedNum = `${prefix}/${String(count).padStart(3, '0')}/26-27`;
+      const party = db.parties.find((p) => p.id === data.partyId);
+      const resolvedCompanyId =
+        data.companyId && data.companyId !== 'all'
+          ? data.companyId
+          : party?.companyId || db.companies[0]?.id || 'c1';
+      const resolvedGodownId =
+        data.godownId ||
+        db.godowns.find((g) => g.companyId === resolvedCompanyId)?.id ||
+        db.godowns[0]?.id ||
+        'g1';
 
       const newChallan: Challan = {
         ...data,
+        companyId: resolvedCompanyId,
+        godownId: resolvedGodownId,
         id: newId,
         number: data.number || formattedNum,
       };
 
       db.challans.unshift(newChallan);
+
+      // Automatically update stock balances when challan is queued or synced
+      if (newChallan.status !== 'draft' && resolvedGodownId) {
+        const direction = newChallan.type === 'purchase' ? 1 : -1;
+        for (const line of newChallan.lines) {
+          const delta = direction * line.qty;
+          const balIdx = db.balances.findIndex(
+            (b) => b.itemId === line.itemId && b.godownId === resolvedGodownId
+          );
+          if (balIdx >= 0 && db.balances[balIdx]) {
+            db.balances[balIdx]!.qty += delta;
+          } else {
+            db.balances.push({
+              itemId: line.itemId,
+              godownId: resolvedGodownId,
+              qty: delta,
+            });
+          }
+        }
+      }
 
       if (newChallan.status === 'queued') {
         const outboxItem: OutboxItem = {

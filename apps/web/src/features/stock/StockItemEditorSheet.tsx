@@ -241,6 +241,12 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
         godownQuantities
       ).map(([gId, qty]) => ({ godownId: gId, qty: Number(qty) || 0 }));
 
+      const resolvedCompanyId =
+        initialItem?.companyId ||
+        (currentCompanyId !== 'all'
+          ? currentCompanyId
+          : godowns[0]?.companyId || 'c1');
+
       const payload = {
         name: name.trim(),
         partNo: partNo.trim() || undefined,
@@ -255,7 +261,7 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
         description: description.trim() || undefined,
         customValues: customValuesObj,
         balances: balancesList,
-        companyId: currentCompanyId !== 'all' ? currentCompanyId : 'c1',
+        companyId: resolvedCompanyId,
       };
 
       if (isEditMode && initialItem?.id) {
