@@ -78,8 +78,45 @@ export const NotebookScreen: React.FC = () => {
       const found = notebooks.find((n) => n.id === activeNotebookId) ?? notebooks[0]!;
       setNotebook(found);
       setActiveNotebookId(found.id);
+    } else if (!isLoading && notebooks.length === 0 && !notebook) {
+      // Auto-initialize a default blank worksheet if none exist
+      const targetCompanyId = (currentCompanyId === 'all' || !currentCompanyId) ? (companies[0]?.id || '') : currentCompanyId;
+      const initialNb: Notebook = {
+        id: `nb-${Date.now()}`,
+        companyId: targetCompanyId,
+        title: 'Material & Delivery Calculation Notebook',
+        updatedAt: new Date().toISOString(),
+        updatedBy: currentUser?.id || 'staff',
+        columns: [
+          { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
+          { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
+          { id: 'c-rate', key: 'rate', title: 'Rate (₹)', type: 'number' },
+          {
+            id: 'c-total',
+            key: 'total',
+            title: 'Total (₹)',
+            type: 'computed',
+            formula: '{qty} * {rate}',
+            total: 'sum',
+          },
+        ],
+        rows: [
+          {
+            id: 'r-new-1',
+            cells: {
+              desc: { raw: 'Servo Motor 550W (Batch A)', value: 'Servo Motor 550W (Batch A)' },
+              qty: { raw: '10*2', value: '20' },
+              rate: { raw: '4200', value: '4200' },
+              total: { raw: '{qty} * {rate}', value: '84000' },
+            },
+          },
+        ],
+      };
+      setNotebook(initialNb);
+      setActiveNotebookId(initialNb.id);
+      saveMutation.mutate(initialNb);
     }
-  }, [notebooks, activeNotebookId]);
+  }, [notebooks, activeNotebookId, isLoading, notebook, companies, currentCompanyId, currentUser]);
 
   // Focus input when editing starts
   useEffect(() => {
@@ -404,11 +441,33 @@ export const NotebookScreen: React.FC = () => {
     showToast({ message: 'Exported CSV' });
   };
 
-  if (isLoading || !notebook) {
+  if (isLoading && !notebook) {
     return (
       <LargeTitleScreen title="Notebook">
         <div className="p-8 text-center text-label-2 text-subhead">
           Loading calculation notebook...
+        </div>
+      </LargeTitleScreen>
+    );
+  }
+
+  if (!notebook) {
+    return (
+      <LargeTitleScreen
+        title="Notebook"
+        headerAction={
+          <Button variant="primary" size="small" onClick={() => setNewSheetOpen(true)}>
+            <Plus className="w-4 h-4 mr-1" />
+            New Worksheet
+          </Button>
+        }
+      >
+        <div className="p-12 text-center text-label-2 text-subhead">
+          <p className="mb-4">No calculation notebook worksheets found for this company.</p>
+          <Button variant="primary" size="medium" onClick={() => setNewSheetOpen(true)}>
+            <Plus className="w-4 h-4 mr-1.5" />
+            Create First Worksheet
+          </Button>
         </div>
       </LargeTitleScreen>
     );

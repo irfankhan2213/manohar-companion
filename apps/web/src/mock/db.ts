@@ -583,10 +583,40 @@ export const mockApiClient: ApiClient = {
     },
   },
   notebooks: {
-    list: async (companyId) =>
-      companyId === 'all'
-        ? db.notebooks
-        : db.notebooks.filter((n) => n.companyId === companyId),
+    list: async (companyId) => {
+      if (companyId === 'all') return db.notebooks;
+      let matched = db.notebooks.filter((n) => n.companyId === companyId);
+      if (matched.length === 0) {
+        const defaultNb: Notebook = {
+          id: `nb-${Date.now()}`,
+          companyId,
+          title: 'Material & Delivery Calculation Notebook',
+          updatedAt: new Date().toISOString(),
+          updatedBy: 'u1',
+          columns: [
+            { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
+            { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
+            { id: 'c-rate', key: 'rate', title: 'Rate (₹)', type: 'number' },
+            { id: 'c-total', key: 'total', title: 'Total (₹)', type: 'computed', formula: '{qty} * {rate}', total: 'sum' },
+          ],
+          rows: [
+            {
+              id: 'r-1',
+              cells: {
+                desc: { raw: 'Servo Motor 550W (Batch A)', value: 'Servo Motor 550W (Batch A)' },
+                qty: { raw: '10*2', value: '20' },
+                rate: { raw: '4200', value: '4200' },
+                total: { raw: '{qty} * {rate}', value: '84000' },
+              },
+            },
+          ],
+        };
+        db.notebooks.push(defaultNb);
+        saveDB();
+        matched = [defaultNb];
+      }
+      return matched;
+    },
     get: async (id) => db.notebooks.find((n) => n.id === id) ?? null,
     save: async (nb) => {
       const idx = db.notebooks.findIndex((n) => n.id === nb.id);
