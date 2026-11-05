@@ -1,30 +1,55 @@
 @echo off
-title Install Manohar Tally Agent Windows Task
+title Install Manohar Tally Sync Agent - 24/7 Cloud Background Service
 color 0B
 cd /d "%~dp0"
 
-echo ========================================================
-echo   Setting up Manohar Tally Agent Windows Startup Task
-echo ========================================================
+echo =====================================================================
+echo    Installing Manohar Tally Sync Agent (24/7 Automated Cloud Service)
+echo =====================================================================
 echo.
 
-set AGENT_PATH=%~dp0run-silent.vbs
-
-if exist "%~dp0node.exe" (
-    set "NODE_EXEC=%~dp0node.exe"
-) else (
-    set "NODE_EXEC=node"
+:: 1. Verify files exist
+if not exist "%~dp0watchdog.bat" (
+    echo [ERROR] watchdog.bat not found in "%~dp0".
+    pause
+    exit /b 1
 )
 
-echo Set WshShell = CreateObject("WScript.Shell") > "%AGENT_PATH%"
-echo WshShell.Run "cmd /c cd /d ""%~dp0"" && ""%NODE_EXEC%"" tally-agent.mjs start", 0, False >> "%AGENT_PATH%"
+:: 2. Register Windows Scheduled Task (Runs on System Startup & User Logon with Highest Privileges)
+echo [1/3] Registering Windows Scheduled Task for Auto-Start on System Boot...
+set "VBS_PATH=%~dp0run-silent.vbs"
 
-echo Registering Startup Shortcut...
-set STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-copy /y "%AGENT_PATH%" "%STARTUP_DIR%\ManoharTallySync.vbs" >nul
+schtasks /create /tn "ManoharTallySyncAgent" /tr "wscript.exe \"%VBS_PATH%\"" /sc onstart /ru SYSTEM /rl highest /f >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] System-level task requires Administrator. Registering User Logon Task...
+    schtasks /create /tn "ManoharTallySyncAgent" /tr "wscript.exe \"%VBS_PATH%\"" /sc onlogon /rl highest /f >nul 2>&1
+)
+
+if %errorlevel% equ 0 (
+    echo [OK] Windows Scheduled Task registered successfully!
+) else (
+    echo [NOTE] Scheduled task creation skipped (insufficient permissions). Using Startup folder.
+)
+
+:: 3. Double-layer redundancy: Also install in Windows Startup folder
+echo [2/3] Adding shortcut to Windows Startup folder...
+set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+if exist "%STARTUP_DIR%" (
+    copy /y "%VBS_PATH%" "%STARTUP_DIR%\ManoharTallySync.vbs" >nul
+    echo [OK] Startup shortcut installed in Windows Startup folder!
+)
+
+:: 4. Immediately launch background watchdog
+echo [3/3] Starting background sync agent right now...
+wscript.exe "%VBS_PATH%"
 
 echo.
-echo [SUCCESS] The Tally Agent has been registered to start automatically
-echo in the background whenever Windows boots up!
+echo =====================================================================
+echo  [SUCCESS] Manohar Tally Sync Agent is now fully automated!
+echo =====================================================================
+echo  - It runs 24/7 silently in the background (no popup windows).
+echo  - It auto-starts whenever Windows boots up or restarts.
+echo  - If it ever shuts down or crashes, the watchdog restarts it in 5s.
+echo  - Live status and logs are saved to: "%~dp0agent.log"
 echo.
 pause

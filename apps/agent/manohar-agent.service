@@ -1,0 +1,21 @@
+[Unit]
+Description=Manohar Traders Tally Cloud Sync Agent
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/manohar-agent
+ExecStart=/usr/bin/node /opt/manohar-agent/dist/index.js start
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/manohar-agent.log
+StandardError=append:/var/log/manohar-agent.log
+Environment=NODE_ENV=production
+Environment=CLOUD_URL=https://manohar.evolveexpert.com
+Environment=COMPANY_ID=c-1793000752410
+Environment=AGENT_KEY=agt_a060dc3b5a57140ec88d95e9e7de47e0294fde6025bbaf77
+Environment=TALLY_URL=http://127.0.0.1:9000
+
+[Install]
+WantedBy=multi-user.target

@@ -57,6 +57,8 @@ const PRESET_CUSTOM_KEYS = [
   'Supplier',
 ];
 
+const EMPTY_BALANCES: StockBalance[] = [];
+
 interface StockItemEditorSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -70,7 +72,7 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
   open,
   onOpenChange,
   initialItem,
-  initialBalances = [],
+  initialBalances = EMPTY_BALANCES,
   onSuccess,
   onDeleted,
 }) => {
@@ -104,6 +106,7 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
   const { data: godowns = [] } = useQuery({
     queryKey: ['godowns', currentCompanyId],
     queryFn: () => api.godowns.list(currentCompanyId),
+    enabled: open,
   });
 
   // Populate form on open or initialItem change
@@ -182,14 +185,14 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
       }
       setShowDeleteConfirm(false);
     }
-  }, [open, initialItem, initialBalances]);
+  }, [open, initialItem?.id]);
 
   // Add custom field
   const handleAddCustomField = (presetKey?: string) => {
     const keyToUse = presetKey || '';
     // Avoid exact duplicate keys
     if (presetKey && customFields.some((f) => f.key.toLowerCase() === presetKey.toLowerCase())) {
-      showToast({ message: `Field "${presetKey}" already added`, variant: 'info' });
+      showToast({ message: `Field "${presetKey}" already added`, variant: 'neutral' });
       return;
     }
     const newField: CustomFieldRow = {
@@ -290,7 +293,7 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['stock-items'] });
       queryClient.invalidateQueries({ queryKey: ['stock-balances'] });
-      showToast({ message: `Item deleted successfully`, variant: 'info' });
+      showToast({ message: `Item deleted successfully`, variant: 'neutral' });
       onDeleted?.(initialItem!.id);
       onOpenChange(false);
     },
@@ -298,6 +301,8 @@ export const StockItemEditorSheet: React.FC<StockItemEditorSheetProps> = ({
       showToast({ message: err.message || 'Failed to delete item' });
     },
   });
+
+  if (!open) return null;
 
   return (
     <Sheet

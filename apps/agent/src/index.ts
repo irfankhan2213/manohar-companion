@@ -30,6 +30,15 @@ const client = new TallyClient({
   mock: isMock,
 });
 
+// Global process crash-guards to prevent daemon termination on transient network/socket drops
+process.on('uncaughtException', (err: any) => {
+  console.error(`[${new Date().toLocaleTimeString()}] Uncaught Exception (recovering): ${err?.message || err}`);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error(`[${new Date().toLocaleTimeString()}] Unhandled Rejection (recovering): ${reason?.message || reason}`);
+});
+
 const engine = new SyncEngine({
   client,
   store,

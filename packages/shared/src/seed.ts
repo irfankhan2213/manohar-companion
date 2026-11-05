@@ -753,9 +753,10 @@ export const INITIAL_NOTEBOOKS: Notebook[] = [
   {
     id: 'nb-1',
     companyId: 'c1',
+    userId: 'u1',
     title: 'Diwali Advance Booking & Material Estimates',
     updatedAt: '2026-10-17T15:30:00Z',
-    updatedBy: 'u-owner',
+    updatedBy: 'u1',
     columns: [
       { id: 'c-party', key: 'party', title: 'Customer', type: 'party' },
       { id: 'c-item', key: 'item', title: 'Item Description', type: 'item' },

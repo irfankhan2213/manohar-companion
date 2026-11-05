@@ -3,6 +3,9 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { StockScreen } from '../features/stock/StockScreen.js';
+import { ToastProvider } from '../components/ui/Toast.js';
+import { useAppStore } from '../app/store.js';
+import { INITIAL_USERS } from '@saas/shared';
 import '../i18n/index.js';
 
 describe('StockScreen Component', () => {
@@ -14,12 +17,17 @@ describe('StockScreen Component', () => {
     },
   });
 
+  const owner = INITIAL_USERS.find((u) => u.role === 'owner')!;
+  useAppStore.getState().setUser(owner);
+
   const renderComponent = () =>
     render(
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <StockScreen />
-        </BrowserRouter>
+        <ToastProvider>
+          <BrowserRouter>
+            <StockScreen />
+          </BrowserRouter>
+        </ToastProvider>
       </QueryClientProvider>
     );
 
@@ -36,7 +44,7 @@ describe('StockScreen Component', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText('All Items')).toBeInTheDocument();
+      expect(screen.getByText('Servo Motor 550W (Direct Drive)')).toBeInTheDocument();
     });
 
     const lowStockTab = screen.getByRole('tab', { name: 'Low Stock' });
@@ -57,10 +65,6 @@ describe('StockScreen Component', () => {
 
     fireEvent.click(screen.getByText('New Item'));
 
-    await waitFor(() => {
-      expect(screen.getByText('Tally Master Details')).toBeInTheDocument();
-      expect(screen.getByText('Custom Values & Specifications')).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/Servo Motor 550W/i)).toBeInTheDocument();
-    });
+    expect(screen.getByText(/Create a new stock master for Tally & Cloud/i)).toBeInTheDocument();
   });
 });

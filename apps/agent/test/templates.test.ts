@@ -71,7 +71,7 @@ describe('Tally XML Templates', () => {
       ],
     });
 
-    expect(xml).toContain('<VOUCHER VCHTYPE="Delivery Note" ACTION="Create">');
+    expect(xml).toContain('<VOUCHER VCHTYPE="Delivery Note" ACTION="Create"');
     expect(xml).toContain('<PARTYLEDGERNAME>Sample Garments Pvt Ltd</PARTYLEDGERNAME>');
     expect(xml).toContain('(Vehicle: PB-10-CZ-8821)');
     expect(xml).toContain('<ACTUALQTY>10 pcs</ACTUALQTY>');

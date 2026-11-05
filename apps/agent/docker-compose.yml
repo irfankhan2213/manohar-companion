@@ -1,0 +1,14 @@
+services:
+  manohar-tally-agent:
+    build:
+      context: ../../
+      dockerfile: apps/agent/Dockerfile
+    container_name: manohar-tally-agent
+    restart: always
+    environment:
+      - CLOUD_URL=https://manohar.evolveexpert.com
+      - COMPANY_ID=c-1793000752410
+      - AGENT_KEY=agt_a060dc3b5a57140ec88d95e9e7de47e0294fde6025bbaf77
+      - TALLY_URL=http://host.docker.internal:9000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

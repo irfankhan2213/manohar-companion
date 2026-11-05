@@ -201,18 +201,8 @@ export const StockDetailScreen: React.FC = () => {
       {/* Custom Attributes & Values */}
       <InsetGroup
         title="Custom Attributes & Specifications"
-        action={
-          canAdjust ? (
-            <button
-              type="button"
-              onClick={() => setEditSheetOpen(true)}
-              className="text-caption font-semibold text-accent hover:underline flex items-center gap-1"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-              <span>Edit</span>
-            </button>
-          ) : undefined
-        }
+        actionText={canAdjust ? 'Edit' : undefined}
+        onActionClick={canAdjust ? () => setEditSheetOpen(true) : undefined}
       >
         {item.customValues && Object.keys(item.customValues).length > 0 ? (
           Object.entries(item.customValues).map(([key, val]) => (

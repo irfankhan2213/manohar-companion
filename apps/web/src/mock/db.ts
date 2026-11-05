@@ -9,6 +9,7 @@ import {
   OutboxItem,
   Party,
   StockBalance,
+  StockItem,
   Task,
   ROLE_PERMISSIONS,
   setCustomPermissions,
@@ -658,7 +659,10 @@ export const mockApiClient: ApiClient = {
 
       if (currentUser?.id) {
         matched = matched.filter(
-          (n) => (n.userId || n.updatedBy) === currentUser.id
+          (n) =>
+            (n.userId || n.updatedBy) === currentUser.id ||
+            ((n.userId === 'u-owner' || n.updatedBy === 'u-owner' || n.userId === 'u1' || n.updatedBy === 'u1') &&
+              (currentUser.id === 'u1' || currentUser.role === 'owner'))
         );
       }
 
@@ -700,7 +704,12 @@ export const mockApiClient: ApiClient = {
       const currentUser = useAppStore.getState().currentUser;
       const nb = db.notebooks.find((n) => n.id === id) ?? null;
       if (!nb) return null;
-      if (currentUser?.id && (nb.userId || nb.updatedBy) !== currentUser.id) {
+      if (
+        currentUser?.id &&
+        (nb.userId || nb.updatedBy) !== currentUser.id &&
+        !((nb.userId === 'u-owner' || nb.updatedBy === 'u-owner' || nb.userId === 'u1' || nb.updatedBy === 'u1') &&
+          (currentUser.id === 'u1' || currentUser.role === 'owner'))
+      ) {
         return null;
       }
       return nb;
