@@ -464,7 +464,7 @@ export const NotebookScreen: React.FC = () => {
       >
         <div className="p-12 text-center text-label-2 text-subhead">
           <p className="mb-4">No calculation notebook worksheets found for this company.</p>
-          <Button variant="primary" size="medium" onClick={() => setNewSheetOpen(true)}>
+          <Button variant="primary" size="default" onClick={() => setNewSheetOpen(true)}>
             <Plus className="w-4 h-4 mr-1.5" />
             Create First Worksheet
           </Button>
