@@ -307,19 +307,6 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       ledgersCount INTEGER,
       stockCount INTEGER
     );
-
-    CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
-    CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
-    CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
-    CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
-    CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
-    CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);
-    CREATE INDEX IF NOT EXISTS idx_challans_company ON challans (companyId);
-    CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (companyId);
-    CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
-    CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
-    CREATE INDEX IF NOT EXISTS idx_users_tenant ON users (tenantId);
-    CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks (userId);
   `);
 
   try {
@@ -372,6 +359,24 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   try {
     db.prepare("ALTER TABLE stock_items ADD COLUMN customValues TEXT DEFAULT '{}'").run();
+  } catch {}
+
+  // 2. Create Indexes safely after column migrations
+  try {
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
+      CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
+      CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
+      CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
+      CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
+      CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);
+      CREATE INDEX IF NOT EXISTS idx_challans_company ON challans (companyId);
+      CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (companyId);
+      CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
+      CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
+      CREATE INDEX IF NOT EXISTS idx_users_tenant ON users (tenantId);
+      CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks (userId);
+    `);
   } catch {}
 
   // Ensure dev user and platform tenant exist in database (with scrypt-hashed PIN)
