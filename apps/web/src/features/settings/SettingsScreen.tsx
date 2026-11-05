@@ -226,6 +226,9 @@ export const SettingsScreen: React.FC = () => {
   // Inspector & Edit staff sheet state
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [editStaffName, setEditStaffName] = useState('');
+  const [editStaffPhone, setEditStaffPhone] = useState('');
+  const [editStaffPin, setEditStaffPin] = useState('');
+  const [editStaffCompanyIds, setEditStaffCompanyIds] = useState<string[] | 'all'>('all');
   const [editStaffRole, setEditStaffRole] = useState<Role>('sales');
   const [editStaffCustomRoleName, setEditStaffCustomRoleName] = useState('');
   const [editStaffPermissions, setEditStaffPermissions] = useState<string[]>([]);
@@ -236,6 +239,8 @@ export const SettingsScreen: React.FC = () => {
   const [addStaffOpen, setAddStaffOpen] = useState(false);
   const [newStaffName, setNewStaffName] = useState('');
   const [newStaffPhone, setNewStaffPhone] = useState('');
+  const [newStaffPin, setNewStaffPin] = useState('1234');
+  const [newStaffCompanyIds, setNewStaffCompanyIds] = useState<string[] | 'all'>('all');
   const [newStaffRole, setNewStaffRole] = useState<Role>('sales');
   const [newStaffCustomRoleName, setNewStaffCustomRoleName] = useState('');
   const [newStaffPermissions, setNewStaffPermissions] = useState<string[]>(() =>
@@ -367,6 +372,8 @@ export const SettingsScreen: React.FC = () => {
   const handleOpenAddStaff = () => {
     setNewStaffName('');
     setNewStaffPhone('');
+    setNewStaffPin('1234');
+    setNewStaffCompanyIds('all');
     setNewStaffRole('sales');
     setNewStaffCustomRoleName('');
     setNewStaffPermissions(PERMISSION_KEYS.filter((k) => ROLE_PERMISSIONS.sales[k]));
@@ -376,6 +383,11 @@ export const SettingsScreen: React.FC = () => {
   const handleOpenStaffDetails = (u: User) => {
     setSelectedUser(u);
     setEditStaffName(u.name);
+    setEditStaffPhone(u.phone || '');
+    setEditStaffPin('');
+    setEditStaffCompanyIds(
+      Array.isArray(u.companyIds) ? [...u.companyIds] : 'all'
+    );
     setEditStaffRole(u.role);
     setEditStaffCustomRoleName(u.customRoleName || '');
     if (Array.isArray(u.customPermissions)) {
@@ -388,6 +400,10 @@ export const SettingsScreen: React.FC = () => {
 
   const handleAddStaff = async () => {
     if (!newStaffName.trim() || !newStaffPhone.trim() || isCreatingStaff) return;
+    const normalizedCompanyIds =
+      Array.isArray(newStaffCompanyIds) && newStaffCompanyIds.length === 0
+        ? 'all'
+        : newStaffCompanyIds;
     try {
       setIsCreatingStaff(true);
       if (api.users.create) {
@@ -395,10 +411,11 @@ export const SettingsScreen: React.FC = () => {
           tenantId: currentTenant?.id || 't1',
           name: newStaffName.trim(),
           phone: newStaffPhone.trim(),
+          pin: newStaffPin.trim() || '1234',
           role: newStaffRole,
           customRoleName: newStaffCustomRoleName.trim() || undefined,
           customPermissions: newStaffPermissions,
-          companyIds: 'all',
+          companyIds: normalizedCompanyIds,
           active: true,
         });
       }
@@ -407,6 +424,8 @@ export const SettingsScreen: React.FC = () => {
       setAddStaffOpen(false);
       setNewStaffName('');
       setNewStaffPhone('');
+      setNewStaffPin('1234');
+      setNewStaffCompanyIds('all');
       setNewStaffCustomRoleName('');
       setNewStaffRole('sales');
       setNewStaffPermissions(PERMISSION_KEYS.filter((k) => ROLE_PERMISSIONS.sales[k]));
@@ -419,19 +438,31 @@ export const SettingsScreen: React.FC = () => {
 
   const handleSaveStaff = async () => {
     if (!selectedUser || isUpdatingStaff) return;
+    const normalizedCompanyIds =
+      Array.isArray(editStaffCompanyIds) && editStaffCompanyIds.length === 0
+        ? 'all'
+        : editStaffCompanyIds;
     try {
       setIsUpdatingStaff(true);
       if (api.users.update) {
         await api.users.update(selectedUser.id, {
           name: editStaffName.trim(),
+          phone: editStaffPhone.trim() || selectedUser.phone,
+          ...(editStaffPin.trim() ? { pin: editStaffPin.trim() } : {}),
+          companyIds: normalizedCompanyIds,
           role: editStaffRole,
           customRoleName: editStaffCustomRoleName.trim() || undefined,
           customPermissions: editStaffPermissions,
         });
       }
       await queryClient.invalidateQueries({ queryKey: ['users'] });
-      showToast({ message: `Staff profile updated for ${editStaffName}` });
+      showToast({
+        message: editStaffPin.trim()
+          ? `Updated profile and reset login PIN for ${editStaffName}`
+          : `Staff profile updated for ${editStaffName}`,
+      });
       setSelectedUser(null);
+      setEditStaffPin('');
     } catch (err: any) {
       showToast({ message: err?.message || 'Failed to update staff' });
     } finally {
@@ -1078,38 +1109,131 @@ export const SettingsScreen: React.FC = () => {
               </div>
             </div>
 
-            {/* Read-Only Contact & Tenant Info */}
-            <div className="grid grid-cols-2 gap-3 p-3 bg-fill/40 rounded-xl border border-separator/30 text-subhead">
+            {/* Editable Staff Name & Phone */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <span className="text-caption uppercase text-label-3 font-bold block mb-0.5">
-                  Phone (WhatsApp ID)
-                </span>
-                <span className="text-label font-semibold">{selectedUser.phone}</span>
+                <label htmlFor="edit-staff-name" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+                  Staff Full Name *
+                </label>
+                <input
+                  id="edit-staff-name"
+                  type="text"
+                  value={editStaffName}
+                  onChange={(e) => setEditStaffName(e.target.value)}
+                  className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                />
               </div>
+
               <div>
-                <span className="text-caption uppercase text-label-3 font-bold block mb-0.5">
-                  Assigned Companies
-                </span>
-                <span className="text-label font-semibold truncate block">
-                  {selectedUser.companyIds === 'all'
-                    ? 'All Companies'
-                    : (activeCompany?.name || 'Primary Company')}
-                </span>
+                <label htmlFor="edit-staff-phone" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+                  Mobile Number (WhatsApp) *
+                </label>
+                <input
+                  id="edit-staff-phone"
+                  type="tel"
+                  value={editStaffPhone}
+                  onChange={(e) => setEditStaffPhone(e.target.value)}
+                  placeholder="+91 98765 00000"
+                  className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                />
               </div>
             </div>
 
-            {/* Editable Staff Name */}
+            {/* Reset 4-Digit Login PIN */}
             <div>
-              <label htmlFor="edit-staff-name" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
-                Staff Full Name
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label htmlFor="edit-staff-pin" className="text-caption font-semibold uppercase text-label-2 block">
+                  Reset 4-Digit Login PIN
+                </label>
+                <span className="text-caption text-label-3">Leave blank to keep existing PIN</span>
+              </div>
               <input
-                id="edit-staff-name"
+                id="edit-staff-pin"
                 type="text"
-                value={editStaffName}
-                onChange={(e) => setEditStaffName(e.target.value)}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                inputMode="numeric"
+                maxLength={6}
+                value={editStaffPin}
+                onChange={(e) => setEditStaffPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Enter new 4-digit PIN (e.g. 5678)"
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead font-mono tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
+            </div>
+
+            {/* Multi-Company Branch Assignment */}
+            <div className="flex flex-col gap-2 p-3 bg-fill/30 rounded-xl border border-separator/40">
+              <div className="flex items-center justify-between">
+                <span className="text-caption font-semibold uppercase text-label-2">
+                  Assigned Company Branches
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditStaffCompanyIds('all')}
+                    className={`px-2 py-0.5 rounded-md text-caption font-semibold transition-colors ${
+                      editStaffCompanyIds === 'all'
+                        ? 'bg-accent text-white'
+                        : 'bg-surface text-label-2 border border-separator/50'
+                    }`}
+                  >
+                    All Companies
+                  </button>
+                  {companies.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditStaffCompanyIds(
+                          Array.isArray(editStaffCompanyIds) && editStaffCompanyIds.length > 0
+                            ? editStaffCompanyIds
+                            : [companies[0]!.id]
+                        )
+                      }
+                      className={`px-2 py-0.5 rounded-md text-caption font-semibold transition-colors ${
+                        Array.isArray(editStaffCompanyIds)
+                          ? 'bg-accent text-white'
+                          : 'bg-surface text-label-2 border border-separator/50'
+                      }`}
+                    >
+                      Specific Branches
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {Array.isArray(editStaffCompanyIds) ? (
+                <div className="grid grid-cols-1 gap-1.5 pt-1">
+                  {companies.map((comp) => {
+                    const checked = editStaffCompanyIds.includes(comp.id);
+                    return (
+                      <label
+                        key={comp.id}
+                        className="flex items-center justify-between p-2 rounded-lg bg-surface border border-separator/40 cursor-pointer hover:bg-fill/40"
+                      >
+                        <div className="flex flex-col">
+                          <span className="text-subhead font-semibold text-label">{comp.name}</span>
+                          <span className="text-caption text-label-3">FY {comp.financialYear}</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            if (checked) {
+                              const next = editStaffCompanyIds.filter((id) => id !== comp.id);
+                              setEditStaffCompanyIds(next.length > 0 ? next : [comp.id]);
+                            } else {
+                              setEditStaffCompanyIds([...editStaffCompanyIds, comp.id]);
+                            }
+                          }}
+                          className="w-4 h-4 accent-accent rounded"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <span className="text-caption text-label-2">
+                  Staff member can access all {companies.length || 1} company branches in your organization.
+                </span>
+              )}
             </div>
 
             {/* Custom Role Title */}
@@ -1302,18 +1426,113 @@ export const SettingsScreen: React.FC = () => {
             />
           </div>
 
-          <div>
-            <label htmlFor="new-staff-phone" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
-              Mobile Number (WhatsApp) *
-            </label>
-            <input
-              id="new-staff-phone"
-              type="tel"
-              placeholder="+91 98765 00000"
-              value={newStaffPhone}
-              onChange={(e) => setNewStaffPhone(e.target.value)}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
-            />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="new-staff-phone" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+                Mobile Number (WhatsApp) *
+              </label>
+              <input
+                id="new-staff-phone"
+                type="tel"
+                placeholder="+91 98765 00000"
+                value={newStaffPhone}
+                onChange={(e) => setNewStaffPhone(e.target.value)}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="new-staff-pin" className="text-caption font-semibold uppercase text-label-2 mb-1.5 block">
+                Initial 4-Digit Login PIN *
+              </label>
+              <input
+                id="new-staff-pin"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="1234"
+                value={newStaffPin}
+                onChange={(e) => setNewStaffPin(e.target.value.replace(/\D/g, ''))}
+                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead font-mono font-bold tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              />
+            </div>
+          </div>
+
+          {/* Multi-Company Branch Selection for New Staff */}
+          <div className="flex flex-col gap-2 p-3 bg-fill/30 rounded-xl border border-separator/40">
+            <div className="flex items-center justify-between">
+              <span className="text-caption font-semibold uppercase text-label-2">
+                Assigned Company Branches
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setNewStaffCompanyIds('all')}
+                  className={`px-2 py-0.5 rounded-md text-caption font-semibold transition-colors ${
+                    newStaffCompanyIds === 'all'
+                      ? 'bg-accent text-white'
+                      : 'bg-surface text-label-2 border border-separator/50'
+                  }`}
+                >
+                  All Companies
+                </button>
+                {companies.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setNewStaffCompanyIds(
+                        Array.isArray(newStaffCompanyIds) && newStaffCompanyIds.length > 0
+                          ? newStaffCompanyIds
+                          : [companies[0]!.id]
+                      )
+                    }
+                    className={`px-2 py-0.5 rounded-md text-caption font-semibold transition-colors ${
+                      Array.isArray(newStaffCompanyIds)
+                        ? 'bg-accent text-white'
+                        : 'bg-surface text-label-2 border border-separator/50'
+                    }`}
+                  >
+                    Specific Branches
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {Array.isArray(newStaffCompanyIds) ? (
+              <div className="grid grid-cols-1 gap-1.5 pt-1">
+                {companies.map((comp) => {
+                  const checked = newStaffCompanyIds.includes(comp.id);
+                  return (
+                    <label
+                      key={comp.id}
+                      className="flex items-center justify-between p-2 rounded-lg bg-surface border border-separator/40 cursor-pointer hover:bg-fill/40"
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-subhead font-semibold text-label">{comp.name}</span>
+                        <span className="text-caption text-label-3">FY {comp.financialYear}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => {
+                          if (checked) {
+                            const next = newStaffCompanyIds.filter((id) => id !== comp.id);
+                            setNewStaffCompanyIds(next.length > 0 ? next : [comp.id]);
+                          } else {
+                            setNewStaffCompanyIds([...newStaffCompanyIds, comp.id]);
+                          }
+                        }}
+                        className="w-4 h-4 accent-accent rounded"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <span className="text-caption text-label-2">
+                Access granted to all {companies.length || 1} company branches.
+              </span>
+            )}
           </div>
 
           <div>
