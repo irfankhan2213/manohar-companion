@@ -96,6 +96,7 @@ export const DevClientsScreen: React.FC = () => {
         status: client.status,
         createdAt: client.createdAt,
       }, client.companies[0].id);
+      queryClient.invalidateQueries();
       showToast({
         message: `Switched view to ${client.name}`,
         variant: 'success',

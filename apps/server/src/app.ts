@@ -2967,14 +2967,16 @@ export function createApp(dbPath?: string): express.Express {
     const updatedCustomPerms =
       body.customPermissions !== undefined ? sanitizeCustomPermissions(body.customPermissions, user) : target.customPermissions;
     const updatedName = body.name ?? target.name;
+    const updatedPhone = body.phone !== undefined ? String(body.phone).trim() : target.phone;
+    const updatedCompanyIds = body.companyIds !== undefined ? JSON.stringify(body.companyIds) : target.companyIds;
     const updatedActive = body.active !== undefined ? (body.active ? 1 : 0) : target.active;
     const updatedPin = body.pin ? hashPin(String(body.pin)) : target.pin;
 
     db.prepare(`
       UPDATE users
-      SET name = ?, role = ?, customRoleName = ?, customPermissions = ?, active = ?, pin = ?
+      SET name = ?, phone = ?, role = ?, customRoleName = ?, customPermissions = ?, companyIds = ?, active = ?, pin = ?
       WHERE id = ?
-    `).run(updatedName, updatedRole, updatedCustomRoleName, updatedCustomPerms, updatedActive, updatedPin, req.params.id);
+    `).run(updatedName, updatedPhone, updatedRole, updatedCustomRoleName, updatedCustomPerms, updatedCompanyIds, updatedActive, updatedPin, req.params.id);
 
     if (updatedActive === 0) {
       db.prepare('DELETE FROM auth_tokens WHERE userId = ?').run(req.params.id);
@@ -3176,8 +3178,17 @@ export function createApp(dbPath?: string): express.Express {
 
     if (Array.isArray(stockItems)) {
       const stmt = db.prepare(`
-        INSERT OR REPLACE INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias)
+        INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          companyId = excluded.companyId,
+          name = excluded.name,
+          partNo = COALESCE(excluded.partNo, stock_items.partNo),
+          unit = COALESCE(excluded.unit, stock_items.unit),
+          itemGroup = COALESCE(excluded.itemGroup, stock_items.itemGroup),
+          rate = CASE WHEN excluded.rate > 0 THEN excluded.rate ELSE stock_items.rate END,
+          reorderLevel = CASE WHEN excluded.reorderLevel > 0 THEN excluded.reorderLevel ELSE stock_items.reorderLevel END,
+          alias = COALESCE(excluded.alias, stock_items.alias)
       `);
       for (const s of stockItems) {
         const existingItem = db.prepare('SELECT companyId FROM stock_items WHERE id = ?').get(s.id) as any;

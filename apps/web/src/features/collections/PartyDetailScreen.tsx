@@ -107,13 +107,16 @@ export const PartyDetailScreen: React.FC = () => {
   const handleSendReminder = () => {
     setReminderSheetOpen(false);
     if (party) {
+      const computedDueDate = bills[0]?.date
+        ? new Date(Date.parse(bills[0].date) + reminderDueDays * 86400000).toISOString().slice(0, 10)
+        : bills[0]?.dueDate;
       openWhatsAppReminderUrl({
         phone: targetPhone,
         partyName: party.name,
         overdueAmountPaise: totalOwed,
         oldestBillNo: bills[0]?.billNo,
         daysLate: maxDaysLate,
-        dueDate: bills[0]?.dueDate,
+        dueDate: computedDueDate,
         companyName: activeCompany?.name,
       });
       showToast({

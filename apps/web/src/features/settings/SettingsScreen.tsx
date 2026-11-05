@@ -331,6 +331,8 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handleClearCache = async () => {
+    localStorage.removeItem('mock-db-v6');
+    localStorage.removeItem('mock-db-v5');
     localStorage.removeItem('mock-db-v4');
     localStorage.removeItem('mock-db-v3');
     if ('caches' in window) {
@@ -356,7 +358,9 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handleDownloadBackup = (format: 'sqlite' | 'json') => {
-    window.open(`/api/backup/${format}`, '_blank');
+    const token = useAppStore.getState().authToken;
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    window.open(`/api/backup/${format}${qs}`, '_blank');
     showToast({ message: `Downloading ${format.toUpperCase()} database backup...` });
   };
 

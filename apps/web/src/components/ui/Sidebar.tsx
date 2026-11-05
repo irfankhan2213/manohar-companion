@@ -14,25 +14,39 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
+import { can } from '@saas/shared';
 import { useAppStore } from '../../app/store.js';
 import { PRODUCT_CONFIG } from '../../config/product.js';
 
 export const Sidebar: React.FC = () => {
   const { t } = useTranslation();
-  const { currentRole } = useAppStore();
+  const { currentRole, currentUser } = useAppStore();
+  const actor = currentUser || currentRole;
 
   const links = [
     ...(currentRole === 'dev'
       ? [{ to: '/dev/clients', label: 'Client Orgs', icon: ShieldCheck }]
       : []),
     { to: '/', label: t('nav.home', 'Home'), icon: Home, end: true },
-    { to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet },
-    { to: '/stock', label: t('nav.stock', 'Stock'), icon: Package },
-    { to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet },
+    ...(can(actor, 'ledgers.view')
+      ? [{ to: '/collections', label: t('nav.collections', 'Collections'), icon: Wallet }]
+      : []),
+    ...(can(actor, 'stock.view')
+      ? [{ to: '/stock', label: t('nav.stock', 'Stock'), icon: Package }]
+      : []),
+    ...(can(actor, 'challan.view')
+      ? [{ to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet }]
+      : []),
     { to: '/tasks', label: t('nav.tasks', 'Tasks'), icon: CheckSquare },
-    { to: '/notebook', label: t('nav.notebook', 'Notebook'), icon: BookOpen },
-    { to: '/reminders', label: t('nav.reminders', 'Reminders'), icon: BellRing },
-    { to: '/activity', label: t('nav.activity', 'Activity'), icon: Activity },
+    ...(can(actor, 'notebook.view')
+      ? [{ to: '/notebook', label: t('nav.notebook', 'Notebook'), icon: BookOpen }]
+      : []),
+    ...(can(actor, 'reminders.view')
+      ? [{ to: '/reminders', label: t('nav.reminders', 'Reminders'), icon: BellRing }]
+      : []),
+    ...(can(actor, 'activity.view')
+      ? [{ to: '/activity', label: t('nav.activity', 'Activity'), icon: Activity }]
+      : []),
     { to: '/settings', label: t('nav.settings', 'Settings'), icon: Settings },
   ];
 

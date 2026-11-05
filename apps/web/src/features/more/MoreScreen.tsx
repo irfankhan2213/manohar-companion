@@ -10,13 +10,15 @@ import {
   ShieldCheck,
   Smartphone,
 } from 'lucide-react';
+import { can } from '@saas/shared';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
 import { useAppStore } from '../../app/store.js';
 
 export const MoreScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { language, setLanguage, currentRole } = useAppStore();
+  const { language, setLanguage, currentRole, currentUser } = useAppStore();
+  const actor = currentUser || currentRole;
 
   const toggleLanguage = () => {
     setLanguage(language === 'en' ? 'hi' : 'en');
@@ -36,30 +38,38 @@ export const MoreScreen: React.FC = () => {
       )}
 
       <InsetGroup title="Companion Tools">
-        <Row
-          leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}
-          title="Delivery Challans"
-          chevron
-          onClick={() => navigate('/challans')}
-        />
-        <Row
-          leading={<BookOpen className="w-5 h-5 text-accent" />}
-          title="Notebook"
-          chevron
-          onClick={() => navigate('/notebook')}
-        />
-        <Row
-          leading={<BellRing className="w-5 h-5 text-accent" />}
-          title="Payment Reminders"
-          chevron
-          onClick={() => navigate('/reminders')}
-        />
-        <Row
-          leading={<Activity className="w-5 h-5 text-accent" />}
-          title="Activity Log"
-          chevron
-          onClick={() => navigate('/activity')}
-        />
+        {can(actor, 'challan.view') && (
+          <Row
+            leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}
+            title="Delivery Challans"
+            chevron
+            onClick={() => navigate('/challans')}
+          />
+        )}
+        {can(actor, 'notebook.view') && (
+          <Row
+            leading={<BookOpen className="w-5 h-5 text-accent" />}
+            title="Notebook"
+            chevron
+            onClick={() => navigate('/notebook')}
+          />
+        )}
+        {can(actor, 'reminders.view') && (
+          <Row
+            leading={<BellRing className="w-5 h-5 text-accent" />}
+            title="Payment Reminders"
+            chevron
+            onClick={() => navigate('/reminders')}
+          />
+        )}
+        {can(actor, 'activity.view') && (
+          <Row
+            leading={<Activity className="w-5 h-5 text-accent" />}
+            title="Activity Log"
+            chevron
+            onClick={() => navigate('/activity')}
+          />
+        )}
       </InsetGroup>
 
       <InsetGroup title="System & Preferences">
