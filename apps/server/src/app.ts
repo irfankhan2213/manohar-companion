@@ -1711,7 +1711,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, resolvedCompanyId, actorId, 'stock_created', `Created stock item: ${name}`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, resolvedCompanyId, actorId, 'stock_created', `Created stock item: ${name}`, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(itemId) as any;
     const bList = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(itemId) as any[];
@@ -1840,7 +1840,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, it.companyId || 'c1', actorId, 'stock_updated', `Updated stock item: ${updatedName}`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, it.companyId || 'c1', actorId, 'stock_updated', `Updated stock item: ${updatedName}`, new Date().toISOString(), 'Desktop');
 
     const updated = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(it.id) as any;
     const bList = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(it.id) as any[];
@@ -1886,7 +1886,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, it.companyId || 'c1', actorId, 'stock_deleted', `Deleted stock item: ${it.name}`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, it.companyId || 'c1', actorId, 'stock_deleted', `Deleted stock item: ${it.name}`, new Date().toISOString(), 'Desktop');
 
     res.json({ success: true, id: it.id });
   });
@@ -1939,7 +1939,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, compId, actorId, 'stock_adjusted', `${itemId} (${deltaQty > 0 ? '+' : ''}${deltaQty}${reason ? `: ${reason}` : ''})`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, compId, actorId, 'stock_adjusted', `${itemId} (${deltaQty > 0 ? '+' : ''}${deltaQty}${reason ? `: ${reason}` : ''})`, new Date().toISOString(), 'Desktop');
 
     res.json({ success: true });
   });
@@ -2147,7 +2147,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}`, tenantId, companyId, actorId, 'created_challan', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, companyId, actorId, 'created_challan', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM challans WHERE id = ?').get(id) as any;
     res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]') });

@@ -85,6 +85,13 @@ export const TasksScreen: React.FC = () => {
   const tasks = viewScope === 'assigned_by_me' ? assignedByMeTasks : assignedToMeTasks;
   const isLoading = viewScope === 'assigned_by_me' ? loadingByMe : loadingToMe;
 
+  // Auto-switch to delegated tasks if user has no tasks assigned to them but has delegated tasks
+  React.useEffect(() => {
+    if (viewScope === 'assigned_to_me' && !loadingToMe && assignedToMeTasks.length === 0 && assignedByMeTasks.length > 0) {
+      setViewScope('assigned_by_me');
+    }
+  }, [assignedToMeTasks.length, assignedByMeTasks.length, loadingToMe, viewScope]);
+
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.users.list(),
