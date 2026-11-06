@@ -3028,8 +3028,16 @@ export function createApp(dbPath?: string): express.Express {
     }
     const id = body.id || `u-${Date.now()}`;
     const tenantId = user && user.role !== 'dev' && user.tenantId ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
+    const cleanPhone = (p: string) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
+    const targetLast10 = cleanPhone(body.phone);
+    if (targetLast10.length >= 10) {
+      const tenantUsers = db.prepare('SELECT id, phone FROM users WHERE tenantId = ?').all(tenantId) as Array<{ id: string; phone: string }>;
+      if (tenantUsers.some((tu) => cleanPhone(tu.phone) === targetLast10)) {
+        return res.status(409).json({ error: 'A staff member with this phone number already exists in your organization' });
+      }
+    }
     const rawPin = body.pin || (body.role === 'dev' ? '0000' : '1234');
-    const pin = hashPin(rawPin);
+    const pin = hashPin(String(rawPin));
     const customRoleName = body.customRoleName ? String(body.customRoleName).trim() : null;
     const customPermissions = sanitizeCustomPermissions(body.customPermissions, user);
 

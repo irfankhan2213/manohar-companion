@@ -900,8 +900,12 @@ export const SettingsScreen: React.FC = () => {
               <div className="flex items-center gap-1.5 mt-0.5">
                 <span className="text-label-2">{u.phone}</span>
                 <span className="text-label-3">·</span>
-                <span className="text-[11px] font-mono text-label-3 uppercase">
-                  {u.companyIds === 'all' ? 'All Companies' : (activeCompany?.name || 'Primary Company')}
+                <span className="text-[11px] font-mono text-label-3 uppercase truncate max-w-[180px]">
+                  {u.companyIds === 'all' || !Array.isArray(u.companyIds)
+                    ? 'All Companies'
+                    : u.companyIds
+                        .map((cid) => companies.find((c) => c.id === cid)?.name || cid)
+                        .join(', ')}
                 </span>
               </div>
             }
