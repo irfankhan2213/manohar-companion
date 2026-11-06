@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "echo \"Linting clean\"",
     "test": "vitest run",
+    "test:e2e": "playwright test e2e/saas-full-matrix.spec.ts",
     "shots": "playwright test e2e/shots.spec.ts"
   },
   "dependencies": {

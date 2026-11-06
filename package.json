@@ -12,6 +12,7 @@
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "test": "pnpm --filter @saas/shared test && pnpm --filter @saas/server test && pnpm --filter @saas/web test && pnpm --filter @saas/agent test",
+    "test:e2e": "pnpm --filter @saas/web test:e2e",
     "agent": "pnpm --filter @saas/agent start",
     "agent:status": "node apps/agent/dist/index.js status",
     "agent:sync": "node apps/agent/dist/index.js sync --mock",
