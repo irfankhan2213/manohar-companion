@@ -136,6 +136,8 @@ export const ChallanLineSchema = z.object({
   unit: z.string(),
   rate: z.number().int(),
   amount: z.number().int(),
+  hsnCode: z.string().optional(),
+  gstRate: z.number().optional(),
 });
 export type ChallanLine = z.infer<typeof ChallanLineSchema>;
 

@@ -14,6 +14,7 @@ import {
   Upload,
   X,
   Image as ImageIcon,
+  Truck,
 } from 'lucide-react';
 import { formatINR, Task, User } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -67,6 +68,17 @@ export const ChallanDetailScreen: React.FC = () => {
     queryFn: () => api.godowns.list(currentCompanyId),
   });
 
+  const { data: stockItems = [] } = useQuery({
+    queryKey: ['stock-items', challan?.companyId || currentCompanyId],
+    queryFn: () => api.stock.items.list(challan?.companyId || currentCompanyId),
+    enabled: !!challan,
+  });
+
+  const stockMap = React.useMemo(
+    () => new Map(stockItems.map((s) => [s.id, s])),
+    [stockItems]
+  );
+
   const { data: rawTasks = [] } = useQuery({
     queryKey: ['tasks', currentCompanyId, id, currentUser?.id],
     queryFn: () =>
@@ -106,7 +118,15 @@ export const ChallanDetailScreen: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['challan', id] });
       queryClient.invalidateQueries({ queryKey: ['challans'] });
       queryClient.invalidateQueries({ queryKey: ['outbox'] });
-      showToast({ message: 'Challan sync retried' });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
+      showToast({
+        message:
+          challan?.status === 'draft'
+            ? 'Draft challan queued for Tally sync'
+            : 'Challan sync retried',
+        variant: 'success',
+      });
     },
   });
 
@@ -241,8 +261,16 @@ export const ChallanDetailScreen: React.FC = () => {
     );
   }
 
+  const getLineGstRate = (line: typeof challan.lines[0]) =>
+    line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18;
+  const getLineHsn = (line: typeof challan.lines[0]) =>
+    line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452';
+
   const subtotalPaise = challan.lines.reduce((acc, l) => acc + l.amount, 0);
-  const gstPaise = Math.round(subtotalPaise * 0.18);
+  const gstPaise = challan.lines.reduce(
+    (acc, l) => acc + Math.round(l.amount * (getLineGstRate(l) / 100)),
+    0
+  );
   const grandTotalPaise = subtotalPaise + gstPaise;
   const godownName = godowns.find((g) => g.id === challan.godownId)?.name ?? 'Main Godown (Ludhiana)';
 
@@ -308,6 +336,23 @@ export const ChallanDetailScreen: React.FC = () => {
             )}
           </div>
         </div>
+
+        {challan.status === 'draft' && (
+          <div className="flex flex-col gap-2.5 bg-fill/40 p-3 rounded-xl border border-separator/40">
+            <span className="text-footnote text-label-2">
+              This challan is saved as a local draft and has not been sent to TallyPrime yet.
+            </span>
+            <Button
+              size="small"
+              disabled={retryMutation.isPending}
+              onClick={() => retryMutation.mutate()}
+              className="self-start flex items-center gap-1.5"
+            >
+              <Truck className="w-4 h-4" />
+              <span>{retryMutation.isPending ? 'Queueing...' : 'Send Draft to Tally'}</span>
+            </Button>
+          </div>
+        )}
 
         {challan.status === 'queued' && (
           <p className="text-footnote text-label-2 bg-fill/40 p-2.5 rounded-xl">
@@ -435,7 +480,7 @@ export const ChallanDetailScreen: React.FC = () => {
                 {line.description}
               </span>
               <span className="text-caption text-label-2 tabular-nums">
-                {line.qty} {line.unit} × {formatINR(line.rate)}
+                {line.qty} {line.unit} × {formatINR(line.rate)} · HSN {getLineHsn(line)} · GST {getLineGstRate(line)}%
               </span>
             </div>
             <span className="text-subhead font-bold text-label tabular-nums">
@@ -443,6 +488,20 @@ export const ChallanDetailScreen: React.FC = () => {
             </span>
           </div>
         ))}
+        <div className="p-3.5 bg-fill/30 flex flex-col gap-1 border-t border-separator/40 text-footnote">
+          <div className="flex items-center justify-between text-label-2">
+            <span>Taxable Subtotal</span>
+            <span className="font-mono font-semibold">{formatINR(subtotalPaise)}</span>
+          </div>
+          <div className="flex items-center justify-between text-label-2">
+            <span>Calculated GST</span>
+            <span className="font-mono font-semibold">{formatINR(gstPaise)}</span>
+          </div>
+          <div className="flex items-center justify-between text-subhead font-bold text-label pt-1 border-t border-separator/30">
+            <span>Grand Total</span>
+            <span className="font-mono text-accent">{formatINR(grandTotalPaise)}</span>
+          </div>
+        </div>
       </InsetGroup>
 
       {/* Assigned Tasks & Photos Section */}

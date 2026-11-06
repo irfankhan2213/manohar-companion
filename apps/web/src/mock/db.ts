@@ -650,6 +650,32 @@ export const mockApiClient: ApiClient = {
     retry: async (id) => {
       const idx = db.challans.findIndex((c) => c.id === id);
       if (idx === -1) throw new Error('Challan not found');
+      const existing = db.challans[idx]!;
+
+      // If transitioning from draft to queued, apply stock balance adjustments now
+      if (existing.status === 'draft') {
+        const resolvedGodownId =
+          existing.godownId ||
+          db.godowns.find((g) => g.companyId === existing.companyId)?.id ||
+          db.godowns[0]?.id ||
+          'g1';
+        const direction = existing.type === 'purchase' ? 1 : -1;
+        for (const line of existing.lines) {
+          const delta = direction * line.qty;
+          const balIdx = db.balances.findIndex(
+            (b) => b.itemId === line.itemId && b.godownId === resolvedGodownId
+          );
+          if (balIdx >= 0 && db.balances[balIdx]) {
+            db.balances[balIdx]!.qty += delta;
+          } else {
+            db.balances.push({
+              itemId: line.itemId,
+              godownId: resolvedGodownId,
+              qty: delta,
+            });
+          }
+        }
+      }
 
       db.challans[idx]!.status = 'queued';
       db.challans[idx]!.failureReason = undefined;
@@ -660,7 +686,7 @@ export const mockApiClient: ApiClient = {
         kind: 'challan',
         refId: id,
         status: 'queued',
-        attempts: 2,
+        attempts: existing.status === 'draft' ? 1 : 2,
       };
       db.outbox.unshift(outboxItem);
       saveDB();

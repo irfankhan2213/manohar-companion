@@ -2134,6 +2134,31 @@ export function createApp(dbPath?: string): express.Express {
       failureReason || null,
       req.params.id
     );
+
+    // If transitioning a draft challan to queued, adjust stock balances and enqueue for Tally sync
+    if (existing.status === 'draft' && status === 'queued') {
+      const parsedLines = JSON.parse(existing.lines || '[]');
+      const resolvedGodownId =
+        existing.godownId ||
+        (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
+        `g-${existing.companyId}-main`;
+      const direction = existing.type === 'purchase' ? 1 : -1;
+      for (const line of parsedLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          const delta = direction * line.qty;
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+          `).run(line.itemId, resolvedGodownId, delta, delta);
+        }
+      }
+      db.prepare(`
+        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
+        VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
+      `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
+    }
+
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
   });
@@ -2148,6 +2173,27 @@ export function createApp(dbPath?: string): express.Express {
     if (existing.companyId && !canAccessCompany(user, existing.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
+
+    // If existing challan was a draft, deduct/add stock balances now that it is being sent to Tally
+    if (existing.status === 'draft') {
+      const parsedLines = JSON.parse(existing.lines || '[]');
+      const resolvedGodownId =
+        existing.godownId ||
+        (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
+        `g-${existing.companyId}-main`;
+      const direction = existing.type === 'purchase' ? 1 : -1;
+      for (const line of parsedLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          const delta = direction * line.qty;
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+          `).run(line.itemId, resolvedGodownId, delta, delta);
+        }
+      }
+    }
+
     db.prepare("UPDATE challans SET status = 'queued', failureReason = NULL WHERE id = ?").run(req.params.id);
     const outRes = db.prepare("UPDATE outbox_items SET status = 'queued', attempts = attempts + 1, lastError = NULL WHERE refId = ?").run(req.params.id);
     if (outRes.changes === 0) {

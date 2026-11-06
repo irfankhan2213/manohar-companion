@@ -27,6 +27,13 @@ export const ChallanPrintScreen: React.FC = () => {
   });
   const company = companies.find((c) => c.id === challan?.companyId) || companies[0];
 
+  const { data: stockItems = [] } = useQuery({
+    queryKey: ['stock-items', challan?.companyId || 'all'],
+    queryFn: () => api.stock.items.list(challan?.companyId || 'all'),
+    enabled: !!challan,
+  });
+  const stockMap = new Map(stockItems.map((s) => [s.id, s]));
+
   if (isLoading || !challan) {
     return (
       <div className="p-10 text-center text-label-2 text-subhead">
@@ -35,13 +42,28 @@ export const ChallanPrintScreen: React.FC = () => {
     );
   }
 
+  const getLineGstRate = (line: typeof challan.lines[0]) =>
+    line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18;
+  const getLineHsn = (line: typeof challan.lines[0]) =>
+    line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452';
+
   const subtotalPaise = challan.lines.reduce((acc, l) => acc + l.amount, 0);
+  const totalGstPaise = challan.lines.reduce(
+    (acc, l) => acc + Math.round(l.amount * (getLineGstRate(l) / 100)),
+    0
+  );
+  const uniqueRates = Array.from(new Set(challan.lines.map((l) => getLineGstRate(l))));
+  const effectiveGstLabel =
+    uniqueRates.length === 1 ? `${uniqueRates[0]}%` : 'As per HSN';
+  const halfGstLabel =
+    uniqueRates.length === 1 ? `${uniqueRates[0]! / 2}%` : '50%';
+
   const companyStateCode = company?.gstin && company.gstin.length >= 2 ? company.gstin.slice(0, 2) : '03';
   const partyStateCode = party?.gstin && party.gstin.length >= 2 ? party.gstin.slice(0, 2) : companyStateCode;
   const isInterstate = partyStateCode !== companyStateCode;
-  const igstPaise = isInterstate ? Math.round(subtotalPaise * 0.18) : 0;
-  const cgstPaise = !isInterstate ? Math.round(subtotalPaise * 0.09) : 0;
-  const sgstPaise = !isInterstate ? Math.round(subtotalPaise * 0.09) : 0;
+  const igstPaise = isInterstate ? totalGstPaise : 0;
+  const cgstPaise = !isInterstate ? Math.round(totalGstPaise / 2) : 0;
+  const sgstPaise = !isInterstate ? totalGstPaise - cgstPaise : 0;
   const grandTotalPaise = subtotalPaise + (isInterstate ? igstPaise : cgstPaise + sgstPaise);
 
   const titleType =
@@ -164,10 +186,11 @@ export const ChallanPrintScreen: React.FC = () => {
                 <tr key={idx} className="text-xs">
                   <td className="py-2.5 px-2.5 border-r border-black text-center">{idx + 1}</td>
                   <td className="py-2.5 px-3 border-r border-black font-medium">
-                    {line.description}
+                    <div>{line.description}</div>
+                    <div className="text-[10px] text-gray-500 font-mono">GST {getLineGstRate(line)}%</div>
                   </td>
                   <td className="py-2.5 px-2.5 border-r border-black text-center font-mono">
-                    8452
+                    {getLineHsn(line)}
                   </td>
                   <td className="py-2.5 px-2.5 border-r border-black text-right font-semibold">
                     {line.qty}
@@ -227,7 +250,7 @@ export const ChallanPrintScreen: React.FC = () => {
               </div>
               {isInterstate ? (
                 <div className="flex justify-between py-1">
-                  <span className="text-gray-600">IGST (18%):</span>
+                  <span className="text-gray-600">IGST ({effectiveGstLabel}):</span>
                   <span className="font-mono font-semibold">
                     {formatINR(igstPaise)}
                   </span>
@@ -235,13 +258,13 @@ export const ChallanPrintScreen: React.FC = () => {
               ) : (
                 <>
                   <div className="flex justify-between py-1">
-                    <span className="text-gray-600">CGST (9%):</span>
+                    <span className="text-gray-600">CGST ({halfGstLabel}):</span>
                     <span className="font-mono font-semibold">
                       {formatINR(cgstPaise)}
                     </span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-gray-600">SGST (9%):</span>
+                    <span className="text-gray-600">SGST ({halfGstLabel}):</span>
                     <span className="font-mono font-semibold">
                       {formatINR(sgstPaise)}
                     </span>

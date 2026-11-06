@@ -86,6 +86,11 @@ export const CreateChallanScreen: React.FC = () => {
     }
   };
 
+  const stockMap = React.useMemo(
+    () => new Map(stockItems.map((s) => [s.id, s])),
+    [stockItems]
+  );
+
   const handleAddLine = () => {
     const item = stockItems.find((s) => s.id === selectedItemId);
     if (!item) return;
@@ -102,6 +107,8 @@ export const CreateChallanScreen: React.FC = () => {
         unit: item.unit,
         rate: ratePaise,
         amount: amountPaise,
+        hsnCode: item.hsnCode || '8452',
+        gstRate: item.gstRate ?? 18,
       },
     ]);
 
@@ -116,7 +123,10 @@ export const CreateChallanScreen: React.FC = () => {
   };
 
   const subtotalPaise = lines.reduce((acc, l) => acc + l.amount, 0);
-  const gstPaise = Math.round(subtotalPaise * 0.18); // 18% GST standard
+  const gstPaise = lines.reduce((acc, l) => {
+    const itemGstRate = l.gstRate ?? stockMap.get(l.itemId)?.gstRate ?? 18;
+    return acc + Math.round(l.amount * (itemGstRate / 100));
+  }, 0);
   const grandTotalPaise = subtotalPaise + gstPaise;
 
   const createMutation = useMutation({
@@ -374,6 +384,8 @@ export const CreateChallanScreen: React.FC = () => {
                           unit: item.unit,
                           rate: item.rate,
                           amount: item.rate * 1,
+                          hsnCode: item.hsnCode || '8452',
+                          gstRate: item.gstRate ?? 18,
                         },
                       ]);
                     }}
@@ -485,7 +497,7 @@ export const CreateChallanScreen: React.FC = () => {
                       {line.description}
                     </span>
                     <span className="text-caption text-label-2 tabular-nums">
-                      {line.qty} {line.unit} × {formatINR(line.rate)}
+                      {line.qty} {line.unit} × {formatINR(line.rate)} · HSN {line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452'} · GST {line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18}%
                     </span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
@@ -608,7 +620,7 @@ export const CreateChallanScreen: React.FC = () => {
               trailing={<span className="tabular-nums font-semibold text-label">{lines.length} lines</span>}
             />
             <Row
-              title="Estimated GST (18%)"
+              title="Calculated GST (Master Rates)"
               trailing={<span className="tabular-nums text-label-2">{formatINR(gstPaise)}</span>}
             />
             <Row
