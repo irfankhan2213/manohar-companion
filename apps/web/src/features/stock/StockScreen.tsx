@@ -19,14 +19,15 @@ interface StockItemWithTotal {
 
 export const StockScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { currentCompanyId, currentRole } = useAppStore();
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
+  const actor = currentUser || currentRole;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [tabFilter, setTabFilter] = useState<'all' | 'low'>('all');
   const [isCombined, setIsCombined] = useState(false);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
 
-  const canEditStock = can(currentRole, 'stock.adjust') || can(currentRole, 'tally.write.stock');
+  const canEditStock = can(actor, 'stock.adjust') || can(actor, 'tally.write.stock');
 
   // Fetch stock items
   const { data: stockItems = [], isLoading: itemsLoading } = useQuery({
@@ -34,17 +35,17 @@ export const StockScreen: React.FC = () => {
     queryFn: () => api.stock.items.list(currentCompanyId),
   });
 
-  // Fetch balances to compute total qty per item
+  // Fetch balances in parallel to compute total qty per item
   const { data: allBalances = [] } = useQuery({
-    queryKey: ['stock-balances', currentCompanyId],
+    queryKey: ['stock-balances', currentCompanyId, stockItems.map((s) => s.id).join(',')],
     queryFn: async () => {
-      // Mock returns balances for all items
-      const results: { itemId: string; qty: number }[] = [];
-      for (const item of stockItems) {
-        const detail = await api.stock.items.get(item.id);
-        const qty = detail?.balances.reduce((s, b) => s + b.qty, 0) ?? 0;
-        results.push({ itemId: item.id, qty });
-      }
+      const results = await Promise.all(
+        stockItems.map(async (item) => {
+          const detail = await api.stock.items.get(item.id);
+          const qty = detail?.balances.reduce((s, b) => s + b.qty, 0) ?? 0;
+          return { itemId: item.id, qty };
+        })
+      );
       return results;
     },
     enabled: stockItems.length > 0,
@@ -56,8 +57,10 @@ export const StockScreen: React.FC = () => {
       qtyMap.set(b.itemId, b.qty);
     }
 
-    return stockItems.map((item) => {
-      const totalQty = qtyMap.get(item.id) ?? (item.id === 'item-1' ? 50 : item.id === 'item-2' ? 12 : 80);
+    const baseList = stockItems.map((item) => {
+      const fallbackQty =
+        item.id === 'item-1' ? 50 : item.id === 'item-2' ? 12 : item.id.startsWith('item-') ? 80 : 0;
+      const totalQty = qtyMap.get(item.id) ?? fallbackQty;
       const isLow = totalQty <= item.reorderLevel;
       return {
         item,
@@ -65,7 +68,30 @@ export const StockScreen: React.FC = () => {
         isLow,
       };
     });
-  }, [stockItems, allBalances]);
+
+    if (!isCombined || currentCompanyId !== 'all') {
+      return baseList;
+    }
+
+    // Combined Stock View: merge items with matching name/partNo across company branches
+    const mergedMap = new Map<string, StockItemWithTotal>();
+    for (const entry of baseList) {
+      const key = (entry.item.partNo || entry.item.name).trim().toLowerCase();
+      const existing = mergedMap.get(key);
+      if (existing) {
+        const combinedQty = existing.totalQty + entry.totalQty;
+        const combinedReorder = Math.max(existing.item.reorderLevel, entry.item.reorderLevel);
+        mergedMap.set(key, {
+          item: existing.item,
+          totalQty: combinedQty,
+          isLow: combinedQty <= combinedReorder,
+        });
+      } else {
+        mergedMap.set(key, { ...entry });
+      }
+    }
+    return Array.from(mergedMap.values());
+  }, [stockItems, allBalances, isCombined, currentCompanyId]);
 
   const filteredItems = React.useMemo(() => {
     let list = stockWithTotals;

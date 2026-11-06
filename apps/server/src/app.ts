@@ -3264,8 +3264,17 @@ export function createApp(dbPath?: string): express.Express {
             : s.id;
         stmt.run(safeItemId, resolvedCompanyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);
         if (s.closingQty !== undefined) {
-          const defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
-          const godownId = defaultGodown?.id || `g-${resolvedCompanyId}-main`;
+          let defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
+          if (!defaultGodown) {
+            const newGodownId = `g-${resolvedCompanyId}-main`;
+            db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
+              newGodownId,
+              resolvedCompanyId,
+              'Main Location'
+            );
+            defaultGodown = { id: newGodownId };
+          }
+          const godownId = defaultGodown.id;
           db.prepare(`
             INSERT INTO stock_balances (itemId, godownId, qty)
             VALUES (?, ?, ?)

@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Info, CheckCircle2 } from 'lucide-react';
+import { api } from '../../api/index.js';
+import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { Button } from '../../components/ui/Button.js';
@@ -13,6 +16,14 @@ interface TemplateItem {
 
 export const RemindersTemplatesScreen: React.FC = () => {
   const [infoOpen, setInfoOpen] = useState(false);
+  const { currentCompanyId, currentTenant } = useAppStore();
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const activeCompany = companies.find((c) => c.id === currentCompanyId) || companies[0];
+  const senderName = activeCompany?.name || currentTenant?.name || 'Manohar Traders';
 
   const templates: TemplateItem[] = [
     {
@@ -21,7 +32,7 @@ export const RemindersTemplatesScreen: React.FC = () => {
       status: 'Approved',
       text: (
         <span>
-          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, this is a reminder from Manohar Traders. Invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> is due on <span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span>. Please arrange payment by the due date. If you have already paid, please ignore this message.
+          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, this is a reminder from {senderName}. Invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> is due on <span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span>. Please arrange payment by the due date. If you have already paid, please ignore this message.
         </span>
       ),
     },
@@ -31,7 +42,7 @@ export const RemindersTemplatesScreen: React.FC = () => {
       status: 'Approved',
       text: (
         <span>
-          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> from Manohar Traders is due today (<span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span>). Please arrange payment today. If you have already paid, thank you, and please ignore this message.
+          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> from {senderName} is due today (<span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span>). Please arrange payment today. If you have already paid, thank you, and please ignore this message.
         </span>
       ),
     },
@@ -41,7 +52,7 @@ export const RemindersTemplatesScreen: React.FC = () => {
       status: 'Approved',
       text: (
         <span>
-          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> from Manohar Traders was due on <span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span> and is still unpaid. Please arrange payment at the earliest, or call us on <span className="text-accent font-semibold">&#123;&#123;5&#125;&#125;</span> if there is any problem. If you have already paid, please ignore this message.
+          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, invoice <span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> for ₹<span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span> from {senderName} was due on <span className="text-accent font-semibold">&#123;&#123;4&#125;&#125;</span> and is still unpaid. Please arrange payment at the earliest, or call us on <span className="text-accent font-semibold">&#123;&#123;5&#125;&#125;</span> if there is any problem. If you have already paid, please ignore this message.
         </span>
       ),
     },
@@ -51,7 +62,7 @@ export const RemindersTemplatesScreen: React.FC = () => {
       status: 'Approved',
       text: (
         <span>
-          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, we have received your payment of ₹<span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> against invoice <span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span>. Thank you. Manohar Traders
+          Hello <span className="text-accent font-semibold">&#123;&#123;1&#125;&#125;</span>, we have received your payment of ₹<span className="text-accent font-semibold">&#123;&#123;2&#125;&#125;</span> against invoice <span className="text-accent font-semibold">&#123;&#123;3&#125;&#125;</span>. Thank you. {senderName}
         </span>
       ),
     },

@@ -41,7 +41,7 @@ import { openWhatsAppReminderUrl } from './whatsapp.js';
 export const RemindersScreen: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId, currentRole } = useAppStore();
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [scheduleSheetOpen, setScheduleSheetOpen] = useState(false);
@@ -69,8 +69,8 @@ export const RemindersScreen: React.FC = () => {
   const [newPartyTerms, setNewPartyTerms] = useState(30);
 
   // Permission checks
-  const canView = can(currentRole, 'reminders.view');
-  const canConfigure = can(currentRole, 'reminders.configure');
+  const canView = can(currentUser || currentRole, 'reminders.view');
+  const canConfigure = can(currentUser || currentRole, 'reminders.configure');
 
   // Queries
   const { data: companies = [] } = useQuery({

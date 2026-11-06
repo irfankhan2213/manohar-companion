@@ -24,9 +24,10 @@ import { StatusText } from '../../components/ui/StatusText.js';
 export const HomeScreen: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentCompanyId, currentRole } = useAppStore();
-  const canViewLedgers = can(currentRole, 'ledgers.view');
-  const canSend = can(currentRole, 'reminders.send');
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
+  const actor = currentUser || currentRole;
+  const canViewLedgers = can(actor, 'ledgers.view');
+  const canSend = can(actor, 'reminders.send');
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['home-summary', currentCompanyId],

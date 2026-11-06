@@ -25,7 +25,7 @@ export const StockDetailScreen: React.FC = () => {
   const { itemId = '' } = useParams<{ itemId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId, currentRole } = useAppStore();
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [adjustSheetOpen, setAdjustSheetOpen] = useState(false);
@@ -65,7 +65,7 @@ export const StockDetailScreen: React.FC = () => {
     (o) => o.kind === 'stock_journal' && o.refId === itemId
   );
 
-  const canAdjust = can(currentRole, 'stock.adjust');
+  const canAdjust = can(currentUser || currentRole, 'stock.adjust');
 
   const adjustMutation = useMutation({
     mutationFn: () =>

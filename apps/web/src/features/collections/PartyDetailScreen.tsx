@@ -28,7 +28,7 @@ export const PartyDetailScreen: React.FC = () => {
   const { partyId = '' } = useParams<{ partyId: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { currentCompanyId, currentRole } = useAppStore();
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<'bills' | 'statement' | 'history'>('bills');
@@ -89,8 +89,8 @@ export const PartyDetailScreen: React.FC = () => {
     },
   });
 
-  const canEdit = can(currentRole, 'party.edit');
-  const canSend = can(currentRole, 'reminders.send');
+  const canEdit = can(currentUser || currentRole, 'party.edit');
+  const canSend = can(currentUser || currentRole, 'reminders.send');
 
   const totalOwed = bills.reduce((sum, b) => sum + b.pending, 0);
 

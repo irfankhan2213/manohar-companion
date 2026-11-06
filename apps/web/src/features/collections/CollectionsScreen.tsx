@@ -37,7 +37,7 @@ interface PartyWithAging {
 
 export const CollectionsScreen: React.FC = () => {
   const navigate = useNavigate();
-  const { currentCompanyId, currentRole } = useAppStore();
+  const { currentCompanyId, currentRole, currentUser } = useAppStore();
   const { showToast } = useToast();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -60,7 +60,7 @@ export const CollectionsScreen: React.FC = () => {
     queryFn: () => api.bills.list(currentCompanyId),
   });
 
-  const canSend = can(currentRole, 'reminders.send');
+  const canSend = can(currentUser || currentRole, 'reminders.send');
 
   // Map bills by partyId
   const partyWithAgingList: PartyWithAging[] = React.useMemo(() => {
