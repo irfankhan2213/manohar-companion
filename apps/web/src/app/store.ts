@@ -53,15 +53,31 @@ export const useAppStore = create<AppSessionState>()(
       },
       setStaySignedIn: (staySignedIn) => set({ staySignedIn }),
       login: (token, user, tenant, defaultCompanyId) => {
-        set({
-          authToken: token,
-          currentUser: user,
-          currentRole: user.role,
-          currentTenant: tenant || null,
-          currentCompanyId: defaultCompanyId || (user.companyIds === 'all' || !user.companyIds[0] ? 'all' : user.companyIds[0]),
+        set((state) => {
+          if (typeof window !== 'undefined' && !state.staySignedIn) {
+            try {
+              sessionStorage.setItem('tally-ephemeral-token', token);
+            } catch {}
+          }
+          return {
+            authToken: token,
+            currentUser: user,
+            currentRole: user.role,
+            currentTenant: tenant || null,
+            currentCompanyId:
+              defaultCompanyId ||
+              (user.companyIds === 'all' || !user.companyIds[0]
+                ? 'all'
+                : user.companyIds[0]),
+          };
         });
       },
       logout: () => {
+        if (typeof window !== 'undefined') {
+          try {
+            sessionStorage.removeItem('tally-ephemeral-token');
+          } catch {}
+        }
         set({
           authToken: null,
           currentUser: null,
@@ -73,6 +89,15 @@ export const useAppStore = create<AppSessionState>()(
     }),
     {
       name: 'tally-auth-session-v1',
+      partialize: (state) =>
+        state.staySignedIn
+          ? state
+          : {
+              ...state,
+              authToken: null,
+              currentUser: null,
+              currentTenant: null,
+            },
     }
   )
 );

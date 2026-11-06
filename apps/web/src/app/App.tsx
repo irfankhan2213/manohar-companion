@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { setCustomPermissions } from '@saas/shared';
+import { can, PermissionKey, setCustomPermissions } from '@saas/shared';
 import { useAppStore } from './store.js';
 import { api } from '../api/index.js';
 import { TabBar } from '../components/ui/TabBar.js';
@@ -95,6 +95,18 @@ const RequireDevRole: React.FC<{ children: React.ReactElement }> = ({ children }
   return children;
 };
 
+const RequirePermission: React.FC<{
+  perm: PermissionKey;
+  children: React.ReactElement;
+}> = ({ perm, children }) => {
+  const { currentUser, currentRole } = useAppStore();
+  const actor = currentUser || currentRole;
+  if (currentUser && !can(actor, perm)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
 export const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -119,19 +131,96 @@ export const App: React.FC = () => {
                   </RequireDevRole>
                 }
               />
-              <Route path="/collections" element={<CollectionsScreen />} />
-              <Route path="/collections/:partyId" element={<PartyDetailScreen />} />
-              <Route path="/stock" element={<StockScreen />} />
-              <Route path="/stock/:itemId" element={<StockDetailScreen />} />
-              <Route path="/challans" element={<ChallansScreen />} />
-              <Route path="/challans/new" element={<CreateChallanScreen />} />
-              <Route path="/challans/:id" element={<ChallanDetailScreen />} />
+              <Route
+                path="/collections"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <CollectionsScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/collections/:partyId"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <PartyDetailScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/stock"
+                element={
+                  <RequirePermission perm="stock.view">
+                    <StockScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/stock/:itemId"
+                element={
+                  <RequirePermission perm="stock.view">
+                    <StockDetailScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/challans"
+                element={
+                  <RequirePermission perm="challan.view">
+                    <ChallansScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/challans/new"
+                element={
+                  <RequirePermission perm="challan.create">
+                    <CreateChallanScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/challans/:id"
+                element={
+                  <RequirePermission perm="challan.view">
+                    <ChallanDetailScreen />
+                  </RequirePermission>
+                }
+              />
               <Route path="/tasks" element={<TasksScreen />} />
               <Route path="/reminders" element={<RemindersScreen />} />
-              <Route path="/reminders/replies" element={<RemindersRepliesScreen />} />
-              <Route path="/reminders/templates" element={<RemindersTemplatesScreen />} />
-              <Route path="/notebook" element={<NotebookScreen />} />
-              <Route path="/activity" element={<ActivityScreen />} />
+              <Route
+                path="/reminders/replies"
+                element={
+                  <RequirePermission perm="reminders.view">
+                    <RemindersRepliesScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reminders/templates"
+                element={
+                  <RequirePermission perm="reminders.view">
+                    <RemindersTemplatesScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/notebook"
+                element={
+                  <RequirePermission perm="notebook.view">
+                    <NotebookScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/activity"
+                element={
+                  <RequirePermission perm="activity.view">
+                    <ActivityScreen />
+                  </RequirePermission>
+                }
+              />
               <Route path="/settings" element={<SettingsScreen />} />
               <Route path="/more" element={<MoreScreen />} />
               {/* Fallbacks */}

@@ -328,11 +328,18 @@ export const NotebookScreen: React.FC = () => {
         };
       });
     } else {
-      // Adding new column
-      const newKey = colTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+      // Adding new column with collision-safe key
+      const baseKey = colTitle.toLowerCase().replace(/[^a-z0-9]/g, '') || `col_${notebook.columns.length + 1}`;
+      const existingKeys = new Set(notebook.columns.map((c) => c.key));
+      let uniqueKey = baseKey;
+      let suffix = 2;
+      while (existingKeys.has(uniqueKey)) {
+        uniqueKey = `${baseKey}_${suffix}`;
+        suffix += 1;
+      }
       const newCol: NotebookColumn = {
         id: `c-${Date.now()}`,
-        key: newKey || `col_${notebook.columns.length + 1}`,
+        key: uniqueKey,
         title: colTitle.trim(),
         type: colType,
         formula: colType === 'computed' ? colFormula.trim() : undefined,

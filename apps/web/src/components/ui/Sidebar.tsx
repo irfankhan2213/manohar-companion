@@ -1,5 +1,6 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Home,
   Wallet,
@@ -15,13 +16,28 @@ import {
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
 import { can } from '@saas/shared';
+import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { PRODUCT_CONFIG } from '../../config/product.js';
 
 export const Sidebar: React.FC = () => {
   const { t } = useTranslation();
-  const { currentRole, currentUser } = useAppStore();
+  const { currentRole, currentUser, currentCompanyId } = useAppStore();
   const actor = currentUser || currentRole;
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+
+  const isAgentOnline = React.useMemo(() => {
+    if (companies.length === 0) return true;
+    if (currentCompanyId === 'all') {
+      return companies.some((c) => c.agentStatus === 'online');
+    }
+    const active = companies.find((c) => c.id === currentCompanyId) ?? companies[0];
+    return active?.agentStatus === 'online';
+  }, [companies, currentCompanyId]);
 
   const links = [
     ...(currentRole === 'dev'
@@ -90,8 +106,8 @@ export const Sidebar: React.FC = () => {
 
       <div className="p-4 border-t border-separator/40 flex items-center justify-between text-footnote text-label-2">
         <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-ok" />
-          <span>Office PC Online</span>
+          <span className={`w-2 h-2 rounded-full ${isAgentOnline ? 'bg-ok' : 'bg-label-3/60'}`} />
+          <span>{isAgentOnline ? 'Office PC Online' : 'Office PC Offline'}</span>
         </div>
         <span>v1.4.2</span>
       </div>

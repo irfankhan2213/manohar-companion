@@ -37,13 +37,16 @@ const getApiBase = (): string => {
 const API_BASE = getApiBase();
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const token = useAppStore.getState().authToken;
+  const { authToken: token, currentTenant } = useAppStore.getState();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string>),
   };
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (currentTenant?.id && currentTenant.id !== 'platform') {
+    headers['X-Tenant-Id'] = currentTenant.id;
   }
 
   const res = await fetch(`${API_BASE}${url}`, {

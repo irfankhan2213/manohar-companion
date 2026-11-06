@@ -247,8 +247,15 @@ export function createApp(dbPath?: string): express.Express {
               return null;
             }
           }
+          const headerTenantId = req.headers['x-tenant-id'];
+          const effectiveTenantId =
+            u.role === 'dev' && typeof headerTenantId === 'string' && headerTenantId && headerTenantId !== 'platform'
+              ? headerTenantId
+              : u.tenantId;
           return {
             ...u,
+            tenantId: effectiveTenantId,
+            scopedByDevHeader: u.role === 'dev' && typeof headerTenantId === 'string' && headerTenantId !== 'platform',
             customRoleName: u.customRoleName || undefined,
             customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
             companyIds: safeParseCompanyIds(u.companyIds),
@@ -1195,7 +1202,8 @@ export function createApp(dbPath?: string): express.Express {
     const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
     const partyMap = new Map(parties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
 
-    const today = '2026-10-17'; // reference anchor
+    const hasDemoSeedBills = bills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
+    const today = hasDemoSeedBills ? '2026-10-17' : new Date().toISOString().slice(0, 10);
     let totalReceivables = 0;
     let totalOverdue = 0;
     let notDue = 0;
@@ -1357,7 +1365,8 @@ export function createApp(dbPath?: string): express.Express {
 
     const rawParties = db.prepare(partiesQuery).all(...partiesParams) as any[];
     const rawBills = db.prepare(billsQuery).all(...billsParams) as any[];
-    const today = '2026-10-17';
+    const hasDemoSeedBills = rawBills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
+    const today = hasDemoSeedBills ? '2026-10-17' : new Date().toISOString().slice(0, 10);
 
     const billsByParty = new Map<string, any[]>();
     for (const b of rawBills) {
