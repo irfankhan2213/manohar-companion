@@ -457,7 +457,7 @@ export function seedDatabase(db: any) {
 
   // Parties
   const insertParty = db.prepare(`
-    INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
+    INSERT OR IGNORE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const p of INITIAL_PARTIES) {
@@ -479,7 +479,7 @@ export function seedDatabase(db: any) {
 
   // Bills
   const insertBill = db.prepare(`
-    INSERT INTO bills (id, companyId, partyId, billNo, date, dueDate, dueDays, amount, pending, source)
+    INSERT OR IGNORE INTO bills (id, companyId, partyId, billNo, date, dueDate, dueDays, amount, pending, source)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const b of INITIAL_BILLS) {
@@ -510,7 +510,7 @@ export function seedDatabase(db: any) {
 
   // Godowns
   const insertGodown = db.prepare(`
-    INSERT INTO godowns (id, companyId, name)
+    INSERT OR IGNORE INTO godowns (id, companyId, name)
     VALUES (?, ?, ?)
   `);
   for (const g of INITIAL_GODOWNS) {
@@ -519,16 +519,28 @@ export function seedDatabase(db: any) {
 
   // Stock Items
   const insertStock = db.prepare(`
-    INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias, hsnCode, gstRate)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const s of INITIAL_STOCK) {
-    insertStock.run(s.id, s.companyId, s.name, s.partNo || null, s.unit, s.group, s.rate, s.reorderLevel, s.alias || null);
+    insertStock.run(
+      s.id,
+      s.companyId,
+      s.name,
+      s.partNo || null,
+      s.unit,
+      s.group,
+      s.rate,
+      s.reorderLevel,
+      s.alias || null,
+      (s as any).hsnCode || null,
+      typeof (s as any).gstRate === 'number' ? (s as any).gstRate : 18
+    );
   }
 
   // Stock Balances
   const insertBalance = db.prepare(`
-    INSERT INTO stock_balances (itemId, godownId, qty)
+    INSERT OR IGNORE INTO stock_balances (itemId, godownId, qty)
     VALUES (?, ?, ?)
   `);
   for (const b of INITIAL_BALANCES) {
@@ -537,7 +549,7 @@ export function seedDatabase(db: any) {
 
   // Challans
   const insertChallan = db.prepare(`
-    INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
+    INSERT OR IGNORE INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const ch of INITIAL_CHALLANS) {
@@ -562,7 +574,7 @@ export function seedDatabase(db: any) {
 
   // Tasks
   const insertTask = db.prepare(`
-    INSERT INTO tasks (id, companyId, title, description, assignedToUserId, assignedByUserId, challanId, photoUrl, status, priority, createdAt, completedAt)
+    INSERT OR IGNORE INTO tasks (id, companyId, title, description, assignedToUserId, assignedByUserId, challanId, photoUrl, status, priority, createdAt, completedAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const t of INITIAL_TASKS) {
@@ -584,7 +596,7 @@ export function seedDatabase(db: any) {
 
   // Notifications
   const insertNotification = db.prepare(`
-    INSERT INTO notifications (id, userId, companyId, title, body, taskId, challanId, photoUrl, read, createdAt)
+    INSERT OR IGNORE INTO notifications (id, userId, companyId, title, body, taskId, challanId, photoUrl, read, createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const n of INITIAL_NOTIFICATIONS) {
@@ -604,7 +616,7 @@ export function seedDatabase(db: any) {
 
   // Reminder Rules
   const insertRules = db.prepare(`
-    INSERT INTO reminder_rules (tenantId, enabled, defaultDueDays, steps, quietHours, minAmount, stopWhenPaid)
+    INSERT OR IGNORE INTO reminder_rules (tenantId, enabled, defaultDueDays, steps, quietHours, minAmount, stopWhenPaid)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   insertRules.run(
@@ -619,7 +631,7 @@ export function seedDatabase(db: any) {
 
   // Reminder Replies
   const insertReply = db.prepare(`
-    INSERT INTO reminder_replies (id, companyId, partyId, unread, lastCustomerMessageAt, messages)
+    INSERT OR IGNORE INTO reminder_replies (id, companyId, partyId, unread, lastCustomerMessageAt, messages)
     VALUES (?, ?, ?, ?, ?, ?)
   `);
   for (const r of INITIAL_REPLY_THREADS) {
@@ -628,7 +640,7 @@ export function seedDatabase(db: any) {
 
   // Notebooks
   const insertNotebook = db.prepare(`
-    INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy)
+    INSERT OR IGNORE INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const nb of INITIAL_NOTEBOOKS) {
@@ -646,7 +658,7 @@ export function seedDatabase(db: any) {
 
   // Activities
   const insertActivity = db.prepare(`
-    INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+    INSERT OR IGNORE INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const a of INITIAL_ACTIVITIES) {
@@ -655,7 +667,7 @@ export function seedDatabase(db: any) {
 
   // Agent State
   const insertAgentState = db.prepare(`
-    INSERT INTO agent_state (key, value)
+    INSERT OR IGNORE INTO agent_state (key, value)
     VALUES (?, ?)
   `);
   insertAgentState.run('version', INITIAL_AGENT.version);

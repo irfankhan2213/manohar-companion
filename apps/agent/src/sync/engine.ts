@@ -233,9 +233,11 @@ export class SyncEngine {
           ? item.date.replace(/-/g, '')
           : new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
+        const targetCompanyName = item.companyName || this.store.get().companyName;
         let result: VoucherImportResult;
         if (item.kind === 'stock_journal') {
           result = await this.pushStockAdjustment({
+            companyName: targetCompanyName,
             date: formattedDate,
             voucherNumber: item.number || item.id,
             narration: item.narration || item.reason || `Mobile Stock Adjustment (${item.id})`,
@@ -247,6 +249,7 @@ export class SyncEngine {
           });
         } else {
           result = await this.pushDeliveryChallan({
+            companyName: targetCompanyName,
             date: formattedDate,
             voucherNumber: item.number || item.id,
             partyName: item.partyName || item.partyId,

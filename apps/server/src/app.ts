@@ -248,14 +248,13 @@ export function createApp(dbPath?: string): express.Express {
             }
           }
           const headerTenantId = req.headers['x-tenant-id'];
-          const effectiveTenantId =
-            u.role === 'dev' && typeof headerTenantId === 'string' && headerTenantId && headerTenantId !== 'platform'
-              ? headerTenantId
-              : u.tenantId;
+          const scopedByDevHeader =
+            u.role === 'dev' && typeof headerTenantId === 'string' && Boolean(headerTenantId) && headerTenantId !== 'platform';
+          const effectiveTenantId = scopedByDevHeader ? headerTenantId : u.tenantId;
           return {
             ...u,
             tenantId: effectiveTenantId,
-            scopedByDevHeader: u.role === 'dev' && typeof headerTenantId === 'string' && headerTenantId !== 'platform',
+            scopedByDevHeader,
             customRoleName: u.customRoleName || undefined,
             customPermissions: u.customPermissions ? JSON.parse(u.customPermissions) : undefined,
             companyIds: safeParseCompanyIds(u.companyIds),
@@ -265,6 +264,10 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
     return null;
+  }
+
+  function isTenantScoped(user: any): boolean {
+    return Boolean(user && user.tenantId && (user.role !== 'dev' || user.scopedByDevHeader));
   }
 
   // 1. Health check (Public)
@@ -446,9 +449,9 @@ export function createApp(dbPath?: string): express.Express {
   // 2. Companies
   app.get('/api/companies', (req, res) => {
     const user = getRequestUser(req);
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       let rows = db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId) as any[];
-      if (Array.isArray(user.companyIds)) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds)) {
         rows = rows.filter(r => user.companyIds.includes(r.id));
       }
       return res.json(rows);
@@ -731,10 +734,10 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
       params.push(user.tenantId, user.tenantId);
-      if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
         query += ` AND companyId IN (${placeholders})`;
         params.push(...user.companyIds);
@@ -886,10 +889,10 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
-      if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
         query += ` AND companyId IN (${placeholders})`;
         params.push(...user.companyIds);
@@ -1191,7 +1194,7 @@ export function createApp(dbPath?: string): express.Express {
       partiesQuery += ' AND companyId = ?';
       billsParams.push(companyId);
       partiesParams.push(companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       billsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
       billsParams.push(user.tenantId);
@@ -1246,7 +1249,7 @@ export function createApp(dbPath?: string): express.Express {
     const overdueList = Array.from(partyOverdueMap.values()).sort((a, b) => b.daysLate - a.daysLate || b.amount - a.amount);
 
     let rRules: any = null;
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       rRules = db.prepare('SELECT whatsappEnabled FROM reminder_rules WHERE tenantId = ?').get(user.tenantId);
     } else {
       rRules = db.prepare('SELECT whatsappEnabled FROM reminder_rules LIMIT 1').get() as any;
@@ -1282,7 +1285,7 @@ export function createApp(dbPath?: string): express.Express {
     if (companyId && companyId !== 'all') {
       stockQuery += ' AND s.companyId = ? GROUP BY s.id';
       stockParams.push(companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       stockQuery += ' AND s.companyId IN (SELECT id FROM companies WHERE tenantId = ?) GROUP BY s.id';
       stockParams.push(user.tenantId);
     } else {
@@ -1304,7 +1307,7 @@ export function createApp(dbPath?: string): express.Express {
     // Compute per-company breakdown when viewing 'all'
     let companyBreakdown: Array<{ company: any; totalAmount: number; overdueAmount: number }> | undefined = undefined;
     if (!companyId || companyId === 'all') {
-      let comps = user && user.role !== 'dev' && user.tenantId
+      let comps = isTenantScoped(user)
         ? (db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(user.tenantId) as any[])
         : (db.prepare('SELECT * FROM companies').all() as any[]);
       if (user && user.role !== 'dev' && Array.isArray(user.companyIds)) {
@@ -1356,7 +1359,7 @@ export function createApp(dbPath?: string): express.Express {
       billsQuery += ' AND companyId = ?';
       partiesParams.push(companyId);
       billsParams.push(companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
       billsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       partiesParams.push(user.tenantId, user.tenantId);
@@ -1450,8 +1453,31 @@ export function createApp(dbPath?: string): express.Express {
       promiseToPay: p.promiseToPay || undefined,
     };
 
-    const bills = db.prepare('SELECT * FROM bills WHERE partyId = ?').all(p.id) as any[];
-    const ledgerLines = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
+    const bills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
+    let ledgerLines = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
+    if (ledgerLines.length === 0 && bills.length > 0) {
+      ledgerLines = [];
+      for (const b of bills) {
+        ledgerLines.push({
+          date: b.date,
+          particulars: 'Sales Account',
+          voucherType: 'Sales',
+          voucherNo: b.billNo,
+          debit: b.amount,
+          credit: 0,
+        });
+        if (b.amount > b.pending) {
+          ledgerLines.push({
+            date: b.date,
+            particulars: 'Bank / Receipt Settlement',
+            voucherType: 'Receipt',
+            voucherNo: `RCPT-${b.billNo}`,
+            debit: 0,
+            credit: b.amount - b.pending,
+          });
+        }
+      }
+    }
     const rawReply = db.prepare('SELECT * FROM reminder_replies WHERE partyId = ?').get(p.id) as any;
     const reminderThread = rawReply
       ? {
@@ -1481,10 +1507,10 @@ export function createApp(dbPath?: string): express.Express {
     if (companyId && companyId !== 'all') {
       itemsQuery += ' AND companyId = ?';
       itemsParams.push(companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       itemsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       itemsParams.push(user.tenantId);
-      if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
         itemsQuery += ` AND companyId IN (${placeholders})`;
         itemsParams.push(...user.companyIds);
@@ -1929,7 +1955,7 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
     }
@@ -1971,10 +1997,10 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
-      if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
         query += ` AND companyId IN (${placeholders})`;
         params.push(...user.companyIds);
@@ -2224,10 +2250,10 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND (companyId IN (SELECT id FROM companies WHERE tenantId = ?) OR assignedToUserId = ? OR assignedByUserId = ?)';
       params.push(user.tenantId, user.id, user.id);
-      if (Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
         query += ` AND (companyId IN (${placeholders}) OR assignedToUserId = ? OR assignedByUserId = ?)`;
         params.push(...user.companyIds, user.id, user.id);
@@ -2425,7 +2451,7 @@ export function createApp(dbPath?: string): express.Express {
   app.get('/api/notifications', (req, res) => {
     const user = getRequestUser(req);
     let rows: any[];
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       rows = db.prepare(`
         SELECT n.* FROM notifications n
         LEFT JOIN companies c ON n.companyId = c.id
@@ -2481,7 +2507,7 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Missing reminders.view permission' });
     }
     let r: any = null;
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       r = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(user.tenantId);
       if (!r) {
         return res.json({
@@ -2522,7 +2548,7 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Missing reminders.configure permission' });
     }
     const body = req.body;
-    const targetTenantId = user && user.role !== 'dev' && user.tenantId ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
+    const targetTenantId = isTenantScoped(user) ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
     const existing = db.prepare('SELECT * FROM reminder_rules WHERE tenantId = ?').get(targetTenantId) as any;
 
     if (!existing) {
@@ -2575,8 +2601,9 @@ export function createApp(dbPath?: string): express.Express {
     if (!hasPermission(user, 'reminders.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing reminders.view permission' });
     }
+    const companyId = req.query.companyId as string | undefined;
     let rows: any[];
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       rows = db.prepare(`
         SELECT rr.* FROM reminder_replies rr
         JOIN parties p ON rr.partyId = p.id
@@ -2584,6 +2611,9 @@ export function createApp(dbPath?: string): express.Express {
       `).all(user.tenantId) as any[];
     } else {
       rows = db.prepare('SELECT * FROM reminder_replies').all() as any[];
+    }
+    if (companyId && companyId !== 'all') {
+      rows = rows.filter(r => r.companyId === companyId);
     }
     res.json(rows.map(r => ({ ...r, messages: JSON.parse(r.messages || '[]') })));
   });
@@ -2618,7 +2648,7 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
     }
@@ -2763,7 +2793,7 @@ export function createApp(dbPath?: string): express.Express {
     if (req.query.companyId && req.query.companyId !== 'all') {
       query += ' AND companyId = ?';
       params.push(req.query.companyId);
-    } else if (user && user.role !== 'dev' && user.tenantId) {
+    } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
     }
@@ -2898,7 +2928,7 @@ export function createApp(dbPath?: string): express.Express {
     }
     let query = 'SELECT * FROM activities WHERE 1=1';
     const params: any[] = [];
-    if (user && user.role !== 'dev' && user.tenantId) {
+    if (isTenantScoped(user)) {
       query += ' AND tenantId = ?';
       params.push(user.tenantId);
     }
@@ -2932,6 +2962,8 @@ export function createApp(dbPath?: string): express.Express {
       rows = db.prepare('SELECT * FROM users WHERE tenantId = ?').all(user.tenantId) as any[];
     } else if (req.query.tenantId) {
       rows = db.prepare('SELECT * FROM users WHERE tenantId = ?').all(req.query.tenantId) as any[];
+    } else if (isTenantScoped(user)) {
+      rows = db.prepare('SELECT * FROM users WHERE tenantId = ?').all(user.tenantId) as any[];
     } else {
       rows = db.prepare('SELECT * FROM users').all() as any[];
     }
@@ -3328,14 +3360,17 @@ export function createApp(dbPath?: string): express.Express {
       params.push(scopedTenantId);
     }
     const challanRows = db.prepare(challanQuery).all(...params) as any[];
+    const companyRows = db.prepare('SELECT id, name, tallyName FROM companies').all() as Array<{ id: string; name: string; tallyName?: string }>;
     const partyRows = db.prepare('SELECT id, name FROM parties').all() as Array<{ id: string; name: string }>;
     const godownRows = db.prepare('SELECT id, name FROM godowns').all() as Array<{ id: string; name: string }>;
+    const companyNameMap = new Map(companyRows.map(c => [c.id, c.tallyName || c.name]));
     const partyNameMap = new Map(partyRows.map(p => [p.id, p.name]));
     const godownNameMap = new Map(godownRows.map(g => [g.id, g.name]));
 
     const challanItems = challanRows.map(r => ({
       ...r,
       kind: 'challan',
+      companyName: companyNameMap.get(r.companyId),
       partyName: partyNameMap.get(r.partyId) || r.partyId,
       godownName: r.godownId ? godownNameMap.get(r.godownId) : undefined,
       lines: JSON.parse(r.lines || '[]'),
@@ -3346,9 +3381,10 @@ export function createApp(dbPath?: string): express.Express {
       const outboxRows = db.prepare(outboxQuery).all(...params) as any[];
       stockJournalItems = outboxRows
         .map(o => {
+          const companyName = companyNameMap.get(o.companyId);
           if (o.payload) {
             try {
-              return JSON.parse(o.payload);
+              return { ...JSON.parse(o.payload), companyName };
             } catch {}
           }
           const item = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(o.refId) as any;
@@ -3356,6 +3392,7 @@ export function createApp(dbPath?: string): express.Express {
             id: o.id,
             outboxId: o.id,
             kind: 'stock_journal',
+            companyName,
             refId: o.refId,
             itemName: item?.name || o.refId,
             godownName: 'Main Location',
