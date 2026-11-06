@@ -64,6 +64,7 @@ export interface AgentConfig {
 }
 
 export interface AgentState {
+  tallyUrl?: string;
   cloudUrl?: string;
   companyId?: string;
   agentSecretKey?: string;

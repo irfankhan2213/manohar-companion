@@ -23,7 +23,7 @@ const savedState = store.get();
 const cloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
 const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || '');
 const agentSecretKey = keyArg ? keyArg.split('=')[1] : (process.env.AGENT_KEY || savedState.agentSecretKey || 'dev-agent-secret-key');
-const tallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || 'http://127.0.0.1:9000');
+const tallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:9000');
 
 const client = new TallyClient({
   url: tallyUrl,
@@ -66,7 +66,7 @@ async function main() {
       console.log(`\n[Local Tally Configuration]`);
       console.log(`Tally URL:  ${tallyUrl}`);
       console.log(`Connection: ${ping.ok ? 'ONLINE' : 'OFFLINE'}`);
-      console.log(`Mode:       ${client.isMockMode() ? 'Mock Simulator' : 'Live Tally (port 9000)'}`);
+      console.log(`Mode:       ${client.isMockMode() ? 'Mock Simulator' : `Live Tally (${tallyUrl})`}`);
       if (ping.company) console.log(`Active Co:  ${ping.company}`);
       if (ping.error) console.log(`Error:      ${ping.error}`);
 
@@ -117,7 +117,7 @@ async function main() {
     case 'test': {
       console.log('Testing Tally and Cloud connections...');
       const ping = await client.ping();
-      console.log(`1. TallyPrime (port 9000): ${ping.ok ? 'SUCCESS (' + ping.company + ')' : 'FAILED: ' + ping.error}`);
+      console.log(`1. TallyPrime (${tallyUrl}): ${ping.ok ? 'SUCCESS (' + ping.company + ')' : 'FAILED: ' + ping.error}`);
       try {
         const res = await fetch(`${cloudUrl}/api/sync/info`, {
           headers: { 'x-agent-key': agentSecretKey || '' },

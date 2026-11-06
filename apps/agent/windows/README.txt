@@ -17,7 +17,10 @@ MANOHAR TRADERS - TALLYPRIME CLOUD SYNC AGENT (24/7 AUTOMATED GUIDE)
    - Press F1 (Help) -> Settings -> Connectivity.
    - Set "TallyPrime acts as": "Both" (or "Server").
    - Set "Enable ODBC Server": "Yes".
-   - Set Port: 9000.
+   - Set Port: 9000 (or any available port, e.g. 9001, 9005, 9050, 9999).
+     * NOTE: If you use a port other than 9000, open "agent-state.json" and 
+       change "tallyUrl" to "http://127.0.0.1:<YOUR_PORT>" (e.g. "http://127.0.0.1:9005").
+       Or choose Option [5] in "run-agent.bat".
    - Press Ctrl + A to save, then restart TallyPrime.
 
 4. 24/7 UNATTENDED CLOUD AUTOMATION & AUTO-RESTART:

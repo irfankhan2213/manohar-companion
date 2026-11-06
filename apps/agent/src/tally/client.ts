@@ -96,7 +96,7 @@ export class TallyClient {
       if (this.mock) {
         return this.postXml(xmlPayload);
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with port 9000 enabled.`);
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on this port.`);
     }
   }
 
