@@ -1,6 +1,13 @@
 import { TallyClient } from '../tally/client.js';
 import { StateStore } from './state.js';
-import { TallySyncPayload, VoucherImportResult } from '../types.js';
+import {
+  TallySyncPayload,
+  VoucherImportResult,
+  TallyCompanyInfo,
+  TallyLedger,
+  TallyBill,
+  TallyStockItem,
+} from '../types.js';
 import {
   StockAdjustmentVoucherParams,
   DeliveryChallanVoucherParams,
@@ -63,17 +70,53 @@ export class SyncEngine {
     const configuredCompanyName = currentState.companyName;
 
     try {
-      // 1. Fetch Company Info from Tally
-      const company = await this.client.getCompanyInfo(configuredCompanyName);
+      // 1. Fetch Company Info from Tally (auto-detect currently active company from Tally)
+      let company: TallyCompanyInfo;
+      try {
+        company = await this.client.getCompanyInfo();
+      } catch {
+        // Fallback with configuredCompanyName if plain query fails
+        company = await this.client.getCompanyInfo(configuredCompanyName);
+      }
+
+      // If a specific company name was configured and differs from active, try targeting it; otherwise use active
+      if (configuredCompanyName && company?.name && configuredCompanyName.toLowerCase() !== company.name.toLowerCase()) {
+        try {
+          const specific = await this.client.getCompanyInfo(configuredCompanyName);
+          if (specific?.name) company = specific;
+        } catch {
+          // Keep active company
+        }
+      }
+
+      const targetCompany = company?.name || configuredCompanyName;
+      if (company?.name && company.name !== currentState.companyName) {
+        this.store.update({ companyName: company.name });
+      }
 
       // 2. Fetch Ledgers incrementally where AlterID > lastAlterId
-      const ledgers = await this.client.getLedgers(lastAlterId, configuredCompanyName);
+      let ledgers: TallyLedger[];
+      try {
+        ledgers = await this.client.getLedgers(lastAlterId, targetCompany);
+      } catch {
+        ledgers = await this.client.getLedgers(lastAlterId);
+      }
 
       // 3. Fetch Bills Outstanding
-      const bills = await this.client.getBills(undefined, configuredCompanyName);
+      let bills: TallyBill[];
+      try {
+        bills = await this.client.getBills(undefined, targetCompany);
+      } catch {
+        bills = await this.client.getBills();
+      }
 
       // 4. Fetch Stock Items incrementally where AlterID > lastAlterId
-      const stockItems = await this.client.getStockItems(lastAlterId, configuredCompanyName);
+      let stockItems: TallyStockItem[];
+      try {
+        stockItems = await this.client.getStockItems(lastAlterId, targetCompany);
+      } catch {
+        stockItems = await this.client.getStockItems(lastAlterId);
+      }
 
       // 5. Compute max AlterID seen across new ledgers & stock items
       let maxAlterId = lastAlterId;

@@ -1166,7 +1166,11 @@ export function createApp(dbPath?: string): express.Express {
     const resolvedTenantId = targetComp?.tenantId || user?.tenantId || agentAuth.tenantId;
 
     if (targetComp?.id) {
-      db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, targetComp.id);
+      if (req.body?.companyName && typeof req.body.companyName === 'string' && req.body.companyName.trim()) {
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ? WHERE id = ?").run(now, req.body.companyName.trim(), targetComp.id);
+      } else {
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, targetComp.id);
+      }
     }
     if (resolvedTenantId) {
       db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`lastSeenAt_${resolvedTenantId}`, now);
@@ -3389,7 +3393,11 @@ export function createApp(dbPath?: string): express.Express {
     `).run(resolvedCompanyId, now, alterId || 0, billsUpdated, partiesUpdated, stockUpdated);
 
     if (compRow?.id) {
-      db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, compRow.id);
+      if (companyName && typeof companyName === 'string' && companyName.trim()) {
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ? WHERE id = ?").run(now, companyName.trim(), compRow.id);
+      } else {
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, compRow.id);
+      }
     }
     if (defaultTenantId) {
       db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`lastSeenAt_${defaultTenantId}`, now);
