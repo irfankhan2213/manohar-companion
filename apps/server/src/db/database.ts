@@ -172,8 +172,13 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       unit TEXT,
       itemGroup TEXT,
       rate INTEGER,
+      purchaseRate INTEGER DEFAULT 0,
       reorderLevel REAL,
-      alias TEXT
+      alias TEXT,
+      hsnCode TEXT,
+      gstRate REAL DEFAULT 0,
+      description TEXT,
+      customValues TEXT DEFAULT '{}'
     );
 
     CREATE TABLE IF NOT EXISTS stock_balances (
