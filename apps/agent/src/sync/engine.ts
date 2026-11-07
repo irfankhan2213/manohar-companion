@@ -113,16 +113,52 @@ export class SyncEngine {
       return payload;
     } catch (err: any) {
       this.store.update({ status: 'offline' });
+      // Always notify SaaS Cloud that the agent process is online and connected,
+      // even when local Tally XML port (e.g. 127.0.0.1:9000) is closed or unreachable.
+      if (this.cloudUrl) {
+        await this.sendCloudHeartbeat(false, err?.message || 'Local Tally unreachable');
+      }
       this.onSyncError?.(err);
       throw err;
     }
   }
 
+  public async sendCloudHeartbeat(tallyOk: boolean, tallyError?: string): Promise<void> {
+    if (!this.cloudUrl) return;
+    const state = this.store.get();
+    const companyId = this.companyId || state.companyId;
+    const companyName = state.companyName;
+    const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
+    try {
+      const res = await fetch(`${this.cloudUrl}/api/agent/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-agent-key': key,
+        },
+        body: JSON.stringify({
+          companyId,
+          companyName,
+          tallyStatus: tallyOk ? 'online' : 'offline',
+          tallyError: tallyError || null,
+        }),
+      });
+      if (res.ok) {
+        this.store.update({
+          cloudStatus: 'connected',
+          lastCloudSyncAt: new Date().toISOString(),
+        });
+      }
+    } catch {}
+  }
+
   public async pushToCloud(payload: TallySyncPayload): Promise<void> {
     if (!this.cloudUrl) return;
 
-    const companyId = this.companyId || this.store.get().companyId;
-    const key = this.agentSecretKey || this.store.get().agentSecretKey || 'dev-agent-secret-key';
+    const state = this.store.get();
+    const companyId = this.companyId || state.companyId;
+    const companyName = payload.company?.name || state.companyName;
+    const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
     const companyPrefix = companyId ? `${slugify(companyId)}-` : '';
 
     // Map ledgers (Sundry Debtors & Creditors) to Parties with company-scoped IDs to prevent cross-company collisions
@@ -172,6 +208,7 @@ export class SyncEngine {
       },
       body: JSON.stringify({
         companyId,
+        companyName,
         alterId: payload.maxAlterId,
         reconcilePaidBills: true,
         parties,
@@ -197,16 +234,7 @@ export class SyncEngine {
     });
 
     // Ping agent state
-    try {
-      await fetch(`${this.cloudUrl}/api/agent/sync`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-agent-key': key,
-        },
-        body: JSON.stringify({ companyId }),
-      });
-    } catch {}
+    await this.sendCloudHeartbeat(true);
   }
 
   public async pullOutboxFromCloud(): Promise<number> {
