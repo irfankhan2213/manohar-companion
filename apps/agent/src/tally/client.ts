@@ -113,23 +113,23 @@ export class TallyClient {
     }
   }
 
-  public async getCompanyInfo(): Promise<TallyCompanyInfo> {
-    const xml = await this.postXml(buildCompanyInfoQuery());
+  public async getCompanyInfo(companyName?: string): Promise<TallyCompanyInfo> {
+    const xml = await this.postXml(buildCompanyInfoQuery(companyName));
     return parseCompanyInfoResponse(xml);
   }
 
-  public async getLedgers(lastAlterId: number = 0): Promise<TallyLedger[]> {
-    const xml = await this.postXml(buildLedgersQuery(lastAlterId));
+  public async getLedgers(lastAlterId: number = 0, companyName?: string): Promise<TallyLedger[]> {
+    const xml = await this.postXml(buildLedgersQuery(lastAlterId, companyName));
     return parseLedgersResponse(xml);
   }
 
-  public async getBills(today?: string): Promise<TallyBill[]> {
-    const xml = await this.postXml(buildBillsQuery());
+  public async getBills(today?: string, companyName?: string): Promise<TallyBill[]> {
+    const xml = await this.postXml(buildBillsQuery(companyName));
     return parseBillsResponse(xml, today);
   }
 
-  public async getStockItems(lastAlterId: number = 0): Promise<TallyStockItem[]> {
-    const xml = await this.postXml(buildStockItemsQuery(lastAlterId));
+  public async getStockItems(lastAlterId: number = 0, companyName?: string): Promise<TallyStockItem[]> {
+    const xml = await this.postXml(buildStockItemsQuery(lastAlterId, companyName));
     return parseStockItemsResponse(xml);
   }
 

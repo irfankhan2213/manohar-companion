@@ -3212,6 +3212,7 @@ export function createApp(dbPath?: string): express.Express {
     let partiesUpdated = 0;
     let billsUpdated = 0;
     let stockUpdated = 0;
+    const partyIdRemap = new Map<string, string>();
 
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
@@ -3219,23 +3220,29 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
-        const existing = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay FROM parties WHERE id = ?').get(p.id) as any;
-        const safePartyId =
-          existing && existing.tenantId && existing.tenantId !== defaultTenantId
+        const existingByName = p.name
+          ? (db.prepare('SELECT * FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(p.name).trim()) as any)
+          : null;
+        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes FROM parties WHERE id = ?').get(p.id) as any;
+        const existing = existingByName || existingById;
+        const safePartyId = existingByName
+          ? existingByName.id
+          : existingById && existingById.tenantId && existingById.tenantId !== defaultTenantId
             ? `${resolvedCompanyId}_${p.id}`
             : p.id;
+        partyIdRemap.set(p.id, safePartyId);
         stmt.run(
           safePartyId,
           defaultTenantId,
           resolvedCompanyId,
           p.name,
-          p.city || '',
-          JSON.stringify(p.phones || []),
-          p.gstin || null,
-          p.creditDays || 30,
+          p.city || existing?.city || '',
+          JSON.stringify(p.phones && p.phones.length > 0 ? p.phones : (existing?.phones ? JSON.parse(existing.phones) : [])),
+          p.gstin || existing?.gstin || null,
+          p.creditDays || existing?.creditDays || 30,
           existing?.collectorId ?? null,
           existing?.remindersPaused ?? 0,
-          p.notes || '',
+          p.notes || existing?.notes || '',
           existing?.promiseToPay ?? null
         );
         partiesUpdated++;
@@ -3249,12 +3256,17 @@ export function createApp(dbPath?: string): express.Express {
       `);
       const activeSyncedBillIds: string[] = [];
       for (const b of bills) {
-        const existingBill = db.prepare('SELECT companyId FROM bills WHERE id = ?').get(b.id) as any;
-        const safeBillId =
-          existingBill && existingBill.companyId && existingBill.companyId !== resolvedCompanyId
+        const mappedPartyId = partyIdRemap.get(b.partyId) || b.partyId;
+        const existingByBillNo = b.billNo
+          ? (db.prepare('SELECT id, companyId FROM bills WHERE companyId = ? AND billNo = ? LIMIT 1').get(resolvedCompanyId, String(b.billNo).trim()) as any)
+          : null;
+        const existingBill = existingByBillNo || (db.prepare('SELECT companyId FROM bills WHERE id = ?').get(b.id) as any);
+        const safeBillId = existingByBillNo
+          ? existingByBillNo.id
+          : existingBill && existingBill.companyId && existingBill.companyId !== resolvedCompanyId
             ? `${resolvedCompanyId}_${b.id}`
             : b.id;
-        stmt.run(safeBillId, resolvedCompanyId, b.partyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
+        stmt.run(safeBillId, resolvedCompanyId, mappedPartyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
         activeSyncedBillIds.push(safeBillId);
         billsUpdated++;
       }
@@ -3289,9 +3301,13 @@ export function createApp(dbPath?: string): express.Express {
           alias = COALESCE(excluded.alias, stock_items.alias)
       `);
       for (const s of stockItems) {
-        const existingItem = db.prepare('SELECT companyId FROM stock_items WHERE id = ?').get(s.id) as any;
-        const safeItemId =
-          existingItem && existingItem.companyId && existingItem.companyId !== resolvedCompanyId
+        const existingByName = s.name
+          ? (db.prepare('SELECT id, companyId FROM stock_items WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(s.name).trim()) as any)
+          : null;
+        const existingItem = existingByName || (db.prepare('SELECT companyId FROM stock_items WHERE id = ?').get(s.id) as any);
+        const safeItemId = existingByName
+          ? existingByName.id
+          : existingItem && existingItem.companyId && existingItem.companyId !== resolvedCompanyId
             ? `${resolvedCompanyId}_${s.id}`
             : s.id;
         stmt.run(safeItemId, resolvedCompanyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);

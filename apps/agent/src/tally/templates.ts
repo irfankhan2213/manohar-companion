@@ -28,7 +28,10 @@ export interface DeliveryChallanVoucherParams {
   }>;
 }
 
-export function buildCompanyInfoQuery(): string {
+export function buildCompanyInfoQuery(companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -39,7 +42,7 @@ export function buildCompanyInfoQuery(): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -71,7 +74,10 @@ export function buildCompanyInfoQuery(): string {
 </ENVELOPE>`;
 }
 
-export function buildLedgersQuery(lastAlterId: number = 0): string {
+export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -82,7 +88,7 @@ export function buildLedgersQuery(lastAlterId: number = 0): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -99,7 +105,10 @@ export function buildLedgersQuery(lastAlterId: number = 0): string {
 </ENVELOPE>`;
 }
 
-export function buildBillsQuery(): string {
+export function buildBillsQuery(companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -110,7 +119,7 @@ export function buildBillsQuery(): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -125,7 +134,10 @@ export function buildBillsQuery(): string {
 </ENVELOPE>`;
 }
 
-export function buildStockItemsQuery(lastAlterId: number = 0): string {
+export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -136,7 +148,7 @@ export function buildStockItemsQuery(lastAlterId: number = 0): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>

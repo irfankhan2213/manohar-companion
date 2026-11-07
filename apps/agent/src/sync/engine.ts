@@ -60,19 +60,20 @@ export class SyncEngine {
     const startTime = Date.now();
     const currentState = this.store.get();
     const lastAlterId = currentState.lastAlterId || 0;
+    const configuredCompanyName = currentState.companyName;
 
     try {
       // 1. Fetch Company Info from Tally
-      const company = await this.client.getCompanyInfo();
+      const company = await this.client.getCompanyInfo(configuredCompanyName);
 
       // 2. Fetch Ledgers incrementally where AlterID > lastAlterId
-      const ledgers = await this.client.getLedgers(lastAlterId);
+      const ledgers = await this.client.getLedgers(lastAlterId, configuredCompanyName);
 
       // 3. Fetch Bills Outstanding
-      const bills = await this.client.getBills();
+      const bills = await this.client.getBills(undefined, configuredCompanyName);
 
       // 4. Fetch Stock Items incrementally where AlterID > lastAlterId
-      const stockItems = await this.client.getStockItems(lastAlterId);
+      const stockItems = await this.client.getStockItems(lastAlterId, configuredCompanyName);
 
       // 5. Compute max AlterID seen across new ledgers & stock items
       let maxAlterId = lastAlterId;
