@@ -60,17 +60,53 @@ export function getDB(): any {
   return dbInstance;
 }
 
+export function pruneDatabaseTelemetry(db: any) {
+  try {
+    const nowIso = new Date().toISOString();
+    // 1. Prune expired auth tokens
+    db.prepare('DELETE FROM auth_tokens WHERE expiresAt < ?').run(nowIso);
+
+    // 2. Prune expired pairing codes in agent_state
+    const pairingRows = db.prepare("SELECT key, value FROM agent_state WHERE key LIKE 'pairing_%'").all() as Array<{ key: string; value: string }>;
+    for (const r of pairingRows) {
+      try {
+        const parsed = JSON.parse(r.value);
+        if (parsed.expiresAt && Date.now() > parsed.expiresAt) {
+          db.prepare('DELETE FROM agent_state WHERE key = ?').run(r.key);
+        }
+      } catch {}
+    }
+
+    // 3. Keep only latest 500 sync_batches rows per company to prevent cross-tenant telemetry eviction
+    db.prepare(`
+      DELETE FROM sync_batches
+      WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY IFNULL(companyId, '') ORDER BY id DESC) AS rn
+          FROM sync_batches
+        )
+        WHERE rn > 500
+      )
+    `).run();
+
+    // 4. Note: activities (audit trail) are deliberately preserved for compliance and statutory record retention (never pruned)
+  } catch {}
+}
+
 export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
   const db = new DatabaseSync(dbPath);
   dbInstance = db;
 
-  // SQLite Performance Optimization Pragmas (WAL + Normal sync)
+  // SQLite Performance & Concurrency Optimization Pragmas (WAL + Normal sync + 5s busy_timeout)
   if (dbPath !== ':memory:') {
     try {
       db.exec('PRAGMA journal_mode = WAL;');
     } catch {}
   }
   db.exec('PRAGMA synchronous = NORMAL;');
+  try {
+    db.exec('PRAGMA busy_timeout = 5000;');
+  } catch {}
 
   // 1. Create Tables
   db.exec(`
@@ -80,6 +116,11 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       ownerName TEXT,
       ownerPhone TEXT,
       status TEXT DEFAULT 'active',
+      plan TEXT DEFAULT 'pro',
+      maxCompanies INTEGER DEFAULT 5,
+      maxUsers INTEGER DEFAULT 15,
+      trialEndsAt TEXT,
+      isDemo INTEGER DEFAULT 0,
       createdAt TEXT
     );
 
@@ -130,7 +171,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       collectorId TEXT,
       remindersPaused INTEGER,
       notes TEXT,
-      promiseToPay TEXT
+      promiseToPay TEXT,
+      closingBalance INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS bills (
@@ -366,11 +408,31 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare("ALTER TABLE stock_items ADD COLUMN customValues TEXT DEFAULT '{}'").run();
   } catch {}
 
+  try {
+    db.prepare("ALTER TABLE tenants ADD COLUMN plan TEXT DEFAULT 'pro'").run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE tenants ADD COLUMN maxCompanies INTEGER DEFAULT 5').run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE tenants ADD COLUMN maxUsers INTEGER DEFAULT 15').run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE tenants ADD COLUMN trialEndsAt TEXT').run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE tenants ADD COLUMN isDemo INTEGER DEFAULT 0').run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE parties ADD COLUMN closingBalance INTEGER DEFAULT 0').run();
+  } catch {}
+
   // 2. Create Indexes safely after column migrations
   try {
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
       CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
+      CREATE INDEX IF NOT EXISTS idx_bills_comp_party_bill ON bills (companyId, partyId, billNo);
       CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
       CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
       CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
@@ -381,8 +443,21 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
       CREATE INDEX IF NOT EXISTS idx_users_tenant ON users (tenantId);
       CREATE INDEX IF NOT EXISTS idx_notebooks_user ON notebooks (userId);
+      CREATE INDEX IF NOT EXISTS idx_notebooks_user_comp ON notebooks (userId, companyId);
+      CREATE INDEX IF NOT EXISTS idx_sync_batches_company ON sync_batches (companyId, syncedAt);
+      CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires ON auth_tokens (expiresAt);
     `);
   } catch {}
+
+  // Prune expired tokens, pairing codes, and unbounded sync_batches telemetry
+  pruneDatabaseTelemetry(db);
+  if (dbPath !== ':memory:') {
+    setInterval(() => {
+      try {
+        pruneDatabaseTelemetry(db);
+      } catch {}
+    }, 6 * 60 * 60 * 1000).unref();
+  }
 
   // Ensure dev user and platform tenant exist in database (with scrypt-hashed PIN)
   try {

@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { TallyClient } from './tally/client.js';
 import { StateStore } from './sync/state.js';
 import { SyncEngine } from './sync/engine.js';
+import { acquireSingleInstanceLock } from './lock.js';
 import { formatINR } from '@saas/shared';
 
 const args = process.argv.slice(2);
@@ -186,6 +189,11 @@ async function main() {
         console.error('  3. Or run run-agent.bat and choose Option [4].\n');
         process.exit(1);
       }
+
+      // Single-instance mutex check to prevent multiple agent instances from competing over Tally
+      const lockPath = path.resolve(path.dirname(store.getFilePath()), 'agent.lock');
+      const releaseLock = acquireSingleInstanceLock(lockPath);
+
       console.log(`Starting Tally Sync Agent daemon (Poll Interval: ${pollIntervalMs}ms)...`);
       console.log(`Tally URL:  ${tallyUrl}`);
       console.log(`Cloud URL:  ${cloudUrl}`);
@@ -193,11 +201,14 @@ async function main() {
       engine.startPolling();
 
       // Handle graceful shutdown
-      process.on('SIGINT', () => {
+      const shutdown = () => {
         console.log('\nStopping agent...');
         engine.stopPolling();
+        releaseLock();
         process.exit(0);
-      });
+      };
+      process.on('SIGINT', shutdown);
+      process.on('SIGTERM', shutdown);
       break;
     }
 

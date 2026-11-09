@@ -12,6 +12,14 @@ describe('Sync Engine', () => {
     if (fs.existsSync(testStatePath)) {
       fs.unlinkSync(testStatePath);
     }
+    const bak = `${testStatePath}.bak`;
+    if (fs.existsSync(bak)) {
+      fs.unlinkSync(bak);
+    }
+    const tmp = `${testStatePath}.tmp`;
+    if (fs.existsSync(tmp)) {
+      fs.unlinkSync(tmp);
+    }
   });
 
   it('runs initial sync and progresses AlterID', async () => {
@@ -158,6 +166,188 @@ describe('Sync Engine', () => {
       if (fs.existsSync(testStatePath)) {
         fs.unlinkSync(testStatePath);
       }
+    }
+  });
+
+  it('handles remote RESET_ALTER_ID command and resets lastAlterId to 0', async () => {
+    const store = new StateStore(testStatePath);
+    store.update({ lastAlterId: 10500, status: 'online' });
+    expect(store.get().lastAlterId).toBe(10500);
+
+    const client = new TallyClient({ mock: true });
+    const engine = new SyncEngine({ client, store, companyId: 'comp-1' });
+
+    engine.handleCloudCommands([{ type: 'RESET_ALTER_ID', companyId: 'comp-1' }]);
+
+    expect(store.get().lastAlterId).toBe(0);
+
+    // Clean up
+    if (fs.existsSync(testStatePath)) {
+      fs.unlinkSync(testStatePath);
+    }
+    const bakPath = `${testStatePath}.bak`;
+    if (fs.existsSync(bakPath)) {
+      fs.unlinkSync(bakPath);
+    }
+  });
+
+  it('atomically saves state file and maintains .bak backup copy for recovery', () => {
+    const store = new StateStore(testStatePath);
+    store.update({ lastAlterId: 4200, status: 'online', companyName: 'Manohar Test' });
+
+    expect(fs.existsSync(testStatePath)).toBe(true);
+    const bakPath = `${testStatePath}.bak`;
+
+    // Perform another update to trigger backup creation
+    store.update({ lastAlterId: 4300 });
+    expect(fs.existsSync(bakPath)).toBe(true);
+
+    // Corrupt primary state file by truncating to 0 bytes (simulating power failure)
+    fs.writeFileSync(testStatePath, '');
+
+    // Instantiating a new store should recover from .bak backup and heal primary file on disk!
+    const recoveredStore = new StateStore(testStatePath);
+    expect(recoveredStore.get().lastAlterId).toBe(4300);
+    expect(fs.readFileSync(testStatePath, 'utf-8').length).toBeGreaterThan(0);
+    expect(JSON.parse(fs.readFileSync(testStatePath, 'utf-8')).lastAlterId).toBe(4300);
+
+    // Clean up
+    if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);
+    if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
+  });
+
+  it('StateStore.reset() safely clears AlterID without destroying credentials or pairing', () => {
+    const store = new StateStore(testStatePath);
+    store.update({
+      companyId: 'comp-manohar-1',
+      cloudUrl: 'https://manohar.evolveexpert.com',
+      agentSecretKey: 'sec-agt-9999',
+      pairingKey: '948201',
+      companyName: 'Manohar Traders',
+      lastAlterId: 19820,
+      lastSyncedAt: '2026-11-01T10:00:00Z',
+      companies: [
+        {
+          companyId: 'comp-sub-2',
+          companyName: 'Sub Branch',
+          lastAlterId: 450,
+          lastSyncedAt: '2026-11-01T10:00:00Z',
+        },
+      ],
+      status: 'online',
+    });
+
+    store.reset();
+
+    const state = store.get();
+    expect(state.lastAlterId).toBe(0);
+    expect(state.lastSyncedAt).toBeUndefined();
+    expect(state.companyId).toBe('comp-manohar-1');
+    expect(state.cloudUrl).toBe('https://manohar.evolveexpert.com');
+    expect(state.agentSecretKey).toBe('sec-agt-9999');
+    expect(state.pairingKey).toBe('948201');
+    expect(state.companyName).toBe('Manohar Traders');
+    expect(state.status).toBe('offline');
+    expect(state.companies?.[0]?.lastAlterId).toBe(0);
+    expect(state.companies?.[0]?.lastSyncedAt).toBeUndefined();
+
+    // Clean up
+    if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);
+    const bakPath = `${testStatePath}.bak`;
+    if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
+  });
+
+  it('SyncEngine.pushToCloud sends closingBalance and excludes Sundry Creditors from bills', async () => {
+    const store = new StateStore(testStatePath);
+    const client = new TallyClient({ mock: true });
+    let pushedBody: any = null;
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/sync/push')) {
+        pushedBody = JSON.parse(init.body);
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true, commands: [] }), { status: 200 });
+    };
+
+    try {
+      const engine = new SyncEngine({
+        client,
+        store,
+        cloudUrl: 'https://test-cloud.example.com',
+        companyId: 'comp-1',
+      });
+
+      // Synthetic payload with a customer debtor and a supplier creditor
+      const testPayload = {
+        company: { name: 'Manohar Traders', financialYearFrom: '2026-04-01', booksFrom: '2026-04-01' },
+        ledgers: [
+          {
+            name: 'Customer Debtor Ltd',
+            parent: 'Sundry Debtors',
+            openingBalance: 100000,
+            closingBalance: 8500000, // ₹85,000 in paise
+            alterId: 101,
+            isSundryDebtor: true,
+            isSundryCreditor: false,
+          },
+          {
+            name: 'Supplier Creditor Corp',
+            parent: 'Sundry Creditors',
+            openingBalance: 0,
+            closingBalance: -4500000,
+            alterId: 102,
+            isSundryDebtor: false,
+            isSundryCreditor: true,
+          },
+        ],
+        bills: [
+          {
+            partyName: 'Customer Debtor Ltd',
+            billNo: 'INV/2026/01',
+            billDate: '2026-10-01',
+            dueDate: '2026-10-31',
+            openingAmount: 8500000,
+            pendingAmount: 8500000,
+            isOverdue: false,
+            daysOverdue: 0,
+          },
+          {
+            partyName: 'Supplier Creditor Corp',
+            billNo: 'SUP/BILL/99',
+            billDate: '2026-10-05',
+            dueDate: '2026-11-05',
+            openingAmount: 4500000,
+            pendingAmount: 4500000,
+            isOverdue: false,
+            daysOverdue: 0,
+          },
+        ],
+        stockItems: [],
+        maxAlterId: 102,
+        syncedAt: new Date().toISOString(),
+        durationMs: 50,
+      };
+
+      await engine.pushToCloud(testPayload as any);
+
+      expect(pushedBody).toBeDefined();
+      // Verify closingBalance is present on parties
+      const debtorParty = pushedBody.parties.find((p: any) => p.name === 'Customer Debtor Ltd');
+      expect(debtorParty).toBeDefined();
+      expect(debtorParty.closingBalance).toBe(8500000);
+
+      // Verify bills exclude Sundry Creditor bills
+      expect(pushedBody.bills.length).toBe(1);
+      expect(pushedBody.bills[0].billNo).toBe('INV/2026/01');
+      expect(pushedBody.bills.find((b: any) => b.billNo === 'SUP/BILL/99')).toBeUndefined();
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);
+      const bakPath = `${testStatePath}.bak`;
+      if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
     }
   });
 });

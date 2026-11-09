@@ -181,6 +181,13 @@ export const mockApiClient: ApiClient = {
         vouchersCount: db.bills.length + db.challans.length,
       };
     },
+    resetAlterId: async (companyId?: string) => {
+      return {
+        success: true,
+        message: `Queued RESET_ALTER_ID command for company ${companyId || 'default'}`,
+        companyId,
+      };
+    },
   },
   home: {
     summary: async (companyId: Id | 'all'): Promise<HomeSummary> => {
@@ -400,7 +407,15 @@ export const mockApiClient: ApiClient = {
               s.partNo?.toLowerCase().includes(q)
           );
         }
-        return list;
+        return list.map((item) => {
+          const balances = db.balances.filter((b: StockBalance) => b.itemId === item.id);
+          const totalQty = balances.reduce((acc, b) => acc + b.qty, 0);
+          return {
+            ...item,
+            totalQty,
+            balances,
+          };
+        });
       },
       get: async (id) => {
         const item = db.stock.find((s) => s.id === id);

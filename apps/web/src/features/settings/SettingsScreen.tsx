@@ -62,6 +62,7 @@ export const SettingsScreen: React.FC = () => {
     try {
       await api.auth.logout();
     } catch {}
+    queryClient.clear();
     logout();
     showToast({ message: 'Signed out successfully' });
     navigate('/login');
@@ -69,17 +70,17 @@ export const SettingsScreen: React.FC = () => {
 
   // Queries
   const { data: agent } = useQuery({
-    queryKey: ['agentStatus'],
+    queryKey: ['agentStatus', currentTenant?.id || 'default'],
     queryFn: () => api.agent.status(),
   });
 
   const { data: users = [] } = useQuery({
-    queryKey: ['users'],
+    queryKey: ['users', currentTenant?.id || 'default'],
     queryFn: () => api.users.list(),
   });
 
   const { data: companies = [] } = useQuery({
-    queryKey: ['companies'],
+    queryKey: ['companies', currentTenant?.id || 'default'],
     queryFn: () => api.companies.list(),
   });
 
@@ -102,11 +103,13 @@ export const SettingsScreen: React.FC = () => {
   const [financialYear, setFinancialYear] = useState('2026-27');
   const [gstin, setGstin] = useState('');
 
+  const permStorageKey = `manohar_custom_permissions_${currentTenant?.id || 'default'}`;
+
   // Role permissions matrix state
   const [permissionsModalOpen, setPermissionsModalOpen] = useState(false);
   const [selectedRoleForPerms, setSelectedRoleForPerms] = useState<Role>('sales');
   const [rolePermissions, setRolePermissions] = useState<Record<Role, Record<string, boolean>>>(() => {
-    const stored = localStorage.getItem('manohar_custom_permissions');
+    const stored = localStorage.getItem(permStorageKey) || localStorage.getItem('manohar_custom_permissions');
     if (stored) {
       try {
         return JSON.parse(stored);
@@ -212,7 +215,7 @@ export const SettingsScreen: React.FC = () => {
     };
     setRolePermissions(updated);
     setCustomPermissions(updated as any);
-    localStorage.setItem('manohar_custom_permissions', JSON.stringify(updated));
+    localStorage.setItem(permStorageKey, JSON.stringify(updated));
     if (api.permissions?.update) {
       api.permissions.update(updated as any);
     }
@@ -296,6 +299,21 @@ export const SettingsScreen: React.FC = () => {
   const [copiedPairCmd, setCopiedPairCmd] = useState(false);
   const orgCompanyId = activeCompany?.id || (currentCompanyId !== 'all' ? currentCompanyId : 'c1');
 
+  // Remote AlterID Reset mutation
+  const resetAlterIdMutation = useMutation({
+    mutationFn: () => api.agent.resetAlterId(orgCompanyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries();
+      showToast({
+        message: 'AlterID reset queued! Windows Agent will perform a full fresh re-sync.',
+        variant: 'success',
+      });
+    },
+    onError: () => {
+      showToast({ message: 'Failed to queue remote AlterID reset' });
+    },
+  });
+
   const handleCopyPairCmd = async () => {
     try {
       await navigator.clipboard.writeText(`run-agent.bat pair ${pairingCode}`);
@@ -304,6 +322,30 @@ export const SettingsScreen: React.FC = () => {
       setTimeout(() => setCopiedPairCmd(false), 2000);
     } catch {
       showToast({ message: `Cmd: run-agent.bat pair ${pairingCode}` });
+    }
+  };
+
+  const handleDownloadPrePairedZip = async () => {
+    try {
+      const token = useAppStore.getState().authToken;
+      const res = await fetch(`/api/agent/download-zip?companyId=${encodeURIComponent(orgCompanyId)}&includeNode=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Failed to generate pre-paired agent zip');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeSlug = (activeCompany?.name || 'manohar').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      a.download = `tally-agent-${safeSlug}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast({
+        message: `Downloaded pre-paired Windows Agent (.ZIP) for ${activeCompany?.name || 'organization'}!`,
+        variant: 'success',
+      });
+    } catch {
+      window.open('/tally-agent-windows.zip', '_blank');
     }
   };
 
@@ -663,14 +705,66 @@ export const SettingsScreen: React.FC = () => {
             </Button>
           </div>
 
-          <div className="pt-2 border-t border-separator/40 flex flex-col gap-2">
-            <a
-              href="/tally-agent-windows.zip"
-              download="tally-agent-windows.zip"
-              className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 bg-accent/10 text-accent font-medium rounded-xl text-subhead hover:bg-accent/20 transition-colors border border-accent/20"
+          {/* Live Tally Diagnostic Telemetry */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-separator/40 text-caption">
+            <div className="p-2 rounded-xl bg-fill/40 flex flex-col">
+              <span className="text-label-3 font-medium">Tally Port</span>
+              <span className="font-mono font-bold text-label">
+                127.0.0.1:{agent?.tallyPort || 9000} (Auto-Scan)
+              </span>
+            </div>
+            <div className="p-2 rounded-xl bg-fill/40 flex flex-col">
+              <span className="text-label-3 font-medium">Active Tally Co.</span>
+              <span className="font-semibold text-label truncate">
+                {agent?.openTallyCompanies?.[0] || activeCompany?.tallyName || activeCompany?.name || 'Auto-Detect'}
+              </span>
+            </div>
+            <div className="p-2 rounded-xl bg-fill/40 flex flex-col col-span-2 sm:col-span-1">
+              <span className="text-label-3 font-medium">Agent OTA Engine</span>
+              <span className="font-mono font-semibold text-ok">
+                v{agent?.version || '1.5.0'} · Auto-Update
+              </span>
+            </div>
+          </div>
+
+          {agent?.tallyStatus === 'offline' && agent?.tallyError && (
+            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-caption text-amber-700 font-medium">
+              <strong>Tally Diagnostic:</strong> {agent.tallyError}
+            </div>
+          )}
+
+          {/* Remote AlterID Recovery Action */}
+          <div className="pt-2 border-t border-separator/40 flex items-center justify-between text-footnote">
+            <div className="flex flex-col pr-2">
+              <span className="font-semibold text-label">Remote AlterID Reset</span>
+              <span className="text-caption text-label-2">
+                Forces a complete re-sync from scratch if Tally was repaired or split.
+              </span>
+            </div>
+            <Button
+              variant="tinted"
+              size="small"
+              onClick={() => resetAlterIdMutation.mutate()}
+              disabled={resetAlterIdMutation.isPending}
+              className="flex items-center gap-1.5 h-8 px-3 whitespace-nowrap shrink-0 text-amber-600 dark:text-amber-400"
             >
-              <Download className="w-4 h-4" /> Download Windows Sync Agent (.ZIP)
-            </a>
+              <RefreshCw
+                className={`w-3.5 h-3.5 ${resetAlterIdMutation.isPending ? 'animate-spin' : ''}`}
+              />
+              <span>
+                {resetAlterIdMutation.isPending ? 'Queueing...' : 'Reset AlterID'}
+              </span>
+            </Button>
+          </div>
+
+          <div className="pt-2 border-t border-separator/40 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleDownloadPrePairedZip}
+              className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-accent text-white font-semibold rounded-xl text-subhead hover:bg-accent/90 transition-colors shadow-sm"
+            >
+              <Download className="w-4 h-4" /> Download Pre-Paired Windows Agent (.ZIP)
+            </button>
             <Button
               variant="tinted"
               onClick={handleDownloadAgentConfig}

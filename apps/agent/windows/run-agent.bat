@@ -84,7 +84,16 @@ goto MENU
 cls
 echo Starting Tally Sync Daemon... Press Ctrl+C to stop.
 echo.
+:DAEMON_LOOP
 "%NODE_BIN%" tally-agent.mjs start
+if %errorlevel% equ 42 (
+    echo.
+    echo =====================================================================
+    echo  [OTA UPDATE] Agent bundle was updated! Restarting sync daemon...
+    echo =====================================================================
+    timeout /t 2 /nobreak >nul 2>&1
+    goto DAEMON_LOOP
+)
 pause
 goto MENU
 

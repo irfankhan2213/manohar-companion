@@ -34,9 +34,15 @@ if %errorlevel% equ 0 (
 :: 3. Double-layer redundancy: Also install in Windows Startup folder
 echo [2/3] Adding shortcut to Windows Startup folder...
 set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+set "SHORTCUT_PATH=%STARTUP_DIR%\ManoharTallySync.lnk"
 if exist "%STARTUP_DIR%" (
-    copy /y "%VBS_PATH%" "%STARTUP_DIR%\ManoharTallySync.vbs" >nul
-    echo [OK] Startup shortcut installed in Windows Startup folder!
+    if exist "%STARTUP_DIR%\ManoharTallySync.vbs" del /f /q "%STARTUP_DIR%\ManoharTallySync.vbs" >nul 2>&1
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('%SHORTCUT_PATH%'); $s.TargetPath = '%VBS_PATH%'; $s.WorkingDirectory = '%~dp0'; $s.Save()" >nul 2>&1
+    if exist "%SHORTCUT_PATH%" (
+        echo [OK] Startup shortcut created in Windows Startup folder!
+    ) else (
+        echo [NOTE] Startup shortcut creation skipped.
+    )
 )
 
 :: 4. Immediately launch background watchdog

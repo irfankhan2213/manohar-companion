@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
-import { initDatabase } from '../src/db/database.js';
+import { initDatabase, getDB } from '../src/db/database.js';
 
 describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
   let app: any;
@@ -312,6 +312,92 @@ describe('Penetration Testing & Security Vulnerability Audit Suite', () => {
         .set('x-agent-key', tenant2AgentKey)
         .send({ companyId: tenant2CompanyId, parties: [] });
       expect(ownPush.status).toBe(200);
+    });
+
+    it('blocks single-party cross-branch IDOR on ledger, collections, and reminders for unassigned branches', async () => {
+      // Login as Ramesh Gupta (u3, accounts role, companyIds: ['c1'])
+      const accountsLogin = await request(app)
+        .post('/api/auth/login')
+        .send({ phone: '+91 98111 33445', pin: '1234' });
+      const accountsToken = accountsLogin.body.token;
+      expect(accountsToken).toBeDefined();
+
+      // Access to c1 party (p-sample) succeeds
+      const c1Ledger = await request(app)
+        .get('/api/ledger/p-sample')
+        .set('Authorization', `Bearer ${accountsToken}`);
+      expect(c1Ledger.status).toBe(200);
+
+      // Access to c2 party (p-inter-1) fails with 403 on GET /api/ledger/:partyId
+      const crossLedger = await request(app)
+        .get('/api/ledger/p-inter-1')
+        .set('Authorization', `Bearer ${accountsToken}`);
+      expect(crossLedger.status).toBe(403);
+      expect(crossLedger.body.error).toContain('Forbidden: Access denied to unassigned company branch');
+
+      // Access to c2 party (p-inter-1) fails with 403 on GET /api/collections/:partyId
+      const crossCollections = await request(app)
+        .get('/api/collections/p-inter-1')
+        .set('Authorization', `Bearer ${accountsToken}`);
+      expect(crossCollections.status).toBe(403);
+      expect(crossCollections.body.error).toContain('Forbidden: Access denied to unassigned company branch');
+
+      // Sending reminder for c2 party (p-inter-1) fails with 403 on POST /api/reminders/send
+      const crossReminder = await request(app)
+        .post('/api/reminders/send')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ partyId: 'p-inter-1', template: 'gentle' });
+      expect(crossReminder.status).toBe(403);
+      expect(crossReminder.body.error).toContain('Forbidden: Access denied to unassigned company branch');
+
+      // Edge case: missing partyId rejects with 400
+      const missingPartyReminder = await request(app)
+        .post('/api/reminders/send')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ template: 'gentle' });
+      expect(missingPartyReminder.status).toBe(400);
+
+      // Edge case: non-existent party rejects with 404
+      const nonExistentReminder = await request(app)
+        .post('/api/reminders/send')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ partyId: 'p-non-existent-999', template: 'gentle' });
+      expect(nonExistentReminder.status).toBe(404);
+
+      // Insert a bill for c2 party p-inter-1
+      const db = getDB();
+      db.prepare(`
+        INSERT OR REPLACE INTO bills (id, companyId, partyId, billNo, date, dueDate, amount, pending, source)
+        VALUES ('b-inter-1', 'c2', 'p-inter-1', 'GST/INT/1', '2026-09-01', '2026-10-01', 500000, 500000, 'tally_bill')
+      `).run();
+
+      // Edge case: cross-party or cross-branch billId linked to c1 party rejects with 400
+      const crossBillReminder = await request(app)
+        .post('/api/reminders/send')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ partyId: 'p-sample', billId: 'b-inter-1', template: 'gentle' });
+      expect(crossBillReminder.status).toBe(400);
+      expect(crossBillReminder.body.error).toContain('Bill does not belong to specified party');
+
+      // Edge case: unassigned c2 bill with c2 party rejects with 403
+      const crossBranchBillReminder = await request(app)
+        .post('/api/reminders/send')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ partyId: 'p-inter-1', billId: 'b-inter-1', template: 'gentle' });
+      expect(crossBranchBillReminder.status).toBe(403);
+      expect(crossBranchBillReminder.body.error).toContain('Forbidden: Access denied to unassigned company branch');
+
+      // Branch isolation for agent download endpoints
+      const crossAgentZip = await request(app)
+        .get('/api/agent/download-zip?companyId=c2')
+        .set('Authorization', `Bearer ${ownerToken}`); // owner has c1 only if assigned, or accounts
+      // Check accounts user who only has c1 trying to generate pairing code for c2
+      const crossPairing = await request(app)
+        .post('/api/agent/pairing-code')
+        .set('Authorization', `Bearer ${accountsToken}`)
+        .send({ companyId: 'c2' });
+      // Accounts doesn't have settings.manage, so 403
+      expect(crossPairing.status).toBe(403);
     });
   });
 

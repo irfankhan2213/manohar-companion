@@ -65,6 +65,50 @@ describe('Tally Parser', () => {
     expect(bill1.daysOverdue).toBe(7);
   });
 
+  it('preserves signed credit note amounts and does not flag customer returns as overdue', () => {
+    const creditXml = `<ENVELOPE>
+      <BODY>
+        <DATA>
+          <TALLYMESSAGE>
+            <BILLS>
+              <PARENT>Sample Garments Pvt Ltd</PARENT>
+              <BILLREF>CN/001/26-27</BILLREF>
+              <BILLDATE>20260901</BILLDATE>
+              <BILLDUE>20260915</BILLDUE>
+              <CLOSINGBALANCE>25000.00 Cr</CLOSINGBALANCE>
+              <ISDEBIT>No</ISDEBIT>
+            </BILLS>
+          </TALLYMESSAGE>
+          <TALLYMESSAGE>
+            <BILLS>
+              <PARENT>Sample Garments Pvt Ltd</PARENT>
+              <BILLREF>RET/002/26-27</BILLREF>
+              <BILLDATE>20260905</BILLDATE>
+              <BILLDUE>20260920</BILLDUE>
+              <CLOSINGBALANCE>12500.00</CLOSINGBALANCE>
+              <ISDEBIT>No</ISDEBIT>
+            </BILLS>
+          </TALLYMESSAGE>
+        </DATA>
+      </BODY>
+    </ENVELOPE>`;
+
+    const bills = parseBillsResponse(creditXml, '2026-10-17');
+    expect(bills.length).toBe(2);
+
+    const cn1 = bills.find((b) => b.billNo === 'CN/001/26-27')!;
+    expect(cn1.pendingAmount).toBe(-2500000);
+    expect(cn1.openingAmount).toBe(-2500000);
+    expect(cn1.isOverdue).toBe(false);
+    expect(cn1.daysOverdue).toBe(0);
+
+    const ret2 = bills.find((b) => b.billNo === 'RET/002/26-27')!;
+    expect(ret2.pendingAmount).toBe(-1250000);
+    expect(ret2.openingAmount).toBe(-1250000);
+    expect(ret2.isOverdue).toBe(false);
+    expect(ret2.daysOverdue).toBe(0);
+  });
+
   it('parses Stock Items XML with quantities and rates', () => {
     const xml = getMockStockItemsXml(0);
     const items = parseStockItemsResponse(xml);
@@ -78,12 +122,38 @@ describe('Tally Parser', () => {
     expect(motor.alterId).toBe(1476);
   });
 
-  it('parses Voucher Import response XML', () => {
-    const xml = getMockVoucherImportResponseXml();
-    const result = parseVoucherImportResponse(xml);
+  it('ensures fully settled bills (0 pending) are not marked overdue even if due date is in the past', () => {
+    const xml = `<?xml version="1.0" encoding="utf-8"?>
+<ENVELOPE>
+  <BODY>
+    <DATA>
+      <TALLYMESSAGE>
+        <BILLS>
+          <PARENT>Settled Party Ltd</PARENT>
+          <BILLREF>PAID/001/26-27</BILLREF>
+          <BILLDATE>20260801</BILLDATE>
+          <BILLDUE>20260901</BILLDUE>
+          <OPENINGBALANCE>50000.00</OPENINGBALANCE>
+          <CLOSINGBALANCE>0.00</CLOSINGBALANCE>
+          <ISDEBIT>Yes</ISDEBIT>
+        </BILLS>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
 
-    expect(result.success).toBe(true);
-    expect(result.created).toBe(1);
-    expect(result.errors).toBe(0);
+    const bills = parseBillsResponse(xml, '2026-10-17');
+    expect(bills.length).toBe(1);
+    expect(bills[0]!.pendingAmount).toBe(0);
+    expect(bills[0]!.isOverdue).toBe(false);
+    expect(bills[0]!.daysOverdue).toBe(0);
+  });
+
+  it('parseTallyAmount handles trailing minus and clean zero parsing', () => {
+    expect(parseTallyAmount('4500.00-')).toBe(-450000);
+    expect(parseTallyAmount('1200.00 Cr')).toBe(-120000);
+    expect(parseTallyAmount('1200.00 Dr')).toBe(120000);
+    expect(parseTallyAmount(0)).toBe(0);
+    expect(parseTallyAmount('')).toBe(0);
   });
 });

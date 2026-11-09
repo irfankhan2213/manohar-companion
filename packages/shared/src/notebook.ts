@@ -3,44 +3,102 @@ import { evaluateExpression } from './expression.js';
 import { Notebook, NotebookColumn, NotebookRow } from './types.js';
 
 /**
- * Recomputes all computed cells in a single row based on existing cell values.
+ * Recomputes all computed cells in a single row based on existing cell values,
+ * supporting multi-stage computed dependencies and detecting circular references (#CYCLE!).
  */
 export function computeRowCells(
   columns: NotebookColumn[],
   row: NotebookRow
 ): NotebookRow {
   const vars: Record<string, string> = {};
+  const computedCols = new Map<string, NotebookColumn>();
 
-  // First pass: collect non-computed cell values
+  // First pass: collect non-computed cell values and register computed columns
   for (const col of columns) {
     if (col.type !== 'computed') {
       const cell = row.cells[col.key];
       vars[col.key] = cell?.value ?? cell?.raw ?? '0';
+    } else if (col.formula) {
+      computedCols.set(col.key, col);
     }
   }
 
-  // Second pass: evaluate computed columns
   const updatedCells = { ...row.cells };
+  const visiting = new Set<string>();
+  const resolved = new Set<string>();
+
+  function resolveComputedColumn(key: string): boolean {
+    if (resolved.has(key)) return true;
+    if (visiting.has(key)) {
+      updatedCells[key] = {
+        raw: computedCols.get(key)?.formula || '',
+        value: '—',
+        error: '#CYCLE!',
+      };
+      return false;
+    }
+
+    const col = computedCols.get(key);
+    if (!col || !col.formula) return true;
+
+    visiting.add(key);
+
+    // Extract referenced variables {varKey}
+    const refRegex = /\{([^}]+)\}/g;
+    let match: RegExpExecArray | null;
+    while ((match = refRegex.exec(col.formula)) !== null) {
+      const depKey = match[1]?.trim() || '';
+      if (depKey === key) {
+        visiting.delete(key);
+        updatedCells[key] = {
+          raw: col.formula,
+          value: '—',
+          error: '#CYCLE!',
+        };
+        return false;
+      }
+      if (computedCols.has(depKey) && !resolved.has(depKey)) {
+        const okDep = resolveComputedColumn(depKey);
+        if (!okDep) {
+          visiting.delete(key);
+          updatedCells[key] = {
+            raw: col.formula,
+            value: '—',
+            error: '#CYCLE!',
+          };
+          return false;
+        }
+      }
+    }
+
+    visiting.delete(key);
+
+    const evalRes = evaluateExpression(col.formula, {
+      decimals: col.decimals ?? 2,
+      vars,
+    });
+
+    if (evalRes.ok) {
+      updatedCells[col.key] = {
+        raw: col.formula,
+        value: evalRes.value,
+      };
+      vars[col.key] = evalRes.value;
+    } else {
+      updatedCells[col.key] = {
+        raw: col.formula,
+        value: '—',
+        error: evalRes.error,
+      };
+    }
+
+    resolved.add(key);
+    return true;
+  }
 
   for (const col of columns) {
     if (col.type === 'computed' && col.formula) {
-      const evalRes = evaluateExpression(col.formula, {
-        decimals: col.decimals ?? 2,
-        vars,
-      });
-
-      if (evalRes.ok) {
-        updatedCells[col.key] = {
-          raw: col.formula,
-          value: evalRes.value,
-        };
-      } else {
-        updatedCells[col.key] = {
-          raw: col.formula,
-          value: '—',
-          error: evalRes.error,
-        };
-      }
+      resolveComputedColumn(col.key);
     }
   }
 

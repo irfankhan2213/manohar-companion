@@ -13,7 +13,7 @@ import {
   Camera,
   Layers,
 } from 'lucide-react';
-import { formatINR } from '@saas/shared';
+import { formatINR, ChallanStatus } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -93,7 +93,7 @@ export const ChallansScreen: React.FC = () => {
     }
   };
 
-  const getStatusBadge = (status: 'synced' | 'queued' | 'failed' | 'draft') => {
+  const getStatusBadge = (status: ChallanStatus) => {
     switch (status) {
       case 'synced':
         return <StatusText text="Updated in Tally" variant="ok" />;
@@ -103,6 +103,8 @@ export const ChallansScreen: React.FC = () => {
         return <StatusText text="Couldn't update" variant="danger" />;
       case 'draft':
         return <StatusText text="Draft" variant="neutral" />;
+      case 'cancelled':
+        return <StatusText text="Cancelled" variant="neutral" />;
     }
   };
 

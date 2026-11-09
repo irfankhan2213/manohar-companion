@@ -22,6 +22,11 @@ export const TenantSchema = z.object({
   ownerName: z.string(),
   ownerPhone: z.string(),
   status: z.enum(['active', 'inactive']).default('active'),
+  plan: z.string().optional(),
+  maxCompanies: z.number().int().optional(),
+  maxUsers: z.number().int().optional(),
+  trialEndsAt: z.string().optional(),
+  isDemo: z.boolean().optional(),
   createdAt: z.string(),
 });
 export type Tenant = z.infer<typeof TenantSchema>;
@@ -67,6 +72,7 @@ export const PartySchema = z.object({
   remindersPaused: z.boolean(),
   notes: z.string(),
   promiseToPay: z.string().optional(),
+  closingBalance: z.number().int().optional(),
 });
 export type Party = z.infer<typeof PartySchema>;
 
@@ -126,8 +132,9 @@ export const StockBalanceSchema = z.object({
 });
 export type StockBalance = z.infer<typeof StockBalanceSchema>;
 
-export const QueueStatusSchema = z.enum(['draft', 'queued', 'synced', 'failed']);
+export const QueueStatusSchema = z.enum(['draft', 'queued', 'synced', 'failed', 'cancelled']);
 export type QueueStatus = z.infer<typeof QueueStatusSchema>;
+export type ChallanStatus = QueueStatus;
 
 export const ChallanLineSchema = z.object({
   itemId: z.string(),
@@ -295,6 +302,11 @@ export const AgentSchema = z.object({
   lastSeenAt: z.string(),
   pairingCode: z.string().optional(),
   pairingExpiresAt: z.string().optional(),
+  tallyStatus: z.enum(['online', 'offline']).optional(),
+  tallyError: z.string().optional(),
+  tallyPort: z.number().optional(),
+  openTallyCompanies: z.array(z.string()).optional(),
+  agentApiKey: z.string().optional(),
 });
 export type Agent = z.infer<typeof AgentSchema>;
 

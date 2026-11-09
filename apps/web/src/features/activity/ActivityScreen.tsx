@@ -64,7 +64,7 @@ export const ActivityScreen: React.FC = () => {
 
   // Group by date (Today vs Earlier — supports both live current date and seeded demo date)
   const todayIsoPrefix = new Date().toISOString().slice(0, 10);
-  const isTodayEvent = (at: string) => at.startsWith(todayIsoPrefix) || at.startsWith('2026-10-17');
+  const isTodayEvent = (at: string) => at.startsWith(todayIsoPrefix);
   const todayActs = filteredActivities.filter((a) => isTodayEvent(a.at));
   const earlierActs = filteredActivities.filter((a) => !isTodayEvent(a.at));
 

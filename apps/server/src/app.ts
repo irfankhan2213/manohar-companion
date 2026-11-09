@@ -3,10 +3,13 @@ import cors from 'cors';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import zlib from 'node:zlib';
 import { getDB } from './db/database.js';
 import {
   calculateAgingSummary,
   getDaysOverdue,
+  getTodayIST,
+  getFinancialYearShort,
   Party,
   Bill,
   StockItem,
@@ -197,12 +200,26 @@ export function createApp(dbPath?: string): express.Express {
     }
   }
 
-  // Security: In-memory sliding window rate limiter against brute-force login attacks
+  // Security: Bounded in-memory sliding window rate limiter against brute-force login attacks
   interface RateLimitEntry {
     attempts: number;
     lockedUntil: number;
+    lastAttemptAt: number;
   }
+  const MAX_RATE_LIMIT_ENTRIES = 5000;
   const loginRateLimits = new Map<string, RateLimitEntry>();
+
+  function pruneRateLimits(now: number) {
+    for (const [k, v] of loginRateLimits.entries()) {
+      if ((v.lockedUntil > 0 && v.lockedUntil <= now) || now - v.lastAttemptAt > 15 * 60 * 1000) {
+        loginRateLimits.delete(k);
+      }
+    }
+    if (loginRateLimits.size >= MAX_RATE_LIMIT_ENTRIES) {
+      const oldestKey = loginRateLimits.keys().next().value;
+      if (oldestKey) loginRateLimits.delete(oldestKey);
+    }
+  }
 
   function checkLoginRateLimit(key: string): { allowed: boolean; waitMinutes?: number } {
     const now = Date.now();
@@ -221,8 +238,12 @@ export function createApp(dbPath?: string): express.Express {
 
   function recordLoginFailure(key: string) {
     const now = Date.now();
-    const entry = loginRateLimits.get(key) || { attempts: 0, lockedUntil: 0 };
+    if (loginRateLimits.size >= MAX_RATE_LIMIT_ENTRIES) {
+      pruneRateLimits(now);
+    }
+    const entry = loginRateLimits.get(key) || { attempts: 0, lockedUntil: 0, lastAttemptAt: now };
     entry.attempts += 1;
+    entry.lastAttemptAt = now;
     if (entry.attempts >= 5) {
       entry.lockedUntil = now + 15 * 60 * 1000; // 15-minute temporary lockout
     }
@@ -233,11 +254,20 @@ export function createApp(dbPath?: string): express.Express {
     loginRateLimits.delete(key);
   }
 
+  function isDownloadQueryTokenRoute(reqPath: string): boolean {
+    return (
+      reqPath.startsWith('/api/backup/') ||
+      reqPath === '/api/agent/config-file' ||
+      reqPath === '/api/agent/download-zip' ||
+      reqPath === '/api/agent/bundle'
+    );
+  }
+
   // Helper to extract authenticated user from Bearer token with sliding session renewal
   function getRequestUser(req: express.Request): any | null {
     const authHeader = req.headers.authorization;
     let token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
-    if (!token && req.query.token && typeof req.query.token === 'string') {
+    if (!token && req.query.token && typeof req.query.token === 'string' && isDownloadQueryTokenRoute(req.path)) {
       token = req.query.token;
     }
     if (token) {
@@ -420,8 +450,13 @@ export function createApp(dbPath?: string): express.Express {
 
     const user = getRequestUser(req);
 
-    // Desktop Tally sync endpoints require valid user session OR valid agent secret key
-    if (req.path.startsWith('/api/sync') || req.path === '/api/agent/sync') {
+    // Desktop Tally sync and OTA update endpoints require valid user session OR valid agent secret key
+    if (
+      req.path.startsWith('/api/sync') ||
+      req.path === '/api/agent/sync' ||
+      req.path === '/api/agent/version' ||
+      req.path === '/api/agent/bundle'
+    ) {
       const agentAuth = resolveAgentAuth(req, user);
       if (agentAuth.valid) {
         // Enforce tenant-scoped agent key isolation when companyId is passed
@@ -503,6 +538,18 @@ export function createApp(dbPath?: string): express.Express {
     const tenantId = user && user.role !== 'dev' ? user.tenantId : (req.body.tenantId || user?.tenantId || 'platform');
     const now = new Date().toISOString();
 
+    // Enforce commercial SaaS plan quota for maxCompanies per tenant (except dev super-admin)
+    if (user && user.role !== 'dev' && tenantId) {
+      const tenantRow = db.prepare('SELECT maxCompanies FROM tenants WHERE id = ?').get(tenantId) as any;
+      const maxCompanies = tenantRow?.maxCompanies || 5;
+      const currentCompCount = (db.prepare('SELECT count(*) as cnt FROM companies WHERE tenantId = ?').get(tenantId) as any)?.cnt || 0;
+      if (currentCompCount >= maxCompanies) {
+        return res.status(403).json({
+          error: `Plan limit reached: Your organization plan allows up to ${maxCompanies} companies/branches. Contact support to upgrade.`,
+        });
+      }
+    }
+
     const existing = db.prepare('SELECT id FROM companies WHERE id = ?').get(id);
     if (existing) {
       return res.status(409).json({ error: 'Company ID already exists' });
@@ -515,6 +562,14 @@ export function createApp(dbPath?: string): express.Express {
 
     // Ensure every new company has a default Main Location godown
     db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(`g-${id}-main`, id, 'Main Location');
+
+    // If the creator has an explicit array of assigned companyIds, automatically grant access to the newly created company
+    if (user && Array.isArray(user.companyIds) && !user.companyIds.includes(id)) {
+      const nextIds = [...user.companyIds, id];
+      try {
+        db.prepare('UPDATE users SET companyIds = ? WHERE id = ?').run(JSON.stringify(nextIds), user.id);
+      } catch {}
+    }
 
     const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(id);
     res.status(201).json(created);
@@ -767,6 +822,7 @@ export function createApp(dbPath?: string): express.Express {
       ...p,
       phones: JSON.parse(p.phones || '[]'),
       remindersPaused: Boolean(p.remindersPaused),
+      closingBalance: p.closingBalance ?? 0,
     }));
     if (req.query.q) {
       const q = (req.query.q as string).toLowerCase();
@@ -802,6 +858,7 @@ export function createApp(dbPath?: string): express.Express {
       ...p,
       phones: JSON.parse(p.phones || '[]'),
       remindersPaused: Boolean(p.remindersPaused),
+      closingBalance: p.closingBalance ?? 0,
     });
   });
 
@@ -827,8 +884,8 @@ export function createApp(dbPath?: string): express.Express {
     }
 
     db.prepare(`
-      INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       tenantId,
@@ -841,13 +898,15 @@ export function createApp(dbPath?: string): express.Express {
       body.collectorId ?? null,
       body.remindersPaused ? 1 : 0,
       body.notes || '',
-      body.promiseToPay ?? null
+      body.promiseToPay ?? null,
+      typeof body.closingBalance === 'number' ? body.closingBalance : 0
     );
     const created = db.prepare('SELECT * FROM parties WHERE id = ?').get(id) as any;
     res.status(201).json({
       ...created,
       phones: JSON.parse(created.phones || '[]'),
       remindersPaused: Boolean(created.remindersPaused),
+      closingBalance: created.closingBalance ?? 0,
     });
   });
 
@@ -875,7 +934,8 @@ export function createApp(dbPath?: string): express.Express {
           promiseToPay = COALESCE(?, promiseToPay),
           remindersPaused = COALESCE(?, remindersPaused),
           collectorId = COALESCE(?, collectorId),
-          phones = COALESCE(?, phones)
+          phones = COALESCE(?, phones),
+          closingBalance = COALESCE(?, closingBalance)
       WHERE id = ?
     `).run(
       body.name !== undefined ? String(body.name).trim() : null,
@@ -887,6 +947,7 @@ export function createApp(dbPath?: string): express.Express {
       body.remindersPaused !== undefined ? (body.remindersPaused ? 1 : 0) : null,
       body.collectorId ?? null,
       body.phones ? JSON.stringify(body.phones) : null,
+      typeof body.closingBalance === 'number' ? body.closingBalance : null,
       req.params.id
     );
     const updated = db.prepare('SELECT * FROM parties WHERE id = ?').get(req.params.id) as any;
@@ -894,6 +955,7 @@ export function createApp(dbPath?: string): express.Express {
       ...updated,
       phones: JSON.parse(updated.phones || '[]'),
       remindersPaused: Boolean(updated.remindersPaused),
+      closingBalance: updated.closingBalance ?? 0,
     });
   });
 
@@ -938,35 +1000,177 @@ export function createApp(dbPath?: string): express.Express {
     if (user && user.role !== 'dev' && user.tenantId && party.tenantId && party.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
     }
+    if (party.companyId && !canAccessCompany(user, party.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+    }
     let rows = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
     if (rows.length === 0) {
       const partyBills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
       rows = [];
-      for (const b of partyBills) {
-        rows.push({
-          date: b.date,
-          particulars: 'Sales Account',
-          voucherType: 'Sales',
-          voucherNo: b.billNo,
-          debit: b.amount,
-          credit: 0,
-        });
-        if (b.amount > b.pending) {
-          rows.push({
-            date: b.date,
-            particulars: 'Bank / Receipt Settlement',
-            voucherType: 'Receipt',
-            voucherNo: `RCPT-${b.billNo}`,
-            debit: 0,
-            credit: b.amount - b.pending,
-          });
+      if (partyBills.length > 0) {
+        for (const b of partyBills) {
+          if (b.amount < 0 || b.pending < 0) {
+            rows.push({
+              date: b.date,
+              particulars: 'Credit Note / Sales Return',
+              voucherType: 'Credit Note',
+              voucherNo: b.billNo,
+              debit: 0,
+              credit: Math.abs(b.amount || b.pending),
+            });
+          } else {
+            rows.push({
+              date: b.date,
+              particulars: 'Sales Account',
+              voucherType: 'Sales',
+              voucherNo: b.billNo,
+              debit: b.amount,
+              credit: 0,
+            });
+            if (b.amount > b.pending) {
+              rows.push({
+                date: b.date,
+                particulars: 'Bank / Receipt Settlement',
+                voucherType: 'Receipt',
+                voucherNo: `RCPT-${b.billNo}`,
+                debit: 0,
+                credit: b.amount - b.pending,
+              });
+            }
+          }
         }
+      } else if (party.closingBalance) {
+        const isDebit = party.closingBalance > 0;
+        rows.push({
+          date: getTodayIST(),
+          particulars: 'Tally Ledger Balance (Non Bill-by-Bill)',
+          voucherType: 'Balance',
+          voucherNo: 'LEDGER-BAL',
+          debit: isDebit ? party.closingBalance : 0,
+          credit: isDebit ? 0 : Math.abs(party.closingBalance),
+        });
       }
     }
     res.json(rows);
   });
 
-  // 3. Agent Status & Pairing
+  // Helper: Pure Node.js PKZIP builder for pre-paired zero-touch Windows Agent zip downloads
+  const crcTable = (() => {
+    const table = new Uint32Array(256);
+    for (let i = 0; i < 256; i++) {
+      let c = i;
+      for (let k = 0; k < 8; k++) {
+        c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+      }
+      table[i] = c >>> 0;
+    }
+    return table;
+  })();
+
+  function crc32Buf(buf: Buffer): number {
+    let crc = 0xffffffff;
+    for (let i = 0; i < buf.length; i++) {
+      crc = crcTable[(crc ^ buf[i]!) & 0xff]! ^ (crc >>> 8);
+    }
+    return (crc ^ 0xffffffff) >>> 0;
+  }
+
+  function buildZipArchive(entries: Array<{ name: string; data: Buffer }>): Buffer {
+    const localParts: Buffer[] = [];
+    const centralParts: Buffer[] = [];
+    let offset = 0;
+
+    for (const entry of entries) {
+      const nameBuf = Buffer.from(entry.name, 'utf8');
+      const rawData = entry.data;
+      const crc = crc32Buf(rawData);
+      const isLargeOrBinary = rawData.length > 1024 * 1024 || entry.name.toLowerCase().endsWith('.exe');
+      const compressed = isLargeOrBinary ? null : zlib.deflateRawSync(rawData);
+      const useDeflate = compressed !== null && compressed.length < rawData.length;
+      const payload = useDeflate ? compressed : rawData;
+      const method = useDeflate ? 8 : 0;
+
+      const localHeader = Buffer.alloc(30 + nameBuf.length);
+      localHeader.writeUInt32LE(0x04034b50, 0); // signature
+      localHeader.writeUInt16LE(20, 4); // version needed
+      localHeader.writeUInt16LE(0, 6); // flags
+      localHeader.writeUInt16LE(method, 8); // compression method
+      localHeader.writeUInt16LE(0, 10); // mod time
+      localHeader.writeUInt16LE(0x5968, 12); // mod date
+      localHeader.writeUInt32LE(crc, 14);
+      localHeader.writeUInt32LE(payload.length, 18);
+      localHeader.writeUInt32LE(rawData.length, 22);
+      localHeader.writeUInt16LE(nameBuf.length, 26);
+      localHeader.writeUInt16LE(0, 28);
+      nameBuf.copy(localHeader, 30);
+
+      localParts.push(localHeader, payload);
+
+      const centralHeader = Buffer.alloc(46 + nameBuf.length);
+      centralHeader.writeUInt32LE(0x02014b50, 0);
+      centralHeader.writeUInt16LE(20, 4);
+      centralHeader.writeUInt16LE(20, 6);
+      centralHeader.writeUInt16LE(0, 8);
+      centralHeader.writeUInt16LE(method, 10);
+      centralHeader.writeUInt16LE(0, 12);
+      centralHeader.writeUInt16LE(0x5968, 14);
+      centralHeader.writeUInt32LE(crc, 16);
+      centralHeader.writeUInt32LE(payload.length, 20);
+      centralHeader.writeUInt32LE(rawData.length, 24);
+      centralHeader.writeUInt16LE(nameBuf.length, 28);
+      centralHeader.writeUInt16LE(0, 30);
+      centralHeader.writeUInt16LE(0, 32);
+      centralHeader.writeUInt16LE(0, 34);
+      centralHeader.writeUInt16LE(0, 36);
+      centralHeader.writeUInt32LE(0, 38);
+      centralHeader.writeUInt32LE(offset, 42);
+      nameBuf.copy(centralHeader, 46);
+
+      centralParts.push(centralHeader);
+      offset += localHeader.length + payload.length;
+    }
+
+    const centralDirSize = centralParts.reduce((acc, b) => acc + b.length, 0);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(0, 4);
+    eocd.writeUInt16LE(0, 6);
+    eocd.writeUInt16LE(entries.length, 8);
+    eocd.writeUInt16LE(entries.length, 10);
+    eocd.writeUInt32LE(centralDirSize, 12);
+    eocd.writeUInt32LE(offset, 16);
+    eocd.writeUInt16LE(0, 20);
+
+    return Buffer.concat([...localParts, ...centralParts, eocd]);
+  }
+
+  function resolveAgentWindowsFolder(): string | null {
+    const candidates = [
+      path.resolve(process.cwd(), 'apps/web/public/tally-agent-windows'),
+      path.resolve(process.cwd(), '../web/public/tally-agent-windows'),
+      path.resolve(process.cwd(), 'apps/web/dist/tally-agent-windows'),
+      path.resolve(process.cwd(), 'dist/public/tally-agent-windows'),
+      path.resolve(process.cwd(), 'apps/agent/windows'),
+      path.resolve(process.cwd(), '../agent/windows'),
+    ];
+    return candidates.find(p => fs.existsSync(p)) || null;
+  }
+
+  function resolveAgentBundleFile(): string | null {
+    const agentFolder = resolveAgentWindowsFolder();
+    if (agentFolder) {
+      const candidate = path.join(agentFolder, 'tally-agent.mjs');
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    const fallbacks = [
+      path.resolve(process.cwd(), 'apps/agent/dist/tally-agent.mjs'),
+      path.resolve(process.cwd(), '../agent/dist/tally-agent.mjs'),
+      path.resolve(process.cwd(), 'apps/web/dist/tally-agent-windows/tally-agent.mjs'),
+    ];
+    return fallbacks.find(p => fs.existsSync(p)) || null;
+  }
+
+  // 3. Agent Status, OTA Self-Update & Zero-Touch Pre-Paired Zip
   app.get('/api/agent/status', (req, res) => {
     const user = getRequestUser(req);
     const tenantId = user?.tenantId;
@@ -977,24 +1181,66 @@ export function createApp(dbPath?: string): express.Express {
     const scopedPairingExpiresAt = (tenantId && map[`pairingExpiresAt_${tenantId}`]) || map.pairingExpiresAt;
     const scopedLastSeenAt = (tenantId && map[`lastSeenAt_${tenantId}`]) || map.lastSeenAt || new Date().toISOString();
     const scopedStatus = ((tenantId && map[`status_${tenantId}`]) || map.status || 'online') as 'online' | 'offline';
+    const scopedTallyStatus = ((tenantId && map[`tallyStatus_${tenantId}`]) || map.tallyStatus || scopedStatus) as 'online' | 'offline';
+    const scopedTallyError = (tenantId && map[`tallyError_${tenantId}`]) ?? map.tallyError ?? undefined;
+    const scopedTallyPortRaw = (tenantId && map[`tallyPort_${tenantId}`]) || map.tallyPort;
+    const scopedTallyPort = scopedTallyPortRaw ? parseInt(scopedTallyPortRaw, 10) || 9000 : undefined;
+    let scopedOpenCompanies: string[] | undefined = undefined;
+    const openCompRaw = (tenantId && map[`openTallyCompanies_${tenantId}`]) || map.openTallyCompanies;
+    if (openCompRaw) {
+      try {
+        scopedOpenCompanies = JSON.parse(openCompRaw);
+      } catch {}
+    }
 
     const agent: any = {
-      version: map.version || '1.4.2',
+      version: map.version || '1.5.0',
       status: scopedStatus,
       lastSeenAt: scopedLastSeenAt,
       pairingCode: scopedPairingCode,
       pairingExpiresAt: scopedPairingExpiresAt,
+      tallyStatus: scopedTallyStatus,
+      tallyError: scopedTallyError || undefined,
+      tallyPort: scopedTallyPort,
+      openTallyCompanies: scopedOpenCompanies,
       agentApiKey: user && hasPermission(user, 'settings.manage') ? agentApiKey : undefined,
     };
     res.json(agent);
   });
 
-  app.get('/api/agent/config-file', (req, res) => {
-    const user = getRequestUser(req);
-    if (!hasPermission(user, 'settings.manage')) {
-      return res.status(403).json({ error: 'Forbidden: Missing settings.manage permission to download agent config' });
+  app.get('/api/agent/version', (req, res) => {
+    const bundlePath = resolveAgentBundleFile();
+    let sha256 = 'unknown';
+    let updatedAt = new Date().toISOString();
+    if (bundlePath && fs.existsSync(bundlePath)) {
+      const buf = fs.readFileSync(bundlePath);
+      sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+      updatedAt = fs.statSync(bundlePath).mtime.toISOString();
     }
-    let targetCompanyId = (req.query.companyId as string) || '';
+    res.json({
+      version: '1.5.0',
+      sha256,
+      updatedAt,
+      bundleUrl: '/api/agent/bundle',
+    });
+  });
+
+  app.get('/api/agent/bundle', (req, res) => {
+    const bundlePath = resolveAgentBundleFile();
+    if (!bundlePath || !fs.existsSync(bundlePath)) {
+      return res.status(404).json({ error: 'Agent bundle file not found on server' });
+    }
+    const buf = fs.readFileSync(bundlePath);
+    const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('X-Agent-Version', '1.5.0');
+    res.setHeader('X-Agent-Sha256', sha256);
+    res.setHeader('Content-Disposition', 'attachment; filename="tally-agent.mjs"');
+    res.send(buf);
+  });
+
+  function buildTenantAgentConfig(req: express.Request, user: any, requestedCompanyId?: string) {
+    let targetCompanyId = requestedCompanyId || '';
     if (!targetCompanyId || targetCompanyId === 'all') {
       if (user && user.tenantId && user.role !== 'dev') {
         const comp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId) as any;
@@ -1006,30 +1252,112 @@ export function createApp(dbPath?: string): express.Express {
     }
 
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(targetCompanyId) as any;
+    const resolvedTenantId = company?.tenantId || user?.tenantId;
+    const tenantCompanies = resolvedTenantId
+      ? (db.prepare('SELECT id, name, tallyName FROM companies WHERE tenantId = ?').all(resolvedTenantId) as any[])
+      : company
+      ? [company]
+      : [];
+
+    const host = req.get('host') || '127.0.0.1:3000';
+    const protocol = req.headers['x-forwarded-proto'] ? String(req.headers['x-forwarded-proto']).split(',')[0] : (req.protocol || 'http');
+    const cloudUrl = `${protocol}://${host}`;
+    const agentSecretKey = getOrCreateAgentKey(resolvedTenantId);
+
+    return {
+      company,
+      config: {
+        cloudUrl,
+        companyId: targetCompanyId,
+        agentSecretKey,
+        tenantId: resolvedTenantId,
+        companyName: company?.name || 'Tally Company',
+        companies: tenantCompanies.map((c: any) => ({
+          companyId: c.id,
+          companyName: c.name,
+          tallyName: c.tallyName || c.name,
+          lastAlterId: 0,
+        })),
+        tallyUrl: 'http://127.0.0.1:9000',
+        pollIntervalMs: 30000,
+        lastAlterId: 0,
+      },
+    };
+  }
+
+  app.get('/api/agent/config-file', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Missing settings.manage permission to download agent config' });
+    }
+    const { company, config } = buildTenantAgentConfig(req, user, req.query.companyId as string);
     if (company && user && user.role !== 'dev' && user.tenantId && company.tenantId && company.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cannot download config for another organization' });
     }
-
-    const host = req.get('host') || '127.0.0.1:3000';
-    const protocol = req.protocol || 'http';
-    const cloudUrl = `${protocol}://${host}`;
-    const resolvedTenantId = company?.tenantId || user?.tenantId;
-    const agentSecretKey = getOrCreateAgentKey(resolvedTenantId);
-
-    const config = {
-      cloudUrl,
-      companyId: targetCompanyId,
-      agentSecretKey,
-      tenantId: resolvedTenantId,
-      companyName: company?.name || 'Tally Company',
-      tallyUrl: 'http://127.0.0.1:9000',
-      pollIntervalMs: 30000,
-      lastAlterId: 0,
-    };
+    if (company && !canAccessCompany(user, company.id)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+    }
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', 'attachment; filename="agent-state.json"');
     res.send(JSON.stringify(config, null, 2));
+  });
+
+  app.get('/api/agent/download-zip', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Missing settings.manage permission to download agent zip' });
+    }
+    const { company, config } = buildTenantAgentConfig(req, user, req.query.companyId as string);
+    if (company && user && user.role !== 'dev' && user.tenantId && company.tenantId && company.tenantId !== user.tenantId) {
+      return res.status(403).json({ error: 'Forbidden: Cannot download agent zip for another organization' });
+    }
+    if (company && !canAccessCompany(user, company.id)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+    }
+
+    const agentFolder = resolveAgentWindowsFolder();
+    const entries: Array<{ name: string; data: Buffer }> = [];
+    const includeNodeExe = req.query.includeNode !== '0' && req.query.minimal !== '1';
+
+    if (agentFolder && fs.existsSync(agentFolder)) {
+      const files = fs.readdirSync(agentFolder);
+      for (const file of files) {
+        if (file === 'agent-state.json') continue; // We inject the live pre-paired config below
+        if (file === 'node.exe' && !includeNodeExe) continue; // Skip node.exe only if explicitly minimal or includeNode=0
+        const fullPath = path.join(agentFolder, file);
+        if (fs.statSync(fullPath).isFile()) {
+          entries.push({
+            name: `tally-agent-windows/${file}`,
+            data: fs.readFileSync(fullPath),
+          });
+        }
+      }
+    }
+
+    // Ensure tally-agent.mjs bundle is present in the zip even if resolving from windows/ directory
+    const hasMjs = entries.some(e => e.name === 'tally-agent-windows/tally-agent.mjs');
+    if (!hasMjs) {
+      const bundlePath = resolveAgentBundleFile();
+      if (bundlePath && fs.existsSync(bundlePath)) {
+        entries.push({
+          name: 'tally-agent-windows/tally-agent.mjs',
+          data: fs.readFileSync(bundlePath),
+        });
+      }
+    }
+
+    // Inject the pre-paired live agent-state.json for zero-touch setup
+    entries.push({
+      name: 'tally-agent-windows/agent-state.json',
+      data: Buffer.from(JSON.stringify(config, null, 2), 'utf8'),
+    });
+
+    const zipBuffer = buildZipArchive(entries);
+    const safeCompSlug = (company?.name || 'manohar').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'tally';
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="tally-agent-${safeCompSlug}.zip"`);
+    res.send(zipBuffer);
   });
 
   app.post('/api/agent/pairing-code', (req, res) => {
@@ -1052,6 +1380,9 @@ export function createApp(dbPath?: string): express.Express {
     const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(targetCompanyId) as any;
     if (company && user && user.role !== 'dev' && user.tenantId && company.tenantId && company.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cannot create pairing code for another organization' });
+    }
+    if (company && !canAccessCompany(user, company.id)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1156,6 +1487,69 @@ export function createApp(dbPath?: string): express.Express {
     });
   });
 
+  app.post('/api/agent/reset-alter-id', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Missing settings.manage permission to reset AlterID' });
+    }
+    const companyId = req.body?.companyId || (req.query.companyId as string) || (user && user.role !== 'dev' ? user.tenantId : 'default');
+    const targetComp = resolveCompanyForAgent(companyId, undefined, user?.tenantId);
+    const resolvedCompanyId = targetComp?.id || companyId;
+    const key = `agent_commands_${resolvedCompanyId}`;
+
+    const row = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(key) as any;
+    let commands: any[] = [];
+    if (row?.value) {
+      try {
+        commands = JSON.parse(row.value);
+      } catch {}
+    }
+    commands.push({
+      id: `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      type: 'RESET_ALTER_ID',
+      companyId: resolvedCompanyId,
+      createdAt: new Date().toISOString(),
+    });
+    db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(key, JSON.stringify(commands));
+
+    res.json({
+      success: true,
+      message: `Queued RESET_ALTER_ID command for company ${resolvedCompanyId}`,
+      companyId: resolvedCompanyId,
+    });
+  });
+
+  app.post('/api/agent/command', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Missing settings.manage permission' });
+    }
+    const { command, companyId } = req.body || {};
+    if (!command || !command.type) {
+      return res.status(400).json({ error: 'Missing command object with type' });
+    }
+    const targetComp = resolveCompanyForAgent(companyId, undefined, user?.tenantId);
+    const resolvedCompanyId = targetComp?.id || companyId || (user && user.role !== 'dev' ? user.tenantId : 'default');
+    const key = `agent_commands_${resolvedCompanyId}`;
+
+    const row = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(key) as any;
+    let commands: any[] = [];
+    if (row?.value) {
+      try {
+        commands = JSON.parse(row.value);
+      } catch {}
+    }
+    commands.push({
+      id: `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      ...command,
+      companyId: resolvedCompanyId,
+      createdAt: new Date().toISOString(),
+    });
+    db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(key, JSON.stringify(commands));
+
+    res.json({ success: true, queued: commands.length, command });
+  });
+
   app.post('/api/agent/sync', (req, res) => {
     const user = getRequestUser(req);
     const agentAuth = resolveAgentAuth(req, user);
@@ -1181,6 +1575,12 @@ export function createApp(dbPath?: string): express.Express {
       if (req.body?.tallyError !== undefined) {
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyError_${resolvedTenantId}`, String(req.body.tallyError || ''));
       }
+      if (req.body?.tallyPort !== undefined) {
+        db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyPort_${resolvedTenantId}`, String(req.body.tallyPort || 9000));
+      }
+      if (Array.isArray(req.body?.openTallyCompanies)) {
+        db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`openTallyCompanies_${resolvedTenantId}`, JSON.stringify(req.body.openTallyCompanies));
+      }
     }
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('status', 'online')").run();
@@ -1200,6 +1600,28 @@ export function createApp(dbPath?: string): express.Express {
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(companyId, now, 10542, vouchersCount, ledgersCount, stockCount);
 
+    // Check for pending remote commands for this company or tenant
+    const commandKeys = [
+      `agent_commands_${companyId}`,
+      targetComp?.tenantId ? `agent_commands_${targetComp.tenantId}` : null,
+      resolvedTenantId ? `agent_commands_${resolvedTenantId}` : null,
+      'agent_commands_global',
+    ].filter(Boolean) as string[];
+
+    const commandsToSend: any[] = [];
+    for (const cKey of Array.from(new Set(commandKeys))) {
+      const cmdRow = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(cKey) as any;
+      if (cmdRow?.value) {
+        try {
+          const parsed = JSON.parse(cmdRow.value);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            commandsToSend.push(...parsed);
+            db.prepare('DELETE FROM agent_state WHERE key = ?').run(cKey);
+          }
+        } catch {}
+      }
+    }
+
     res.json({
       success: true,
       syncedAt: now,
@@ -1207,11 +1629,12 @@ export function createApp(dbPath?: string): express.Express {
       ledgersCount,
       vouchersCount,
       stockCount,
+      commands: commandsToSend,
     });
   });
 
-  // 4. Home Summary
-  app.get('/api/home/summary', (req, res) => {
+  // 4. Home Summary / Dashboard Stats
+  app.get(['/api/home/summary', '/api/dashboard/stats'], (req, res) => {
     const user = getRequestUser(req);
     if (!hasPermission(user, 'dashboard.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing dashboard.view permission' });
@@ -1233,6 +1656,13 @@ export function createApp(dbPath?: string): express.Express {
       partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
       billsParams.push(user.tenantId);
       partiesParams.push(user.tenantId, user.tenantId);
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+        const placeholders = user.companyIds.map(() => '?').join(',');
+        billsQuery += ` AND companyId IN (${placeholders})`;
+        partiesQuery += ` AND companyId IN (${placeholders})`;
+        billsParams.push(...user.companyIds);
+        partiesParams.push(...user.companyIds);
+      }
     }
 
     const bills = db.prepare(billsQuery).all(...billsParams) as any[];
@@ -1240,7 +1670,7 @@ export function createApp(dbPath?: string): express.Express {
     const partyMap = new Map(parties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
 
     const hasDemoSeedBills = bills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
-    const today = hasDemoSeedBills ? '2026-10-17' : new Date().toISOString().slice(0, 10);
+    const today = hasDemoSeedBills ? '2026-10-17' : getTodayIST();
     let totalReceivables = 0;
     let totalOverdue = 0;
     let notDue = 0;
@@ -1249,34 +1679,46 @@ export function createApp(dbPath?: string): express.Express {
 
     const partyOverdueMap = new Map<string, { party: any; amount: number; daysLate: number; invoiceRef?: string }>();
 
+    const partyIdsWithBills = new Set(bills.filter(b => b.pending !== 0).map(b => b.partyId));
+
     for (const b of bills) {
-      if (b.pending <= 0) continue;
+      if (b.pending === 0) continue;
+      // Deduct credit notes from total receivables (signed addition: negative amounts subtract)
       totalReceivables += b.pending;
-      const days = getDaysOverdue(b.dueDate, today);
-      if (days > 0) {
-        totalOverdue += b.pending;
-        const p = partyMap.get(b.partyId);
-        if (p) {
-          const existing = partyOverdueMap.get(b.partyId);
-          if (existing) {
-            existing.amount += b.pending;
-            if (days > existing.daysLate) {
-              existing.daysLate = days;
-              existing.invoiceRef = b.billNo;
+      if (b.pending > 0) {
+        const days = getDaysOverdue(b.dueDate, today);
+        if (days > 0) {
+          totalOverdue += b.pending;
+          const p = partyMap.get(b.partyId);
+          if (p) {
+            const existing = partyOverdueMap.get(b.partyId);
+            if (existing) {
+              existing.amount += b.pending;
+              if (days > existing.daysLate) {
+                existing.daysLate = days;
+                existing.invoiceRef = b.billNo;
+              }
+            } else {
+              partyOverdueMap.set(b.partyId, {
+                party: p,
+                amount: b.pending,
+                daysLate: days,
+                invoiceRef: b.billNo,
+              });
             }
-          } else {
-            partyOverdueMap.set(b.partyId, {
-              party: p,
-              amount: b.pending,
-              daysLate: days,
-              invoiceRef: b.billNo,
-            });
           }
+          if (days <= 30) late1_30 += b.pending;
+          else late30Plus += b.pending;
+        } else {
+          notDue += b.pending;
         }
-        if (days <= 30) late1_30 += b.pending;
-        else late30Plus += b.pending;
-      } else {
-        notDue += b.pending;
+      }
+    }
+
+    // Include closingBalance of parties without bill-by-bill tracking in total receivables
+    for (const p of parties) {
+      if (!partyIdsWithBills.has(p.id) && p.closingBalance) {
+        totalReceivables += p.closingBalance;
       }
     }
 
@@ -1348,11 +1790,13 @@ export function createApp(dbPath?: string): express.Express {
         comps = comps.filter(c => user.companyIds.includes(c.id));
       }
       companyBreakdown = comps.map(comp => {
-        const cBills = bills.filter(b => b.companyId === comp.id && b.pending > 0);
+        const cBills = bills.filter(b => b.companyId === comp.id && b.pending !== 0);
         const cAging = calculateAgingSummary(cBills, today);
+        const cParties = parties.filter(p => p.companyId === comp.id && !partyIdsWithBills.has(p.id));
+        const nonBillClosing = cParties.reduce((sum, p) => sum + (p.closingBalance || 0), 0);
         return {
           company: comp,
-          totalAmount: cAging.total,
+          totalAmount: cAging.total + nonBillClosing,
           overdueAmount: cAging.overdue,
         };
       });
@@ -1398,12 +1842,19 @@ export function createApp(dbPath?: string): express.Express {
       billsQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       partiesParams.push(user.tenantId, user.tenantId);
       billsParams.push(user.tenantId);
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+        const placeholders = user.companyIds.map(() => '?').join(',');
+        partiesQuery += ` AND companyId IN (${placeholders})`;
+        billsQuery += ` AND companyId IN (${placeholders})`;
+        partiesParams.push(...user.companyIds);
+        billsParams.push(...user.companyIds);
+      }
     }
 
     const rawParties = db.prepare(partiesQuery).all(...partiesParams) as any[];
     const rawBills = db.prepare(billsQuery).all(...billsParams) as any[];
     const hasDemoSeedBills = rawBills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
-    const today = hasDemoSeedBills ? '2026-10-17' : new Date().toISOString().slice(0, 10);
+    const today = hasDemoSeedBills ? '2026-10-17' : getTodayIST();
 
     const billsByParty = new Map<string, any[]>();
     for (const b of rawBills) {
@@ -1426,6 +1877,7 @@ export function createApp(dbPath?: string): express.Express {
         remindersPaused: Boolean(p.remindersPaused),
         notes: p.notes,
         promiseToPay: p.promiseToPay || undefined,
+        closingBalance: p.closingBalance ?? 0,
       };
 
       const pBills = billsByParty.get(p.id) || [];
@@ -1433,16 +1885,22 @@ export function createApp(dbPath?: string): express.Express {
       let overdueAmount = 0;
       let earliestDueDate: string | undefined = undefined;
 
-      for (const b of pBills) {
-        if (b.pending <= 0) continue;
-        totalOutstanding += b.pending;
-        const days = getDaysOverdue(b.dueDate, today);
-        if (days > 0) {
-          overdueAmount += b.pending;
-          if (!earliestDueDate || b.dueDate < earliestDueDate) {
-            earliestDueDate = b.dueDate;
+      if (pBills.length > 0) {
+        for (const b of pBills) {
+          if (b.pending === 0) continue;
+          totalOutstanding += b.pending;
+          if (b.pending > 0) {
+            const days = getDaysOverdue(b.dueDate, today);
+            if (days > 0) {
+              overdueAmount += b.pending;
+              if (!earliestDueDate || b.dueDate < earliestDueDate) {
+                earliestDueDate = b.dueDate;
+              }
+            }
           }
         }
+      } else if (p.closingBalance) {
+        totalOutstanding = p.closingBalance;
       }
 
       const agingSummary = calculateAgingSummary(pBills, today);
@@ -1471,6 +1929,9 @@ export function createApp(dbPath?: string): express.Express {
     if (user && user.role !== 'dev' && user.tenantId && p.tenantId && p.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant access denied' });
     }
+    if (p.companyId && !canAccessCompany(user, p.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+    }
 
     const party: Party = {
       id: p.id,
@@ -1485,31 +1946,57 @@ export function createApp(dbPath?: string): express.Express {
       remindersPaused: Boolean(p.remindersPaused),
       notes: p.notes,
       promiseToPay: p.promiseToPay || undefined,
+      closingBalance: p.closingBalance ?? 0,
     };
 
     const bills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
     let ledgerLines = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
-    if (ledgerLines.length === 0 && bills.length > 0) {
-      ledgerLines = [];
-      for (const b of bills) {
-        ledgerLines.push({
-          date: b.date,
-          particulars: 'Sales Account',
-          voucherType: 'Sales',
-          voucherNo: b.billNo,
-          debit: b.amount,
-          credit: 0,
-        });
-        if (b.amount > b.pending) {
-          ledgerLines.push({
-            date: b.date,
-            particulars: 'Bank / Receipt Settlement',
-            voucherType: 'Receipt',
-            voucherNo: `RCPT-${b.billNo}`,
-            debit: 0,
-            credit: b.amount - b.pending,
-          });
+    if (ledgerLines.length === 0) {
+      if (bills.length > 0) {
+        ledgerLines = [];
+        for (const b of bills) {
+          if (b.amount < 0 || b.pending < 0) {
+            ledgerLines.push({
+              date: b.date,
+              particulars: 'Credit Note / Sales Return',
+              voucherType: 'Credit Note',
+              voucherNo: b.billNo,
+              debit: 0,
+              credit: Math.abs(b.amount || b.pending),
+            });
+          } else {
+            ledgerLines.push({
+              date: b.date,
+              particulars: 'Sales Account',
+              voucherType: 'Sales',
+              voucherNo: b.billNo,
+              debit: b.amount,
+              credit: 0,
+            });
+            if (b.amount > b.pending) {
+              ledgerLines.push({
+                date: b.date,
+                particulars: 'Bank / Receipt Settlement',
+                voucherType: 'Receipt',
+                voucherNo: `RCPT-${b.billNo}`,
+                debit: 0,
+                credit: b.amount - b.pending,
+              });
+            }
+          }
         }
+      } else if (party.closingBalance) {
+        const isDebit = party.closingBalance > 0;
+        ledgerLines = [
+          {
+            date: getTodayIST(),
+            particulars: 'Tally Ledger Balance (Non Bill-by-Bill)',
+            voucherType: 'Balance',
+            voucherNo: 'LEDGER-BAL',
+            debit: isDebit ? party.closingBalance : 0,
+            credit: isDebit ? 0 : Math.abs(party.closingBalance),
+          },
+        ];
       }
     }
     const rawReply = db.prepare('SELECT * FROM reminder_replies WHERE partyId = ?').get(p.id) as any;
@@ -1939,6 +2426,10 @@ export function createApp(dbPath?: string): express.Express {
     if (it.companyId && !canAccessCompany(user, it.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
+    const godownRow = godownId ? (db.prepare('SELECT id, companyId, name FROM godowns WHERE id = ?').get(godownId) as any) : null;
+    if (godownRow && godownRow.companyId && !canAccessCompany(user, godownRow.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Target godown belongs to another organization or unassigned branch' });
+    }
     db.prepare(`
       INSERT INTO stock_balances (itemId, godownId, qty)
       VALUES (?, ?, ?)
@@ -1946,7 +2437,6 @@ export function createApp(dbPath?: string): express.Express {
     `).run(itemId, godownId, deltaQty, deltaQty);
 
     const compId = it.companyId || req.body.companyId || (user?.companyIds === 'all' ? 'all' : user?.companyIds?.[0]) || 'default';
-    const godownRow = godownId ? (db.prepare('SELECT name FROM godowns WHERE id = ?').get(godownId) as any) : null;
     const outboxId = `out-${Date.now()}`;
     const adjPayload = JSON.stringify({
       id: outboxId,
@@ -1992,6 +2482,11 @@ export function createApp(dbPath?: string): express.Express {
     } else if (isTenantScoped(user)) {
       query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+        const placeholders = user.companyIds.map(() => '?').join(',');
+        query += ` AND companyId IN (${placeholders})`;
+        params.push(...user.companyIds);
+      }
     }
     let rows = db.prepare(query).all(...params) as any[];
     if (rows.length === 0) {
@@ -2113,20 +2608,57 @@ export function createApp(dbPath?: string): express.Express {
     const body = req.body;
     const id = body.id || `ch-${Date.now()}`;
     const tenantId = user?.tenantId || 'platform';
-    const partyRow = body.partyId ? (db.prepare('SELECT companyId FROM parties WHERE id = ?').get(body.partyId) as any) : null;
-    const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+    const partyRow = body.partyId ? (db.prepare('SELECT id, tenantId, companyId FROM parties WHERE id = ?').get(body.partyId) as any) : null;
+    if (partyRow && user && user.role !== 'dev') {
+      if (partyRow.tenantId && user.tenantId && partyRow.tenantId !== user.tenantId) {
+        return res.status(403).json({ error: 'Forbidden: Party belongs to another organization' });
+      }
+      if (partyRow.companyId && !canAccessCompany(user, partyRow.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Party belongs to an unassigned company branch' });
+      }
+    }
+    const defaultComp = db.prepare('SELECT id, financialYear FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
     const requestedCompId = body.companyId && body.companyId !== 'all' ? body.companyId : null;
     const companyId = requestedCompId || partyRow?.companyId || defaultComp?.id || 'c1';
     if (requestedCompId && !canAccessCompany(user, requestedCompId)) {
       return res.status(403).json({ error: 'Forbidden: Cannot create challan in another organization' });
     }
+    if (body.godownId) {
+      const gRow = db.prepare('SELECT id, companyId FROM godowns WHERE id = ?').get(body.godownId) as any;
+      if (gRow && gRow.companyId && !canAccessCompany(user, gRow.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Godown belongs to another organization or unassigned branch' });
+      }
+    }
+    const parsedLines = Array.isArray(body.lines) ? body.lines : [];
+    for (const line of parsedLines) {
+      if (line.itemId) {
+        const itemRow = db.prepare('SELECT id, companyId FROM stock_items WHERE id = ?').get(line.itemId) as any;
+        if (itemRow && itemRow.companyId && !canAccessCompany(user, itemRow.companyId)) {
+          return res.status(403).json({ error: `Forbidden: Stock item ${line.itemId} belongs to another organization` });
+        }
+      }
+    }
+
+    const compRow = db.prepare('SELECT financialYear FROM companies WHERE id = ?').get(companyId) as any;
     const actorId = user?.id || body.createdBy || 'staff';
     const status = body.status || 'queued';
     const challanType = body.type || 'delivery';
     const prefix = challanType === 'sales' ? 'SC' : challanType === 'purchase' ? 'PC' : 'DC';
-    const existingCount = (db.prepare('SELECT count(*) as cnt FROM challans WHERE companyId = ? AND type = ?').get(companyId, challanType) as any)?.cnt || 0;
-    const autoNumber = `${prefix}/${String(existingCount + 46).padStart(3, '0')}/26-27`;
-    const parsedLines = Array.isArray(body.lines) ? body.lines : [];
+    const challanDate = body.date || getTodayIST();
+    const fySuffix = getFinancialYearShort(compRow?.financialYear || defaultComp?.financialYear, challanDate);
+
+    // Atomic sequence numbering per company & challan type
+    const existingNumbers = db.prepare('SELECT number FROM challans WHERE companyId = ? AND type = ?').all(companyId, challanType) as Array<{ number: string }>;
+    let maxSeq = 45;
+    for (const r of existingNumbers) {
+      const m = String(r.number || '').match(/\/(\d+)\//);
+      if (m && m[1]) {
+        const n = parseInt(m[1], 10);
+        if (!isNaN(n) && n > maxSeq) maxSeq = n;
+      }
+    }
+    const nextSeq = Math.max(maxSeq + 1, existingNumbers.length + 46);
+    const autoNumber = `${prefix}/${String(nextSeq).padStart(3, '0')}/${fySuffix}`;
     const resolvedGodownId =
       body.godownId ||
       (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(companyId) as any)?.id ||
@@ -2142,7 +2674,7 @@ export function createApp(dbPath?: string): express.Express {
       companyId,
       challanType,
       body.number || autoNumber,
-      body.date || new Date().toISOString().split('T')[0],
+      challanDate,
       body.partyId,
       resolvedGodownId,
       JSON.stringify(parsedLines),
@@ -2155,8 +2687,8 @@ export function createApp(dbPath?: string): express.Express {
       actorId
     );
 
-    // Automatically update stock balances when challan is queued/synced (not draft)
-    if (status !== 'draft' && resolvedGodownId) {
+    // Automatically update stock balances when challan is queued/synced (not draft or cancelled)
+    if (status !== 'draft' && status !== 'cancelled' && resolvedGodownId) {
       const direction = challanType === 'purchase' ? 1 : -1;
       for (const line of parsedLines) {
         if (line.itemId && typeof line.qty === 'number') {
@@ -2181,7 +2713,7 @@ export function createApp(dbPath?: string): express.Express {
     db.prepare(`
       INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, companyId, actorId, 'created_challan', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, companyId, actorId, 'challan_created', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM challans WHERE id = ?').get(id) as any;
     res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]') });
@@ -2198,20 +2730,24 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
     const { status, failureReason } = req.body;
+    const prevWasDeducted = existing.status !== 'draft' && existing.status !== 'cancelled';
+    const nextIsDeducted = status !== 'draft' && status !== 'cancelled';
+
     db.prepare('UPDATE challans SET status = ?, failureReason = ? WHERE id = ?').run(
       status,
       failureReason || null,
       req.params.id
     );
 
-    // If transitioning a draft challan to queued, adjust stock balances and enqueue for Tally sync
-    if (existing.status === 'draft' && status === 'queued') {
-      const parsedLines = JSON.parse(existing.lines || '[]');
-      const resolvedGodownId =
-        existing.godownId ||
-        (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
-        `g-${existing.companyId}-main`;
-      const direction = existing.type === 'purchase' ? 1 : -1;
+    const parsedLines = JSON.parse(existing.lines || '[]');
+    const resolvedGodownId =
+      existing.godownId ||
+      (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
+      `g-${existing.companyId}-main`;
+    const direction = existing.type === 'purchase' ? 1 : -1;
+
+    // If transitioning from draft/cancelled to active (queued/synced), apply stock adjustment
+    if (!prevWasDeducted && nextIsDeducted) {
       for (const line of parsedLines) {
         if (line.itemId && typeof line.qty === 'number') {
           const delta = direction * line.qty;
@@ -2222,14 +2758,73 @@ export function createApp(dbPath?: string): express.Express {
           `).run(line.itemId, resolvedGodownId, delta, delta);
         }
       }
-      db.prepare(`
-        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
-        VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
-      `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
+      if (status === 'queued') {
+        db.prepare(`
+          INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
+          VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
+        `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
+      }
+    } else if (prevWasDeducted && !nextIsDeducted) {
+      // Reversing an active challan to cancelled or draft: restore stock balances and cancel outbox item
+      for (const line of parsedLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          const reverseDelta = -direction * line.qty;
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+          `).run(line.itemId, resolvedGodownId, reverseDelta, reverseDelta);
+        }
+      }
+      db.prepare("UPDATE outbox_items SET status = 'cancelled', lastError = 'Challan cancelled' WHERE refId = ? AND status = 'queued'").run(req.params.id);
     }
 
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
+  });
+
+  app.delete('/api/challans/:id', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'challan.create')) {
+      return res.status(403).json({ error: 'Forbidden: Missing challan.create permission' });
+    }
+    const existing = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
+    if (!existing) return res.status(404).json({ error: 'Challan not found' });
+    if (existing.companyId && !canAccessCompany(user, existing.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant deletion denied' });
+    }
+
+    // Reverse stock balances if the challan had deducted/added inventory
+    if (existing.status !== 'draft' && existing.status !== 'cancelled') {
+      const parsedLines = JSON.parse(existing.lines || '[]');
+      const resolvedGodownId =
+        existing.godownId ||
+        (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
+        `g-${existing.companyId}-main`;
+      const direction = existing.type === 'purchase' ? 1 : -1;
+      for (const line of parsedLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          const reverseDelta = -direction * line.qty;
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+          `).run(line.itemId, resolvedGodownId, reverseDelta, reverseDelta);
+        }
+      }
+    }
+
+    db.prepare('DELETE FROM outbox_items WHERE refId = ?').run(req.params.id);
+    db.prepare('DELETE FROM challans WHERE id = ?').run(req.params.id);
+
+    const tenantId = user?.tenantId || 'platform';
+    const actorId = user?.id || 'staff';
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, existing.companyId || 'c1', actorId, 'challan_deleted', `Deleted challan: ${existing.number}`, new Date().toISOString(), 'Desktop');
+
+    res.json({ success: true, id: req.params.id });
   });
 
   app.post('/api/challans/:id/retry', (req, res) => {
@@ -2371,6 +2966,9 @@ export function createApp(dbPath?: string): express.Express {
     let linkedChallan: any = null;
     if (body.challanId) {
       linkedChallan = db.prepare('SELECT id, companyId, number FROM challans WHERE id = ?').get(body.challanId) as any;
+      if (linkedChallan && linkedChallan.companyId && !canAccessCompany(user, linkedChallan.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Cannot link task to a challan outside your organization or assigned branch' });
+      }
     }
     const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
     const requestedCompanyId = body.companyId && body.companyId !== 'all' ? body.companyId : null;
@@ -2643,6 +3241,9 @@ export function createApp(dbPath?: string): express.Express {
         JOIN parties p ON rr.partyId = p.id
         WHERE p.tenantId = ?
       `).all(user.tenantId) as any[];
+      if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
+        rows = rows.filter(r => user.companyIds.includes(r.companyId));
+      }
     } else {
       rows = db.prepare('SELECT * FROM reminder_replies').all() as any[];
     }
@@ -2658,16 +3259,37 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Missing reminders.send permission' });
     }
     const { partyId, billId, template } = req.body;
-    const party = partyId ? (db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId) as any) : null;
-    if (party && user && user.role !== 'dev' && user.tenantId && party.tenantId && party.tenantId !== user.tenantId) {
+    if (!partyId) {
+      return res.status(400).json({ error: 'partyId is required' });
+    }
+    const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId) as any;
+    if (!party) {
+      return res.status(404).json({ error: 'Party not found' });
+    }
+    if (user && user.role !== 'dev' && user.tenantId && party.tenantId && party.tenantId !== user.tenantId) {
       return res.status(403).json({ error: 'Forbidden: Cannot send reminder for another organization' });
+    }
+    if (party.companyId && !canAccessCompany(user, party.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+    }
+    if (billId) {
+      const bill = db.prepare('SELECT * FROM bills WHERE id = ?').get(billId) as any;
+      if (!bill) {
+        return res.status(404).json({ error: 'Bill not found' });
+      }
+      if (bill.partyId && bill.partyId !== party.id) {
+        return res.status(400).json({ error: 'Bill does not belong to specified party' });
+      }
+      if (bill.companyId && !canAccessCompany(user, bill.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
+      }
     }
     const messageId = `msg-${Date.now()}`;
     const companyId = party?.companyId || 'c1';
     db.prepare(`
       INSERT INTO reminder_messages (id, companyId, partyId, billId, template, sentAt, status, failureReason)
       VALUES (?, ?, ?, ?, ?, ?, 'sent', NULL)
-    `).run(messageId, companyId, partyId || 'unknown', billId || null, template || 'overdue', new Date().toISOString());
+    `).run(messageId, companyId, party.id, billId || null, template || 'overdue', new Date().toISOString());
 
     res.json({ success: true, messageId });
   });
@@ -3149,6 +3771,19 @@ export function createApp(dbPath?: string): express.Express {
     }
     const id = body.id || `u-${Date.now()}`;
     const tenantId = user && user.role !== 'dev' && user.tenantId ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
+
+    // Enforce commercial SaaS plan quota for maxUsers per tenant (except dev super-admin)
+    if (user && user.role !== 'dev' && tenantId) {
+      const tenantRow = db.prepare('SELECT maxUsers FROM tenants WHERE id = ?').get(tenantId) as any;
+      const maxUsers = tenantRow?.maxUsers || 15;
+      const currentUsersCount = (db.prepare('SELECT count(*) as cnt FROM users WHERE tenantId = ? AND active = 1').get(tenantId) as any)?.cnt || 0;
+      if (currentUsersCount >= maxUsers) {
+        return res.status(403).json({
+          error: `Plan limit reached: Your organization plan allows up to ${maxUsers} active staff members. Contact support to upgrade.`,
+        });
+      }
+    }
+
     const cleanPhone = (p: string) => (p ? String(p).replace(/\D/g, '').slice(-10) : '');
     const targetLast10 = cleanPhone(body.phone);
     if (targetLast10.length >= 10) {
@@ -3166,6 +3801,10 @@ export function createApp(dbPath?: string): express.Express {
       INSERT INTO users (id, tenantId, name, phone, pin, role, customRoleName, customPermissions, companyIds, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(id, tenantId, body.name, body.phone, pin, body.role || 'sales', customRoleName, customPermissions, JSON.stringify(body.companyIds || 'all'), 1);
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, null, user?.id || 'owner', 'user_created', `Added staff: ${body.name} (${body.role || 'sales'})`, new Date().toISOString(), 'Desktop');
     const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as any;
     const { pin: _pin, ...safeU } = u;
     res.status(201).json({
@@ -3263,6 +3902,20 @@ export function createApp(dbPath?: string): express.Express {
     const resolvedCompanyId = compRow.id;
     const defaultTenantId = compRow.tenantId || user?.tenantId || agentAuth.tenantId || 'platform';
 
+    // Auto-purge Sample Demo Mode data when first real Tally sync arrives for this company
+    if ((Array.isArray(parties) && parties.length > 0) || (Array.isArray(bills) && bills.length > 0) || (Array.isArray(stockItems) && stockItems.length > 0)) {
+      try {
+        db.prepare("DELETE FROM bills WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
+        db.prepare("DELETE FROM parties WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
+        db.prepare("DELETE FROM stock_balances WHERE itemId IN (SELECT id FROM stock_items WHERE companyId = ? AND id LIKE 'demo-%')").run(resolvedCompanyId);
+        db.prepare("DELETE FROM stock_items WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
+        db.prepare("DELETE FROM challans WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
+        if (defaultTenantId) {
+          db.prepare('UPDATE tenants SET isDemo = 0 WHERE id = ?').run(defaultTenantId);
+        }
+      } catch {}
+    }
+
     let partiesUpdated = 0;
     let billsUpdated = 0;
     let stockUpdated = 0;
@@ -3270,14 +3923,14 @@ export function createApp(dbPath?: string): express.Express {
 
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
-        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
         const existingByName = p.name
           ? (db.prepare('SELECT * FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(p.name).trim()) as any)
           : null;
-        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes FROM parties WHERE id = ?').get(p.id) as any;
+        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance FROM parties WHERE id = ?').get(p.id) as any;
         const existing = existingByName || existingById;
         const safePartyId = existingByName
           ? existingByName.id
@@ -3297,7 +3950,8 @@ export function createApp(dbPath?: string): express.Express {
           existing?.collectorId ?? null,
           existing?.remindersPaused ?? 0,
           p.notes || existing?.notes || '',
-          existing?.promiseToPay ?? null
+          existing?.promiseToPay ?? null,
+          p.closingBalance ?? existing?.closingBalance ?? 0
         );
         partiesUpdated++;
       }
@@ -3312,13 +3966,16 @@ export function createApp(dbPath?: string): express.Express {
       for (const b of bills) {
         const mappedPartyId = partyIdRemap.get(b.partyId) || b.partyId;
         const existingByBillNo = b.billNo
-          ? (db.prepare('SELECT id, companyId FROM bills WHERE companyId = ? AND billNo = ? LIMIT 1').get(resolvedCompanyId, String(b.billNo).trim()) as any)
+          ? (db.prepare('SELECT id, companyId, partyId FROM bills WHERE companyId = ? AND billNo = ? AND partyId = ? LIMIT 1').get(resolvedCompanyId, String(b.billNo).trim(), mappedPartyId) as any)
           : null;
-        const existingBill = existingByBillNo || (db.prepare('SELECT companyId FROM bills WHERE id = ?').get(b.id) as any);
+        const existingBill = existingByBillNo || (db.prepare('SELECT companyId, partyId FROM bills WHERE id = ?').get(b.id) as any);
         const safeBillId = existingByBillNo
           ? existingByBillNo.id
-          : existingBill && existingBill.companyId && existingBill.companyId !== resolvedCompanyId
-            ? `${resolvedCompanyId}_${b.id}`
+          : existingBill && (
+              (existingBill.companyId && existingBill.companyId !== resolvedCompanyId) ||
+              (existingBill.partyId && existingBill.partyId !== mappedPartyId)
+            )
+            ? `${resolvedCompanyId}_${mappedPartyId}_${b.id}`
             : b.id;
         stmt.run(safeBillId, resolvedCompanyId, mappedPartyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
         activeSyncedBillIds.push(safeBillId);
@@ -3330,11 +3987,11 @@ export function createApp(dbPath?: string): express.Express {
         if (activeSyncedBillIds.length > 0) {
           const placeholders = activeSyncedBillIds.map(() => '?').join(',');
           db.prepare(
-            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending > 0 AND id NOT IN (${placeholders})`
+            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending != 0 AND id NOT IN (${placeholders})`
           ).run(resolvedCompanyId, ...activeSyncedBillIds);
         } else {
           db.prepare(
-            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending > 0`
+            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending != 0`
           ).run(resolvedCompanyId);
         }
       }
@@ -3405,6 +4062,27 @@ export function createApp(dbPath?: string): express.Express {
     }
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
 
+    const commandKeys = [
+      `agent_commands_${resolvedCompanyId}`,
+      compRow?.tenantId ? `agent_commands_${compRow.tenantId}` : null,
+      defaultTenantId ? `agent_commands_${defaultTenantId}` : null,
+      'agent_commands_global',
+    ].filter(Boolean) as string[];
+
+    const commandsToSend: any[] = [];
+    for (const cKey of Array.from(new Set(commandKeys))) {
+      const cmdRow = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(cKey) as any;
+      if (cmdRow?.value) {
+        try {
+          const parsed = JSON.parse(cmdRow.value);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            commandsToSend.push(...parsed);
+            db.prepare('DELETE FROM agent_state WHERE key = ?').run(cKey);
+          }
+        } catch {}
+      }
+    }
+
     res.json({
       success: true,
       syncedAt: now,
@@ -3412,6 +4090,7 @@ export function createApp(dbPath?: string): express.Express {
       partiesUpdated,
       billsUpdated,
       stockUpdated,
+      commands: commandsToSend,
     });
   });
 
@@ -3478,6 +4157,32 @@ export function createApp(dbPath?: string): express.Express {
         });
     } catch {}
 
+    // Check for pending remote commands for this company or tenant
+    const targetComp = companyId && companyId !== 'all' ? resolveCompanyForAgent(companyId, undefined, scopedTenantId) : null;
+    const commandKeys = [
+      companyId && companyId !== 'all' ? `agent_commands_${companyId}` : null,
+      targetComp?.tenantId ? `agent_commands_${targetComp.tenantId}` : null,
+      scopedTenantId ? `agent_commands_${scopedTenantId}` : null,
+      'agent_commands_global',
+    ].filter(Boolean) as string[];
+
+    const commandsToSend: any[] = [];
+    for (const cKey of Array.from(new Set(commandKeys))) {
+      const cmdRow = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(cKey) as any;
+      if (cmdRow?.value) {
+        try {
+          const parsed = JSON.parse(cmdRow.value);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            commandsToSend.push(...parsed);
+            db.prepare('DELETE FROM agent_state WHERE key = ?').run(cKey);
+          }
+        } catch {}
+      }
+    }
+    if (commandsToSend.length > 0) {
+      res.setHeader('X-Agent-Commands', JSON.stringify(commandsToSend));
+    }
+
     res.json([...challanItems, ...stockJournalItems]);
   });
 
@@ -3517,6 +4222,87 @@ export function createApp(dbPath?: string): express.Express {
       targetId
     );
     res.json({ success: true, challanId: targetId, outboxId: outboxId || targetId, status: nextStatus });
+  });
+
+  // 16b. Onboarding 1-Click Sample Demo Mode
+  app.post('/api/onboarding/demo-seed', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || !hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Owner or Admin required to load sample demo data' });
+    }
+    const tenantId = user.tenantId || 'platform';
+    let companyId = (req.body?.companyId || req.query.companyId) as string;
+    if (!companyId || companyId === 'all') {
+      const comp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+      companyId = comp?.id || 'c1';
+    }
+    if (!canAccessCompany(user, companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cannot seed demo data in another organization' });
+    }
+
+    const today = getTodayIST();
+    const godownId = `g-${companyId}-main`;
+    db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(godownId, companyId, 'Main Location');
+
+    const demoParties = [
+      { id: `demo-p-${companyId}-1`, name: 'Apex Textile Mills (Sample)', city: 'Ludhiana', phones: ['+91 98140 11223'], gstin: '03AABCA1234C1Z5', creditDays: 30 },
+      { id: `demo-p-${companyId}-2`, name: 'Sunrise Garments & Hosiery (Sample)', city: 'Jalandhar', phones: ['+91 98155 44556'], gstin: '03AABCS5678D1Z2', creditDays: 30 },
+      { id: `demo-p-${companyId}-3`, name: 'Punjab Industrial Knitwear (Sample)', city: 'Amritsar', phones: ['+91 98760 77889'], gstin: '03AABCP9012E1Z9', creditDays: 15 },
+    ];
+    for (const p of demoParties) {
+      db.prepare(`
+        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, 'Sample demo ledger — auto-clears on first Tally sync', NULL)
+      `).run(p.id, tenantId, companyId, p.name, p.city, JSON.stringify(p.phones), p.gstin, p.creditDays);
+    }
+
+    const demoBills = [
+      { id: `demo-b-${companyId}-1`, partyId: demoParties[0]!.id, billNo: 'INV/DEMO/101', date: '2026-09-10', dueDate: '2026-10-01', amount: 18500000, pending: 18500000 },
+      { id: `demo-b-${companyId}-2`, partyId: demoParties[1]!.id, billNo: 'INV/DEMO/102', date: '2026-09-25', dueDate: '2026-10-12', amount: 9400000, pending: 6200000 },
+      { id: `demo-b-${companyId}-3`, partyId: demoParties[2]!.id, billNo: 'INV/DEMO/103', date: today, dueDate: today, amount: 4800000, pending: 4800000 },
+    ];
+    for (const b of demoBills) {
+      db.prepare(`
+        INSERT OR REPLACE INTO bills (id, companyId, partyId, billNo, date, dueDate, dueDays, amount, pending, source)
+        VALUES (?, ?, ?, ?, ?, ?, 30, ?, ?, 'tally_bill')
+      `).run(b.id, companyId, b.partyId, b.billNo, b.date, b.dueDate, b.amount, b.pending);
+    }
+
+    const demoStock = [
+      { id: `demo-s-${companyId}-1`, name: 'Direct Drive Servo Motor 550W (Sample)', partNo: 'DD-550W', unit: 'pcs', group: 'Motors', rate: 420000, reorderLevel: 10, qty: 24 },
+      { id: `demo-s-${companyId}-2`, name: 'High-Speed Overlock Head 4T (Sample)', partNo: 'OL-4T-PRO', unit: 'set', group: 'Machines', rate: 2850000, reorderLevel: 5, qty: 3 },
+    ];
+    for (const s of demoStock) {
+      db.prepare(`
+        INSERT OR REPLACE INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, purchaseRate, reorderLevel, alias, hsnCode, gstRate, description, customValues)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, '8452', 18, 'Sample demo item', '{}')
+      `).run(s.id, companyId, s.name, s.partNo, s.unit, s.group, s.rate, s.reorderLevel);
+      db.prepare(`
+        INSERT OR REPLACE INTO stock_balances (itemId, godownId, qty)
+        VALUES (?, ?, ?)
+      `).run(s.id, godownId, s.qty);
+    }
+
+    db.prepare('UPDATE tenants SET isDemo = 1 WHERE id = ?').run(tenantId);
+    res.json({ success: true, companyId, isDemo: true });
+  });
+
+  app.post('/api/onboarding/demo-clear', (req, res) => {
+    const user = getRequestUser(req);
+    if (!user || !hasPermission(user, 'settings.manage')) {
+      return res.status(403).json({ error: 'Forbidden: Owner or Admin required to clear sample demo data' });
+    }
+    const tenantId = user.tenantId || 'platform';
+    const comps = db.prepare('SELECT id FROM companies WHERE tenantId = ?').all(tenantId) as Array<{ id: string }>;
+    for (const c of comps) {
+      db.prepare("DELETE FROM bills WHERE companyId = ? AND id LIKE 'demo-%'").run(c.id);
+      db.prepare("DELETE FROM parties WHERE companyId = ? AND id LIKE 'demo-%'").run(c.id);
+      db.prepare("DELETE FROM stock_balances WHERE itemId IN (SELECT id FROM stock_items WHERE companyId = ? AND id LIKE 'demo-%')").run(c.id);
+      db.prepare("DELETE FROM stock_items WHERE companyId = ? AND id LIKE 'demo-%'").run(c.id);
+      db.prepare("DELETE FROM challans WHERE companyId = ? AND id LIKE 'demo-%'").run(c.id);
+    }
+    db.prepare('UPDATE tenants SET isDemo = 0 WHERE id = ?').run(tenantId);
+    res.json({ success: true, isDemo: false });
   });
 
   // 17. Database Backups
@@ -3577,6 +4363,14 @@ export function createApp(dbPath?: string): express.Express {
     if (!user || user.role !== 'dev') {
       return res.status(403).json({ error: 'Forbidden: Only Dev super admin can download full multi-tenant SQLite database' });
     }
+    try {
+      const snap = createDatabaseSnapshot();
+      const snapPath = path.join(backupDir, snap.filename);
+      if (fs.existsSync(snapPath)) {
+        const dateStr = new Date().toISOString().slice(0, 10);
+        return res.download(snapPath, `manohar-database-${dateStr}.sqlite`);
+      }
+    } catch {}
     const dbFile = process.env.DB_PATH || 'manohar.sqlite';
     if (fs.existsSync(dbFile)) {
       const dateStr = new Date().toISOString().slice(0, 10);

@@ -13,6 +13,7 @@ import {
   Camera,
   Upload,
   X,
+  XCircle,
   Image as ImageIcon,
   Truck,
 } from 'lucide-react';
@@ -26,6 +27,7 @@ import { Sheet } from '../../components/ui/Sheet.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
 import { SAMPLE_TASK_PHOTO_1, SAMPLE_TASK_PHOTO_2 } from '../../mock/seed.js';
+import { compressImageFile } from '../../utils/image.js';
 
 export const ChallanDetailScreen: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
@@ -177,26 +179,14 @@ export const ChallanDetailScreen: React.FC = () => {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setTaskPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      compressImageFile(file, setTaskPhotoUrl);
     }
   };
 
   const handleCompletionFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setCompletionPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      compressImageFile(file, setCompletionPhotoUrl);
     }
   };
 
@@ -316,6 +306,9 @@ export const ChallanDetailScreen: React.FC = () => {
             {challan.status === 'draft' && (
               <FileText className="w-5 h-5 text-label-2" />
             )}
+            {challan.status === 'cancelled' && (
+              <XCircle className="w-5 h-5 text-label-2" />
+            )}
             <span className="text-headline font-bold text-label capitalize">
               {challan.type} Challan
             </span>
@@ -333,6 +326,9 @@ export const ChallanDetailScreen: React.FC = () => {
             )}
             {challan.status === 'draft' && (
               <StatusText text="Draft" variant="neutral" />
+            )}
+            {challan.status === 'cancelled' && (
+              <StatusText text="Cancelled" variant="neutral" />
             )}
           </div>
         </div>

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import request from 'supertest';
 import { createApp } from '../src/app.js';
-import { initDatabase } from '../src/db/database.js';
+import { initDatabase, getDB, pruneDatabaseTelemetry } from '../src/db/database.js';
 
 describe('Manohar Backend API & Sync Server', () => {
   let app: any;
@@ -365,5 +365,303 @@ describe('Manohar Backend API & Sync Server', () => {
       .post('/api/agent/pair')
       .send({ code: '000000' });
     expect(invalidRes.status).toBe(404);
+  });
+
+  it('downloads pre-paired setup zip archive without event loop freeze', async () => {
+    const res = await request(app)
+      .get('/api/agent/download-zip?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toBe('application/zip');
+    expect(res.headers['content-disposition']).toContain('tally-agent-manohar');
+    expect(Buffer.isBuffer(res.body) || typeof res.text === 'string').toBe(true);
+  });
+
+  it('prunes sync_batches per company without evicting other companies telemetry', () => {
+    const db = getDB();
+    // Insert 550 batches for c1 and 5 batches for c2
+    const insert = db.prepare('INSERT INTO sync_batches (companyId, syncedAt, alterId) VALUES (?, ?, ?)');
+    for (let i = 1; i <= 550; i++) {
+      insert.run('c1', new Date().toISOString(), i);
+    }
+    for (let i = 1; i <= 5; i++) {
+      insert.run('c2', new Date().toISOString(), i);
+    }
+
+    const c1Before = db.prepare('SELECT COUNT(*) as cnt FROM sync_batches WHERE companyId = ?').get('c1') as any;
+    const c2Before = db.prepare('SELECT COUNT(*) as cnt FROM sync_batches WHERE companyId = ?').get('c2') as any;
+    expect(c1Before.cnt).toBeGreaterThanOrEqual(550);
+    expect(c2Before.cnt).toBeGreaterThanOrEqual(5);
+
+    pruneDatabaseTelemetry(db);
+
+    const c1After = db.prepare('SELECT COUNT(*) as cnt FROM sync_batches WHERE companyId = ?').get('c1') as any;
+    const c2After = db.prepare('SELECT COUNT(*) as cnt FROM sync_batches WHERE companyId = ?').get('c2') as any;
+
+    // c1 pruned to 500 max
+    expect(c1After.cnt).toBe(500);
+    // c2 telemetry is fully preserved
+    expect(c2After.cnt).toBe(c2Before.cnt);
+  });
+
+  it('queues remote RESET_ALTER_ID command and delivers it via /api/agent/sync', async () => {
+    // 1. Queue RESET_ALTER_ID command
+    const cmdRes = await request(app)
+      .post('/api/agent/reset-alter-id')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ companyId: 'c1' });
+    expect(cmdRes.status).toBe(200);
+    expect(cmdRes.body.success).toBe(true);
+    expect(cmdRes.body.companyId).toBe('c1');
+
+    // 2. Agent sync heartbeat checks and retrieves the command
+    const syncRes = await request(app)
+      .post('/api/agent/sync')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ companyId: 'c1', companyName: 'Manohar Traders', tallyStatus: 'online' });
+    expect(syncRes.status).toBe(200);
+    expect(Array.isArray(syncRes.body.commands)).toBe(true);
+    expect(syncRes.body.commands.length).toBeGreaterThan(0);
+    expect(syncRes.body.commands[0].type).toBe('RESET_ALTER_ID');
+
+    // 3. Subsequent heartbeat has no pending commands (cleared from queue)
+    const syncRes2 = await request(app)
+      .post('/api/agent/sync')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ companyId: 'c1', companyName: 'Manohar Traders', tallyStatus: 'online' });
+    expect(syncRes2.status).toBe(200);
+    expect(syncRes2.body.commands).toEqual([]);
+  });
+
+  it('queues remote RESET_ALTER_ID command and delivers it via GET /api/sync/pull header', async () => {
+    // 1. Queue command
+    await request(app)
+      .post('/api/agent/reset-alter-id')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({ companyId: 'c1' });
+
+    // 2. GET /api/sync/pull delivers command in X-Agent-Commands header
+    const pullRes = await request(app)
+      .get('/api/sync/pull?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(pullRes.status).toBe(200);
+    const cmdHeader = pullRes.headers['x-agent-commands'];
+    expect(cmdHeader).toBeDefined();
+    const cmds = JSON.parse(cmdHeader);
+    expect(cmds.some((c: any) => c.type === 'RESET_ALTER_ID')).toBe(true);
+
+    // 3. Subsequent pull has no pending commands
+    const pullRes2 = await request(app)
+      .get('/api/sync/pull?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(pullRes2.headers['x-agent-commands']).toBeUndefined();
+  });
+
+  it('honors minimal=1 and includeNode=0 flags in /api/agent/download-zip', async () => {
+    const defaultRes = await request(app)
+      .get('/api/agent/download-zip?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(defaultRes.status).toBe(200);
+
+    const minimalRes = await request(app)
+      .get('/api/agent/download-zip?companyId=c1&includeNode=0')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(minimalRes.status).toBe(200);
+  });
+
+  it('prevents cross-party bill overwrite when multiple parties share the same bill number', async () => {
+    const payload = {
+      companyId: 'c1',
+      parties: [
+        { id: 'p-scope-a', name: 'Party Alpha', city: 'Delhi', phones: ['+91 99999 11111'] },
+        { id: 'p-scope-b', name: 'Party Beta', city: 'Mumbai', phones: ['+91 99999 22222'] },
+      ],
+      bills: [
+        {
+          id: 'b-scope-a',
+          partyId: 'p-scope-a',
+          billNo: 'SHARED-INV-001',
+          date: '2026-10-01',
+          dueDate: '2026-10-31',
+          amount: 500000,
+          pending: 500000,
+        },
+        {
+          id: 'b-scope-b',
+          partyId: 'p-scope-b',
+          billNo: 'SHARED-INV-001',
+          date: '2026-10-02',
+          dueDate: '2026-11-01',
+          amount: 750000,
+          pending: 750000,
+        },
+      ],
+    };
+
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(payload);
+    expect(pushRes.status).toBe(200);
+
+    const billsRes = await request(app)
+      .get('/api/bills?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(billsRes.status).toBe(200);
+
+    const sharedBills = billsRes.body.filter((b: any) => b.billNo === 'SHARED-INV-001');
+    expect(sharedBills.length).toBe(2);
+    expect(sharedBills.some((b: any) => b.partyId === 'p-scope-a' && b.amount === 500000)).toBe(true);
+    expect(sharedBills.some((b: any) => b.partyId === 'p-scope-b' && b.amount === 750000)).toBe(true);
+
+    // Also verify when two parties push bills with the exact same b.id
+    const duplicateIdPayload = {
+      companyId: 'c1',
+      parties: [
+        { id: 'p-id-test-1', name: 'ID Collision Party 1', city: 'Delhi' },
+        { id: 'p-id-test-2', name: 'ID Collision Party 2', city: 'Mumbai' },
+      ],
+      bills: [
+        {
+          id: 'b-exact-id-collision',
+          partyId: 'p-id-test-1',
+          billNo: 'COLLIDE-01',
+          date: '2026-10-01',
+          dueDate: '2026-10-31',
+          amount: 110000,
+          pending: 110000,
+        },
+        {
+          id: 'b-exact-id-collision',
+          partyId: 'p-id-test-2',
+          billNo: 'COLLIDE-02',
+          date: '2026-10-02',
+          dueDate: '2026-11-01',
+          amount: 220000,
+          pending: 220000,
+        },
+      ],
+    };
+    const dupRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(duplicateIdPayload);
+    expect(dupRes.status).toBe(200);
+
+    const collideBillsRes = await request(app)
+      .get('/api/bills?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(collideBillsRes.status).toBe(200);
+    const p1Bill = collideBillsRes.body.find((b: any) => b.partyId === 'p-id-test-1');
+    const p2Bill = collideBillsRes.body.find((b: any) => b.partyId === 'p-id-test-2');
+    expect(p1Bill).toBeDefined();
+    expect(p2Bill).toBeDefined();
+    expect(p1Bill.amount).toBe(110000);
+    expect(p2Bill.amount).toBe(220000);
+  });
+
+  it('properly deducts credit notes from total receivables in dashboard stats and ledger lines', async () => {
+    // Push positive invoice and negative credit note for p-scope-a
+    const pushPayload = {
+      companyId: 'c1',
+      parties: [{ id: 'p-cn-test', name: 'Credit Note Test Party', city: 'Kolkata' }],
+      bills: [
+        {
+          id: 'b-inv-positive',
+          partyId: 'p-cn-test',
+          billNo: 'INV/POS/01',
+          date: '2026-10-01',
+          dueDate: '2026-10-31',
+          amount: 1000000, // ₹10,000
+          pending: 1000000,
+        },
+        {
+          id: 'b-cn-negative',
+          partyId: 'p-cn-test',
+          billNo: 'CN/NEG/01',
+          date: '2026-10-05',
+          dueDate: '2026-10-05',
+          amount: -300000, // -₹3,000 credit note
+          pending: -300000,
+        },
+      ],
+    };
+
+    await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(pushPayload);
+
+    // Verify ledger synthesizing creates Credit Note voucher
+    const ledgerRes = await request(app)
+      .get('/api/ledger/p-cn-test')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(ledgerRes.status).toBe(200);
+    const cnLine = ledgerRes.body.find((l: any) => l.voucherNo === 'CN/NEG/01');
+    expect(cnLine).toBeDefined();
+    expect(cnLine.voucherType).toBe('Credit Note');
+    expect(cnLine.credit).toBe(300000);
+    expect(cnLine.debit).toBe(0);
+
+    // Verify collections report deducts credit note from totalOutstanding
+    const agingRes = await request(app)
+      .get('/api/collections?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(agingRes.status).toBe(200);
+    const partyAging = agingRes.body.find((r: any) => r.party.id === 'p-cn-test');
+    expect(partyAging).toBeDefined();
+    // 1000000 - 300000 = 700000 net outstanding
+    expect(partyAging.totalOutstanding).toBe(700000);
+
+    // Verify dashboard stats deducts credit notes from totalReceivables
+    const statsRes = await request(app)
+      .get('/api/dashboard/stats?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(statsRes.status).toBe(200);
+    expect(statsRes.body.totalReceivables).toBeGreaterThan(0);
+  });
+
+  it('persists party closingBalance and displays it in collections report for parties without bills', async () => {
+    const pushPayload = {
+      companyId: 'c1',
+      parties: [
+        {
+          id: 'p-no-bill-party',
+          name: 'Non Bill By Bill Customer',
+          city: 'Jaipur',
+          closingBalance: 4500000, // ₹45,000 in paise
+        },
+      ],
+      bills: [],
+    };
+
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send(pushPayload);
+    expect(pushRes.status).toBe(200);
+
+    const partyRes = await request(app)
+      .get('/api/parties/p-no-bill-party')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(partyRes.status).toBe(200);
+    expect(partyRes.body.closingBalance).toBe(4500000);
+
+    const agingRes = await request(app)
+      .get('/api/collections?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(agingRes.status).toBe(200);
+    const nonBillRow = agingRes.body.find((r: any) => r.party.id === 'p-no-bill-party');
+    expect(nonBillRow).toBeDefined();
+    expect(nonBillRow.totalOutstanding).toBe(4500000);
+
+    // Verify ledger synthesizing creates balance line for non-bill party
+    const ledgerRes = await request(app)
+      .get('/api/ledger/p-no-bill-party')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(ledgerRes.status).toBe(200);
+    expect(ledgerRes.body.length).toBe(1);
+    expect(ledgerRes.body[0].debit).toBe(4500000);
+    expect(ledgerRes.body[0].voucherType).toBe('Balance');
   });
 });

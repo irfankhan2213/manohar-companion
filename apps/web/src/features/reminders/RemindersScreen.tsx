@@ -808,9 +808,9 @@ export const RemindersScreen: React.FC = () => {
               Live Reminder Rule
             </span>
             <p className="text-footnote leading-relaxed text-label">
-              Invoices dated <strong>17-Oct-2026</strong> will have payment due date applied as{' '}
+              Invoices dated <strong>{new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</strong> will have payment due date applied as{' '}
               <strong>
-                {new Date(Date.parse('2026-10-17') + dueDaysInput * 86400000).toLocaleDateString(
+                {new Date(Date.now() + dueDaysInput * 86400000).toLocaleDateString(
                   'en-IN',
                   {
                     day: 'numeric',

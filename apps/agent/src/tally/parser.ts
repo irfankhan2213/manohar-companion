@@ -24,20 +24,22 @@ function toArray<T>(val: T | T[] | undefined): T[] {
 
 // Convert Tally amount string to paise integer
 export function parseTallyAmount(amountStr?: string | number): number {
-  if (!amountStr) return 0;
+  if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
   // Strip any unit suffix after '/' (e.g. "4200.00 / 10 pcs" or "850 / set") before extracting numeric value
   const beforeSlash = String(amountStr).split('/')[0] || '';
   const raw = beforeSlash.replace(/,/g, '').trim();
-  // Handle Dr / Cr suffixes
-  const isCr = /cr$/i.test(raw);
-  const isDr = /dr$/i.test(raw);
+  // Handle Dr / Cr suffixes and negative signs
+  const isCr = /(?:cr|credit)\.?$/i.test(raw);
+  const isDr = /(?:dr|debit)\.?$/i.test(raw);
+  const isTrailingMinus = /-\s*$/.test(raw) || raw.endsWith('-');
+  const isLeadingMinus = raw.startsWith('-');
   const numOnly = raw.replace(/[^\d.-]/g, '');
   const parsed = parseFloat(numOnly);
   if (isNaN(parsed)) return 0;
 
   const paise = rupeesToPaise(Math.abs(parsed));
   // In Tally, debit is positive (receivable), credit is negative
-  if (isCr) return -paise;
+  if (isCr || isTrailingMinus || isLeadingMinus) return -paise;
   if (isDr) return paise;
   return parsed < 0 ? -paise : paise;
 }
@@ -152,10 +154,38 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
 
     const billDate = parseTallyDate(rawBill.BILLDATE);
     const dueDate = parseTallyDate(rawBill.BILLDUE || rawBill.BILLDATE);
-    const closingAmount = Math.abs(parseTallyAmount(rawBill.CLOSINGBALANCE));
-    const openingRaw = Math.abs(parseTallyAmount(rawBill.OPENINGBALANCE));
-    const openingAmount = openingRaw > 0 ? openingRaw : closingAmount;
-    const daysLate = getDaysOverdue(dueDate, today);
+
+    // Dr / Cr and ISDEBIT sign handling
+    const isDebitRaw = rawBill.ISDEBIT !== undefined ? rawBill.ISDEBIT : rawBill['@_ISDEBIT'];
+    let isDebit: boolean | undefined = undefined;
+    if (isDebitRaw !== undefined && isDebitRaw !== null) {
+      const s = String(isDebitRaw).trim().toLowerCase();
+      if (s === 'yes' || s === 'true' || s === '1') isDebit = true;
+      if (s === 'no' || s === 'false' || s === '0') isDebit = false;
+    }
+
+    const parsedClosing = parseTallyAmount(rawBill.CLOSINGBALANCE);
+    const parsedOpening = parseTallyAmount(rawBill.OPENINGBALANCE);
+
+    let closingAmount = parsedClosing;
+    if (isDebit === false && closingAmount > 0) {
+      closingAmount = -closingAmount;
+    } else if (isDebit === true && closingAmount < 0) {
+      closingAmount = Math.abs(closingAmount);
+    }
+
+    let openingAmount = parsedOpening;
+    if (isDebit === false && openingAmount > 0) {
+      openingAmount = -openingAmount;
+    } else if (isDebit === true && openingAmount < 0) {
+      openingAmount = Math.abs(openingAmount);
+    }
+    if (openingAmount === 0 && closingAmount !== 0) {
+      openingAmount = closingAmount;
+    }
+
+    const isPending = closingAmount > 0;
+    const daysLate = isPending ? getDaysOverdue(dueDate, today) : 0;
 
     bills.push({
       partyName: String(partyName).trim(),
@@ -164,7 +194,7 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
       dueDate,
       openingAmount,
       pendingAmount: closingAmount,
-      isOverdue: daysLate > 0,
+      isOverdue: isPending && daysLate > 0,
       daysOverdue: Math.max(0, daysLate),
     });
   }

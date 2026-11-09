@@ -73,7 +73,10 @@ export const CollectionsScreen: React.FC = () => {
 
     return parties.map((p) => {
       const pBills = billMap.get(p.id) ?? [];
-      const totalPending = pBills.reduce((acc, b) => acc + b.pending, 0);
+      const totalPending =
+        pBills.length > 0
+          ? pBills.reduce((acc, b) => acc + b.pending, 0)
+          : (p.closingBalance || 0);
 
       let maxDaysLate = 0;
       let worstBucket: AgingBucket = 'not_due';

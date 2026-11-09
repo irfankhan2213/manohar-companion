@@ -20,15 +20,20 @@ if %errorlevel% equ 0 (
 :: 2. Remove Startup Folder shortcut
 echo [2/3] Removing Windows Startup folder shortcut...
 set "STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"
+if exist "%STARTUP_DIR%\ManoharTallySync.lnk" (
+    del /f /q "%STARTUP_DIR%\ManoharTallySync.lnk"
+    echo [OK] Startup shortcut (.lnk) removed.
+)
 if exist "%STARTUP_DIR%\ManoharTallySync.vbs" (
     del /f /q "%STARTUP_DIR%\ManoharTallySync.vbs"
-    echo [OK] Startup shortcut removed.
+    echo [OK] Legacy startup script (.vbs) removed.
 )
 
-:: 3. Terminate running background agent & node instances
+:: 3. Terminate running background supervisor & agent instances
 echo [3/3] Stopping any running background sync processes...
 taskkill /f /im node.exe /fi "WINDOWTITLE eq Manohar*" >nul 2>&1
-wmic process where "commandline like '%%tally-agent.mjs%%'" call terminate >nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq Manohar*" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*watchdog.bat*' -or $_.CommandLine -like '*run-silent.vbs*' -or $_.CommandLine -like '*tally-agent.mjs*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" >nul 2>&1
 
 echo.
 echo =====================================================================

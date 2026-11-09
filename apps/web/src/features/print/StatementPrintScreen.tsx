@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer } from 'lucide-react';
-import { formatINR, numberToIndianWords } from '@saas/shared';
+import { formatINR, numberToIndianWords, getTodayIST } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
 
@@ -50,6 +50,10 @@ export const StatementPrintScreen: React.FC = () => {
   });
 
   const closingBalance = running;
+  const todayStr = getTodayIST();
+  const fyLabel = company?.financialYear || '2026-27';
+  const periodStart = ledger[0]?.date || `01-Apr-${fyLabel.slice(0, 4)}`;
+  const periodEnd = ledger[ledger.length - 1]?.date || todayStr;
 
   return (
     <div className="min-h-screen bg-bg print:bg-white flex flex-col items-center py-6 px-4 print:p-0">
@@ -120,11 +124,11 @@ export const StatementPrintScreen: React.FC = () => {
             <div className="flex flex-col gap-1 pl-3 divide-y divide-gray-200">
               <div className="grid grid-cols-2 pb-1">
                 <span className="text-gray-600">Period:</span>
-                <span className="font-bold text-right">01-Apr-2026 to 17-Oct-2026</span>
+                <span className="font-bold text-right">{periodStart} to {periodEnd}</span>
               </div>
               <div className="grid grid-cols-2 py-1">
                 <span className="text-gray-600">Financial Year:</span>
-                <span className="font-bold text-right">2026-27</span>
+                <span className="font-bold text-right">{fyLabel}</span>
               </div>
               <div className="grid grid-cols-2 py-1">
                 <span className="text-gray-600">Credit Terms:</span>
@@ -132,7 +136,7 @@ export const StatementPrintScreen: React.FC = () => {
               </div>
               <div className="grid grid-cols-2 pt-1">
                 <span className="text-gray-600">As on Date:</span>
-                <span className="font-bold text-right">17-Oct-2026</span>
+                <span className="font-bold text-right">{todayStr}</span>
               </div>
             </div>
           </div>
@@ -143,7 +147,7 @@ export const StatementPrintScreen: React.FC = () => {
               <tr className="bg-gray-100 border-b border-black text-xs font-bold uppercase">
                 <th className="py-2 px-3 border-r border-black w-24">Date</th>
                 <th className="py-2 px-3 border-r border-black">Particulars</th>
-                <th className="py-2 px-2.5 border-r border-black w-28 text-center">Vch Type & No</th>
+                <th className="py-2 px-2.5 border-r border-black w-28 text-center">Vch Type &amp; No</th>
                 <th className="py-2 px-3 border-r border-black w-28 text-right">Debit (₹)</th>
                 <th className="py-2 px-3 border-r border-black w-28 text-right">Credit (₹)</th>
                 <th className="py-2 px-3 w-32 text-right">Balance (₹)</th>

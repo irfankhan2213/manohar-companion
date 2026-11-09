@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
@@ -54,6 +54,20 @@ describe('Authentication, Roles & Company Customization', () => {
     // Verify prototype switcher is completely absent
     expect(screen.queryByText('Switch Active Staff Profile')).not.toBeInTheDocument();
     expect(screen.queryByText('Reset Profile to Owner')).not.toBeInTheDocument();
+  });
+
+  it('clears queryClient cache when signing out from UserAuthMenu', async () => {
+    const clearSpy = vi.spyOn(queryClient, 'clear');
+    renderWithProviders(<UserAuthMenu />);
+
+    fireEvent.click(screen.getByLabelText('Staff account menu'));
+    const signOutBtn = screen.getByText('Sign Out');
+    fireEvent.click(signOutBtn);
+
+    await waitFor(() => {
+      expect(clearSpy).toHaveBeenCalled();
+    });
+    clearSpy.mockRestore();
   });
 
   it('renders Organization & Company Setup and Role Permissions matrix in Settings', async () => {

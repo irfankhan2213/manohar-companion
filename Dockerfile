@@ -34,6 +34,8 @@ RUN pnpm install --prod --frozen-lockfile
 COPY --from=builder /app/packages/shared/dist packages/shared/dist
 COPY --from=builder /app/apps/server/dist apps/server/dist
 COPY --from=builder /app/apps/web/dist apps/web/dist
+COPY --from=builder /app/apps/agent/windows apps/web/public/tally-agent-windows
+COPY --from=builder /app/apps/agent/dist/tally-agent.mjs apps/web/public/tally-agent-windows/tally-agent.mjs
 
 # Persistent volume directory for SQLite database
 RUN mkdir -p /data

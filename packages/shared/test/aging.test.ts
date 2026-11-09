@@ -65,4 +65,39 @@ describe('aging calculations', () => {
     expect(summary.late1to30).toBe(500000);
     expect(summary.over30).toBe(300000);
   });
+
+  it('deducts credit notes from total receivables without polluting overdue buckets', () => {
+    const mockBills: Bill[] = [
+      {
+        id: 'b1',
+        companyId: 'c1',
+        partyId: 'p1',
+        billNo: 'INV-1',
+        date: '2026-09-10',
+        dueDate: '2026-10-05', // 12 days late
+        amount: 500000,
+        pending: 500000,
+        source: 'tally_bill',
+      },
+      {
+        id: 'cn1',
+        companyId: 'c1',
+        partyId: 'p1',
+        billNo: 'CN-1',
+        date: '2026-09-01',
+        dueDate: '2026-09-01', // old credit note
+        amount: -200000,
+        pending: -200000,
+        source: 'tally_bill',
+      },
+    ];
+
+    const summary = calculateAgingSummary(mockBills, today);
+    // Net total is 500000 - 200000 = 300000
+    expect(summary.total).toBe(300000);
+    // Overdue is still 500000 (credit note is not an overdue bill)
+    expect(summary.overdue).toBe(500000);
+    expect(summary.late1to30).toBe(500000);
+    expect(summary.byBucket.d1_30.count).toBe(1);
+  });
 });

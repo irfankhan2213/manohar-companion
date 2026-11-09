@@ -125,6 +125,8 @@ export function buildBillsQuery(companyName?: string): string {
         <TDLMESSAGE>
           <COLLECTION NAME="BillsCollection" ISMODIFY="No">
             <TYPE>Bills</TYPE>
+            <CHILDOF>$$GroupSundryDebtors</CHILDOF>
+            <BELONGSTO>Yes</BELONGSTO>
             <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, OPENINGBALANCE, CLOSINGBALANCE, ISDEBIT</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
@@ -177,6 +179,8 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>`;
 
+  const godown = escapeXml(params.godownName || 'Main Location');
+
   // In Tally Stock Journal:
   // INVENTORYENTRIESIN.LIST is Production/Addition
   // INVENTORYENTRIESOUT.LIST is Consumption/Reduction
@@ -184,20 +188,32 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
     ? `<INVENTORYENTRIESIN.LIST>
         <STOCKITEMNAME>${escapeXml(params.itemName)}</STOCKITEMNAME>
         <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
-        <GODOWNNAME>${escapeXml(params.godownName)}</GODOWNNAME>
-        <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
-        <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
         <RATE>${params.rateRupees} / ${escapeXml(params.unit)}</RATE>
         <AMOUNT>-${amount}</AMOUNT>
+        <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
+        <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
+        <BATCHALLOCATIONS.LIST>
+          <GODOWNNAME>${godown}</GODOWNNAME>
+          <BATCHNAME>Primary Batch</BATCHNAME>
+          <AMOUNT>-${amount}</AMOUNT>
+          <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
+          <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
+        </BATCHALLOCATIONS.LIST>
       </INVENTORYENTRIESIN.LIST>`
     : `<INVENTORYENTRIESOUT.LIST>
         <STOCKITEMNAME>${escapeXml(params.itemName)}</STOCKITEMNAME>
         <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
-        <GODOWNNAME>${escapeXml(params.godownName)}</GODOWNNAME>
-        <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
-        <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
         <RATE>${params.rateRupees} / ${escapeXml(params.unit)}</RATE>
         <AMOUNT>${amount}</AMOUNT>
+        <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
+        <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
+        <BATCHALLOCATIONS.LIST>
+          <GODOWNNAME>${godown}</GODOWNNAME>
+          <BATCHNAME>Primary Batch</BATCHNAME>
+          <AMOUNT>${amount}</AMOUNT>
+          <ACTUALQTY>${absQty} ${escapeXml(params.unit)}</ACTUALQTY>
+          <BILLEDQTY>${absQty} ${escapeXml(params.unit)}</BILLEDQTY>
+        </BATCHALLOCATIONS.LIST>
       </INVENTORYENTRIESOUT.LIST>`;
 
   return `<ENVELOPE>
@@ -252,17 +268,22 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
   const itemEntries = params.items
     .map((item) => {
       const amount = (item.qty * item.rateRupees).toFixed(2);
-      const godownXml = item.godownName
-        ? `<GODOWNNAME>${escapeXml(item.godownName)}</GODOWNNAME>`
-        : '';
+      const godown = escapeXml(item.godownName || 'Main Location');
+      const itemAmount = isPurchase ? '-' + amount : amount;
       return `<ALLINVENTORYENTRIES.LIST>
           <STOCKITEMNAME>${escapeXml(item.itemName)}</STOCKITEMNAME>
           <ISDEEMEDPOSITIVE>${isPurchase ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
-          ${godownXml}
+          <RATE>${item.rateRupees} / ${escapeXml(item.unit)}</RATE>
+          <AMOUNT>${itemAmount}</AMOUNT>
           <ACTUALQTY>${item.qty} ${escapeXml(item.unit)}</ACTUALQTY>
           <BILLEDQTY>${item.qty} ${escapeXml(item.unit)}</BILLEDQTY>
-          <RATE>${item.rateRupees} / ${escapeXml(item.unit)}</RATE>
-          <AMOUNT>${isPurchase ? '-' + amount : amount}</AMOUNT>
+          <BATCHALLOCATIONS.LIST>
+            <GODOWNNAME>${godown}</GODOWNNAME>
+            <BATCHNAME>Primary Batch</BATCHNAME>
+            <AMOUNT>${itemAmount}</AMOUNT>
+            <ACTUALQTY>${item.qty} ${escapeXml(item.unit)}</ACTUALQTY>
+            <BILLEDQTY>${item.qty} ${escapeXml(item.unit)}</BILLEDQTY>
+          </BATCHALLOCATIONS.LIST>
           <ACCOUNTINGALLOCATIONS.LIST>
             <LEDGERNAME>${escapeXml(defaultLedger)}</LEDGERNAME>
             <ISDEEMEDPOSITIVE>${isPurchase ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
@@ -312,8 +333,8 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
 </ENVELOPE>`;
 }
 
-export function escapeXml(str: string): string {
-  return str
+export function escapeXml(str?: string | number | null): string {
+  return String(str === undefined || str === null ? '' : str)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

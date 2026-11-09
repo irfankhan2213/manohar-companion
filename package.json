@@ -7,7 +7,7 @@
     "dev": "pnpm --filter @saas/web dev",
     "server": "pnpm --filter @saas/server start",
     "server:dev": "pnpm --filter @saas/server dev",
-    "build": "pnpm --filter @saas/shared build && pnpm --filter @saas/server build && pnpm --filter @saas/web build && pnpm --filter @saas/agent build",
+    "build": "pnpm --filter @saas/shared build && pnpm --filter @saas/server build && pnpm --filter @saas/agent build && pnpm --filter @saas/web build",
     "preview": "pnpm --filter @saas/web preview",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",

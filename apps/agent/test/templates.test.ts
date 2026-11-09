@@ -25,6 +25,8 @@ describe('Tally XML Templates', () => {
   it('generates bills query XML', () => {
     const xml = buildBillsQuery();
     expect(xml).toContain('<TYPE>Bills</TYPE>');
+    expect(xml).toContain('<CHILDOF>$$GroupSundryDebtors</CHILDOF>');
+    expect(xml).toContain('<BELONGSTO>Yes</BELONGSTO>');
     expect(xml).toContain('BILLREF');
   });
 
@@ -35,7 +37,7 @@ describe('Tally XML Templates', () => {
     expect(xml).toContain('AlterId &gt; 1420');
   });
 
-  it('generates stock journal voucher XML for consumption (negative delta)', () => {
+  it('generates stock journal voucher XML with GODOWNNAME inside BATCHALLOCATIONS.LIST', () => {
     const xml = buildStockJournalVoucherXml({
       date: '20261017',
       voucherNumber: 'ADJ/001',
@@ -51,9 +53,12 @@ describe('Tally XML Templates', () => {
     expect(xml).toContain('<INVENTORYENTRIESOUT.LIST>');
     expect(xml).toContain('<ACTUALQTY>2 pcs</ACTUALQTY>');
     expect(xml).toContain('<AMOUNT>8400.00</AMOUNT>');
+    expect(xml).toContain('<BATCHALLOCATIONS.LIST>');
+    expect(xml).toContain('<GODOWNNAME>Ludhiana Main Godown</GODOWNNAME>');
+    expect(xml).toContain('<BATCHNAME>Primary Batch</BATCHNAME>');
   });
 
-  it('generates delivery challan voucher XML with items', () => {
+  it('generates delivery challan voucher XML with GODOWNNAME inside BATCHALLOCATIONS.LIST', () => {
     const xml = buildDeliveryChallanVoucherXml({
       date: '20261017',
       voucherNumber: 'DC/042/26-27',
@@ -75,5 +80,18 @@ describe('Tally XML Templates', () => {
     expect(xml).toContain('<PARTYLEDGERNAME>Sample Garments Pvt Ltd</PARTYLEDGERNAME>');
     expect(xml).toContain('(Vehicle: PB-10-CZ-8821)');
     expect(xml).toContain('<ACTUALQTY>10 pcs</ACTUALQTY>');
+    expect(xml).toContain('<BATCHALLOCATIONS.LIST>');
+    expect(xml).toContain('<GODOWNNAME>Ludhiana Main Godown</GODOWNNAME>');
+    expect(xml).toContain('<BATCHNAME>Primary Batch</BATCHNAME>');
+  });
+
+  it('escapeXml safely handles undefined, null and special XML characters', async () => {
+    const { escapeXml } = await import('../src/tally/templates.js');
+    expect(escapeXml(undefined)).toBe('');
+    expect(escapeXml(null)).toBe('');
+    expect(escapeXml('')).toBe('');
+    expect(escapeXml(0)).toBe('0');
+    expect(escapeXml(123)).toBe('123');
+    expect(escapeXml('A & B < C > "D" \'E\'')).toBe('A &amp; B &lt; C &gt; &quot;D&quot; &apos;E&apos;');
   });
 });

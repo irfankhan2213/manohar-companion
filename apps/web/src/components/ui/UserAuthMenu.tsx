@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { LogOut, Settings, ShieldCheck } from 'lucide-react';
 import { useAppStore } from '../../app/store.js';
 import { api } from '../../api/index.js';
@@ -10,6 +11,7 @@ import { Role } from '@saas/shared';
 
 export const UserAuthMenu: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { currentUser, currentTenant, logout } = useAppStore();
   const { showToast } = useToast();
   const [open, setOpen] = useState(false);
@@ -37,6 +39,7 @@ export const UserAuthMenu: React.FC = () => {
     try {
       await api.auth.logout();
     } catch {}
+    queryClient.clear();
     logout();
     setOpen(false);
     showToast({ message: 'Signed out successfully' });

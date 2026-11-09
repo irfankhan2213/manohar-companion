@@ -9,6 +9,7 @@ import {
   ArrowRight,
   Copy,
   Check,
+  MessageCircle,
 } from 'lucide-react';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
@@ -77,25 +78,47 @@ export const DevClientsScreen: React.FC = () => {
     },
   });
 
+  const buildWelcomeMessage = (info: { orgName: string; ownerName: string; phone: string; pin: string }) => {
+    const loginUrl = `${typeof window !== 'undefined' ? window.location.origin : 'https://manohar.evolveexpert.com'}/login`;
+    return (
+      `Welcome to *${info.orgName}* on Companion Cloud!\n\n` +
+      `Hi ${info.ownerName}, your workspace is ready:\n` +
+      `• *App Link:* ${loginUrl}\n` +
+      `• *Login Phone:* ${info.phone}\n` +
+      `• *4-Digit PIN:* ${info.pin}\n\n` +
+      `*Quick Setup:* Sign in and click "Download Pre-Paired ZIP" on the Home screen to connect your Office TallyPrime in 1 click.`
+    );
+  };
+
   const handleCopyCredentials = () => {
     if (!createdCredentials) return;
-    const text = `🎉 Welcome to Manohar Companion SaaS!\nOrganization: ${createdCredentials.orgName}\nOwner: ${createdCredentials.ownerName}\nPhone: ${createdCredentials.phone}\nPIN: ${createdCredentials.pin}\nLink: ${window.location.origin}/login`;
+    const text = buildWelcomeMessage(createdCredentials);
     navigator.clipboard.writeText(text);
     setCopied(true);
-    showToast({ message: 'Client credentials copied to clipboard' });
+    showToast({ message: 'Client Welcome Kit copied to clipboard' });
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSendWhatsAppWelcome = (info: { orgName: string; ownerName: string; phone: string; pin: string }) => {
+    const digits = (info.phone || '').replace(/\D/g, '');
+    const waPhone = digits.length === 10 ? `91${digits}` : digits;
+    const text = encodeURIComponent(buildWelcomeMessage(info));
+    window.open(`https://wa.me/${waPhone}?text=${text}`, '_blank', 'noopener,noreferrer');
   };
 
   const handleInspectClient = (client: any) => {
     if (client.companies?.[0]) {
-      switchTenant({
-        id: client.id,
-        name: client.name,
-        ownerName: client.ownerName,
-        ownerPhone: client.ownerPhone,
-        status: client.status,
-        createdAt: client.createdAt,
-      }, client.companies[0].id);
+      switchTenant(
+        {
+          id: client.id,
+          name: client.name,
+          ownerName: client.ownerName,
+          ownerPhone: client.ownerPhone,
+          status: client.status,
+          createdAt: client.createdAt,
+        },
+        client.companies[0].id
+      );
       queryClient.invalidateQueries();
       showToast({
         message: `Switched view to ${client.name}`,
@@ -127,7 +150,7 @@ export const DevClientsScreen: React.FC = () => {
             Platform Developer Console
           </span>
           <span className="text-footnote text-label-2">
-            You are signed in as <strong>{currentUser?.name || 'Dev Admin'}</strong>. You can onboard new client organizations, manage their initial business owners, and inspect client workspaces.
+            You are signed in as <strong>{currentUser?.name || 'Dev Admin'}</strong>. You can onboard new client organizations, send 1-click WhatsApp Welcome Kits, and inspect client workspaces.
           </span>
         </div>
       </div>
@@ -156,15 +179,26 @@ export const DevClientsScreen: React.FC = () => {
             <div><strong>Login PIN:</strong> {createdCredentials.pin}</div>
           </div>
 
-          <Button
-            variant="tinted"
-            size="small"
-            onClick={handleCopyCredentials}
-            className="flex items-center justify-center gap-1.5"
-          >
-            {copied ? <Check className="w-4 h-4 text-ok" /> : <Copy className="w-4 h-4" />}
-            <span>{copied ? 'Copied to Clipboard' : 'Copy Credentials for Client'}</span>
-          </Button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <Button
+              variant="tinted"
+              size="small"
+              onClick={handleCopyCredentials}
+              className="flex items-center justify-center gap-1.5"
+            >
+              {copied ? <Check className="w-4 h-4 text-ok" /> : <Copy className="w-4 h-4" />}
+              <span>{copied ? 'Copied Welcome Kit' : 'Copy Welcome Kit'}</span>
+            </Button>
+
+            <Button
+              size="small"
+              onClick={() => handleSendWhatsAppWelcome(createdCredentials)}
+              className="flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            >
+              <MessageCircle className="w-4 h-4" />
+              <span>Send WhatsApp Welcome Kit</span>
+            </Button>
+          </div>
         </div>
       )}
 
@@ -184,7 +218,7 @@ export const DevClientsScreen: React.FC = () => {
               key={client.id}
               className="p-4 bg-surface rounded-2xl border border-separator/40 flex flex-col gap-3 mb-2.5 last:mb-0"
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
                     <Building2 className="w-5 h-5 stroke-[2.2]" />
@@ -204,15 +238,34 @@ export const DevClientsScreen: React.FC = () => {
                   </div>
                 </div>
 
-                <Button
-                  size="small"
-                  variant="tinted"
-                  onClick={() => handleInspectClient(client)}
-                  className="flex items-center gap-1.5"
-                >
-                  <span>Open Workspace</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="small"
+                    variant="tinted"
+                    onClick={() =>
+                      handleSendWhatsAppWelcome({
+                        orgName: client.name,
+                        ownerName: client.owner?.name || client.ownerName || 'Owner',
+                        phone: client.owner?.phone || client.ownerPhone || '',
+                        pin: '1234',
+                      })
+                    }
+                    className="flex items-center gap-1"
+                    title="Send WhatsApp Welcome Invite"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">WhatsApp Invite</span>
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="tinted"
+                    onClick={() => handleInspectClient(client)}
+                    className="flex items-center gap-1.5"
+                  >
+                    <span>Open Workspace</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
               </div>
 
               {/* Owner and Connected Companies Details */}

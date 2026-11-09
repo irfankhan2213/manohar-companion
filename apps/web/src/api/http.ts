@@ -80,6 +80,11 @@ export const httpApiClient: ApiClient = {
         { method: 'POST', body: JSON.stringify({ companyId }) }
       ),
     triggerSync: () => fetchJSON<{ success: boolean; syncedAt: string; ledgersCount: number; vouchersCount: number }>('/agent/sync', { method: 'POST' }),
+    resetAlterId: (companyId?: string) =>
+      fetchJSON<{ success: boolean; message: string; companyId?: string }>('/agent/reset-alter-id', {
+        method: 'POST',
+        body: JSON.stringify({ companyId }),
+      }),
   },
   home: {
     summary: (companyId: Id | 'all') => fetchJSON<HomeSummary>(`/home/summary?companyId=${companyId}`),
@@ -135,7 +140,7 @@ export const httpApiClient: ApiClient = {
         if (query) params.set('q', query);
         const qs = params.toString() ? `?${params.toString()}` : '';
         const list = await fetchJSON<Array<{ item: StockItem; totalQty: number; balances: StockBalance[]; lowStock: boolean }>>(`/stock${qs}`);
-        return list.map(l => l.item);
+        return list.map(l => ({ ...l.item, totalQty: l.totalQty, balances: l.balances }));
       },
       get: async (id: Id) => {
         try {

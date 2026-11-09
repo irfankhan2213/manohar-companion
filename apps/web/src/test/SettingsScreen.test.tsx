@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
@@ -103,5 +103,38 @@ describe('SettingsScreen Component', () => {
 
     // Save changes
     fireEvent.click(screen.getByText('Save Staff Changes'));
+  });
+
+  it('clears queryClient cache and signs out user when Sign Out is clicked', async () => {
+    const clearSpy = vi.spyOn(queryClient, 'clear');
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /Sign Out/i })).toBeInTheDocument();
+    });
+
+    const signOutBtn = screen.getByRole('button', { name: /Sign Out/i });
+    fireEvent.click(signOutBtn);
+
+    await waitFor(() => {
+      expect(clearSpy).toHaveBeenCalled();
+    });
+    clearSpy.mockRestore();
+  });
+
+  it('triggers remote AlterID reset when Reset AlterID button is clicked', async () => {
+    renderComponent();
+
+    await waitFor(() => {
+      expect(screen.getByText('Remote AlterID Reset')).toBeInTheDocument();
+      expect(screen.getByText('Reset AlterID')).toBeInTheDocument();
+    });
+
+    const resetBtn = screen.getByText('Reset AlterID');
+    fireEvent.click(resetBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/AlterID reset queued/i)).toBeInTheDocument();
+    });
   });
 });

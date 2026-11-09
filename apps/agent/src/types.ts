@@ -53,6 +53,14 @@ export interface TallySyncPayload {
   durationMs: number;
 }
 
+export interface CompanySyncConfig {
+  companyId: string;
+  companyName: string;
+  tallyName?: string;
+  lastAlterId?: number;
+  lastSyncedAt?: string;
+}
+
 export interface AgentConfig {
   tallyUrl: string; // e.g. "http://127.0.0.1:9000"
   cloudUrl?: string; // e.g. "https://manohar.evolveexpert.com"
@@ -70,10 +78,14 @@ export interface AgentState {
   agentSecretKey?: string;
   tenantId?: string;
   companyName?: string;
+  companies?: CompanySyncConfig[];
   pairingKey?: string;
   lastAlterId: number;
   lastSyncedAt?: string;
   status: 'online' | 'offline';
+  tallyPort?: number;
+  openTallyCompanies?: string[];
+  bundleSha256?: string;
   cloudStatus?: 'connected' | 'disconnected' | 'error';
   lastCloudSyncAt?: string;
   lastSyncStats?: {

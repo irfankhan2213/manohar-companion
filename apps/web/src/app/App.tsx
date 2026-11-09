@@ -28,7 +28,7 @@ import { TasksScreen } from '../features/tasks/TasksScreen.js';
 import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
 import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
 
-const queryClient = new QueryClient({
+export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60,
@@ -54,8 +54,25 @@ const AppLayout: React.FC = () => {
   );
 };
 
-const RequireAuth: React.FC = () => {
-  const { authToken, currentUser, setUser, logout } = useAppStore();
+const RequireAuth: React.FC<{ standalone?: boolean; children?: React.ReactElement }> = ({
+  standalone,
+  children,
+}) => {
+  const { authToken, currentUser, currentTenant, currentCompanyId, setUser, logout } = useAppStore();
+  const prevScopeRef = React.useRef<string>(`${currentTenant?.id || ''}_${currentCompanyId}`);
+
+  // Flush TanStack Query cache on logout or tenant/branch switch to prevent cross-tenant cache bleed
+  React.useEffect(() => {
+    if (!authToken) {
+      queryClient.clear();
+      return;
+    }
+    const nextScope = `${currentTenant?.id || ''}_${currentCompanyId}`;
+    if (prevScopeRef.current && prevScopeRef.current !== nextScope) {
+      queryClient.invalidateQueries();
+    }
+    prevScopeRef.current = nextScope;
+  }, [authToken, currentTenant?.id, currentCompanyId]);
 
   React.useEffect(() => {
     if (authToken) {
@@ -67,6 +84,7 @@ const RequireAuth: React.FC = () => {
           }
         })
         .catch(() => {
+          queryClient.clear();
           logout();
         });
 
@@ -83,6 +101,9 @@ const RequireAuth: React.FC = () => {
 
   if (!authToken || !currentUser) {
     return <Navigate to="/login" replace />;
+  }
+  if (standalone && children) {
+    return children;
   }
   return <AppLayout />;
 };
@@ -116,9 +137,23 @@ export const App: React.FC = () => {
             {/* Public Login Route */}
             <Route path="/login" element={<LoginScreen />} />
 
-            {/* Standalone Print Documents (No App chrome, Sidebar, or TabBar) */}
-            <Route path="/print/challan/:id" element={<ChallanPrintScreen />} />
-            <Route path="/print/statement/:partyId" element={<StatementPrintScreen />} />
+            {/* Auth-Guarded Standalone Print Documents (No App chrome, Sidebar, or TabBar) */}
+            <Route
+              path="/print/challan/:id"
+              element={
+                <RequireAuth standalone>
+                  <ChallanPrintScreen />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/print/statement/:partyId"
+              element={
+                <RequireAuth standalone>
+                  <StatementPrintScreen />
+                </RequireAuth>
+              }
+            />
 
             {/* Protected App Layout */}
             <Route element={<RequireAuth />}>

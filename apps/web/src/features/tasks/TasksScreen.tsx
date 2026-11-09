@@ -22,6 +22,7 @@ import { Sheet } from '../../components/ui/Sheet.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
 import { useToast } from '../../components/ui/Toast.js';
 import { SAMPLE_TASK_PHOTO_1, SAMPLE_TASK_PHOTO_2 } from '../../mock/seed.js';
+import { compressImageFile } from '../../utils/image.js';
 
 export const TasksScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -162,17 +163,12 @@ export const TasksScreen: React.FC = () => {
     },
   });
 
+
   // Handle Photo File Upload for New Task
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setPhotoDataUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      compressImageFile(file, setPhotoDataUrl);
     }
   };
 
@@ -180,13 +176,7 @@ export const TasksScreen: React.FC = () => {
   const handleCompletionFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          setCompletionPhotoUrl(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+      compressImageFile(file, setCompletionPhotoUrl);
     }
   };
 

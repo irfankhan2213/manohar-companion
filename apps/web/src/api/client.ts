@@ -66,6 +66,7 @@ export interface ApiClient {
       ledgersCount: number;
       vouchersCount: number;
     }>;
+    resetAlterId: (companyId?: string) => Promise<{ success: boolean; message: string; companyId?: string }>;
   };
   home: {
     summary: (companyId: Id | 'all') => Promise<HomeSummary>;
@@ -98,7 +99,7 @@ export interface ApiClient {
   };
   stock: {
     items: {
-      list: (companyId: Id | 'all', query?: string) => Promise<StockItem[]>;
+      list: (companyId: Id | 'all', query?: string) => Promise<Array<StockItem & { totalQty?: number; balances?: StockBalance[] }>>;
       get: (id: Id) => Promise<{ item: StockItem; balances: StockBalance[] } | null>;
       create: (data: Partial<StockItem> & { name: string; unit?: string; group?: string; rate?: number; balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;
       update: (id: Id, data: Partial<StockItem> & { balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;

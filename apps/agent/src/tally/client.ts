@@ -32,6 +32,39 @@ export interface TallyClientOptions {
   timeoutMs?: number;
 }
 
+const CANDIDATE_TALLY_PORTS = [9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9999];
+
+/**
+ * Normalizes a Tally company name by stripping trailing FY suffixes like "- (from 1-Apr-2026)" or "(2026-27)"
+ */
+export function normalizeTallyCompanyName(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .replace(/\s*-\s*\(from.*?\)/gi, '')
+    .replace(/\s*\(\s*\d{2,4}\s*-\s*\d{2,4}\s*\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function matchFuzzyCompanyName(requestedName: string | undefined, activeCompanies: string[]): string | undefined {
+  if (!requestedName) return activeCompanies[0];
+  const reqNorm = normalizeTallyCompanyName(requestedName);
+  if (!reqNorm) return requestedName;
+
+  for (const cand of activeCompanies) {
+    if (cand.toLowerCase().trim() === requestedName.toLowerCase().trim()) {
+      return cand;
+    }
+  }
+  for (const cand of activeCompanies) {
+    const candNorm = normalizeTallyCompanyName(cand);
+    if (candNorm === reqNorm || candNorm.includes(reqNorm) || reqNorm.includes(candNorm)) {
+      return cand;
+    }
+  }
+  return requestedName;
+}
+
 export class TallyClient {
   private url: string;
   private mock: boolean;
@@ -51,7 +84,47 @@ export class TallyClient {
     return this.mock;
   }
 
-  private async postXml(xmlPayload: string): Promise<string> {
+  public getUrl(): string {
+    return this.url;
+  }
+
+  public getActivePort(): number {
+    try {
+      const u = new URL(this.url);
+      return parseInt(u.port || '9000', 10) || 9000;
+    } catch {
+      return 9000;
+    }
+  }
+
+  /**
+   * Automatically scans local ports 9000-9010 & 9999 when the configured port is unreachable
+   */
+  public async discoverActivePort(): Promise<string | null> {
+    if (this.mock) return this.url;
+    const probeXml = buildCompanyInfoQuery();
+    for (const port of CANDIDATE_TALLY_PORTS) {
+      const candidateUrl = `http://127.0.0.1:${port}`;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1200);
+        const resp = await fetch(candidateUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/xml;charset=utf-8' },
+          body: probeXml,
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (resp.ok) {
+          this.url = candidateUrl;
+          return candidateUrl;
+        }
+      } catch {}
+    }
+    return null;
+  }
+
+  private async postXml(xmlPayload: string, allowPortScan: boolean = true): Promise<string> {
     if (this.mock) {
       // Determine request type from payload
       if (xmlPayload.includes('CompanyInfo')) return getMockCompanyInfoXml();
@@ -94,22 +167,29 @@ export class TallyClient {
       return await resp.text();
     } catch (err: any) {
       if (this.mock) {
-        return this.postXml(xmlPayload);
+        return this.postXml(xmlPayload, false);
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on this port.`);
+      // If connection failed on default port, auto-scan ports 9000-9010 & 9999 once
+      if (allowPortScan) {
+        const discovered = await this.discoverActivePort();
+        if (discovered) {
+          return this.postXml(xmlPayload, false);
+        }
+      }
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 9000-9010.`);
     }
   }
 
-  public async ping(): Promise<{ ok: boolean; company?: string; error?: string }> {
+  public async ping(): Promise<{ ok: boolean; company?: string; port?: number; error?: string }> {
     if (this.mock) {
-      return { ok: true, company: 'Manohar Traders (Mock Mode)' };
+      return { ok: true, company: 'Manohar Traders (Mock Mode)', port: 9000 };
     }
     try {
       const xml = await this.postXml(buildCompanyInfoQuery());
       const info = parseCompanyInfoResponse(xml);
-      return { ok: true, company: info.name };
+      return { ok: true, company: info.name, port: this.getActivePort() };
     } catch (err: any) {
-      return { ok: false, error: err.message };
+      return { ok: false, port: this.getActivePort(), error: err.message };
     }
   }
 
