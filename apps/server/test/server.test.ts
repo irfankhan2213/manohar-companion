@@ -665,13 +665,51 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(ledgerRes.body[0].voucherType).toBe('Balance');
   });
 
-  it('auto-maps and auto-provisions newly opened Tally companies without contaminating primary company c1', async () => {
-    // Simulate agent pushing a newly opened Tally company ("Sunrise Industrial Machines") while passing default companyId "c1"
-    const pushRes = await request(app)
+  it('accepts all data into paired companyId even when Tally companyName differs from Web App companyName, and auto-provisions additional open companies when no companyId is passed', async () => {
+    // 1. Agent pushes primary open Tally company ("Shree Balaji Enterprises (2025-26)") with paired companyId "c1"
+    // even though c1 was named "Manohar Traders Pvt Ltd" in the Web App
+    const primaryRes = await request(app)
       .post('/api/sync/push')
       .set('Authorization', `Bearer ${authToken}`)
       .send({
         companyId: 'c1',
+        companyName: 'Shree Balaji Enterprises (2025-26)',
+        alterId: 400,
+        parties: [
+          {
+            id: 'p-balaji-1',
+            name: 'Balaji Primary Customer',
+            city: 'Ludhiana',
+            closingBalance: 6400000,
+          },
+        ],
+        bills: [],
+        stockItems: [],
+      });
+
+    expect(primaryRes.status).toBe(200);
+    expect(primaryRes.body.success).toBe(true);
+    expect(primaryRes.body.companyId).toBe('c1');
+
+    // Verify c1 received the data directly and updated its name/tallyName to match Tally
+    const c1PartiesRes = await request(app)
+      .get('/api/parties?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(c1PartiesRes.status).toBe(200);
+    expect(c1PartiesRes.body.some((p: any) => p.name === 'Balaji Primary Customer')).toBe(true);
+
+    const c1CompRes = await request(app)
+      .get('/api/companies/c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(c1CompRes.status).toBe(200);
+    expect(c1CompRes.body.tallyName).toBe('Shree Balaji Enterprises (2025-26)');
+    expect(c1CompRes.body.name).toBe('Shree Balaji Enterprises (2025-26)');
+
+    // 2. Agent pushes a 2nd simultaneously open Tally company ("Sunrise Industrial Machines") without companyId
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
         companyName: 'Sunrise Industrial Machines',
         alterId: 501,
         parties: [
@@ -697,17 +735,9 @@ describe('Manohar Backend API & Sync Server', () => {
 
     expect(pushRes.status).toBe(200);
     expect(pushRes.body.success).toBe(true);
-    // Server must NOT dump Sunrise data into c1; it must auto-provision/resolve a separate companyId
     expect(pushRes.body.companyId).toBeDefined();
     expect(pushRes.body.companyId).not.toBe('c1');
     const newCompId = pushRes.body.companyId;
-
-    // Verify c1 does NOT contain Sunrise Exclusive Buyer
-    const c1PartiesRes = await request(app)
-      .get('/api/parties?companyId=c1')
-      .set('Authorization', `Bearer ${authToken}`);
-    expect(c1PartiesRes.status).toBe(200);
-    expect(c1PartiesRes.body.some((p: any) => p.name === 'Sunrise Exclusive Buyer')).toBe(false);
 
     // Verify newCompId contains Sunrise Exclusive Buyer and Sunrise Heavy Loom X1
     const newPartiesRes = await request(app)

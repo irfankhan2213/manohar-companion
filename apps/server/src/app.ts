@@ -148,17 +148,7 @@ export function createApp(dbPath?: string): express.Express {
       return (db.prepare('SELECT * FROM companies LIMIT 1').get() as any) || null;
     }
 
-    // If byId exists and its name/tallyName matches companyName (or is a generic placeholder), use byId
-    if (
-      byId &&
-      (namesMatchFuzzy(byId.name, cleanName) ||
-        namesMatchFuzzy(byId.tallyName, cleanName) ||
-        normalizeTallyName(byId.name) === 'tally company')
-    ) {
-      return byId;
-    }
-
-    // Search within the tenant (or globally if no tenant) for a company matching cleanName
+    // Search within the tenant (or globally if no tenant) for an existing company matching cleanName
     const candidateRows = effectiveTenantId
       ? (db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(effectiveTenantId) as any[])
       : (db.prepare('SELECT * FROM companies').all() as any[]);
@@ -177,8 +167,14 @@ export function createApp(dbPath?: string): express.Express {
     );
     if (fuzzyMatch) return fuzzyMatch;
 
-    // 3. If autoCreate is enabled and a new Tally company is open for this tenant, auto-provision it
-    // so multi-company Tally setups never contaminate another company's ledgers/bills/stock
+    // 3. If the agent explicitly provided its paired companyId (byId), ALWAYS accept and sync into byId
+    // regardless of whether the Web App's initial company name differed from Tally's company name!
+    if (byId) {
+      return byId;
+    }
+
+    // 4. If no companyId was provided (e.g. a 2nd/3rd simultaneously open Tally company) and autoCreate is enabled,
+    // auto-provision a new company record for this tenant
     if (autoCreate && effectiveTenantId) {
       const slug =
         normalizeTallyName(cleanName)
@@ -202,7 +198,6 @@ export function createApp(dbPath?: string): express.Express {
       } catch {}
     }
 
-    if (byId) return byId;
     if (effectiveTenantId) {
       const byTenant = db.prepare('SELECT * FROM companies WHERE tenantId = ? LIMIT 1').get(effectiveTenantId) as any;
       if (byTenant) return byTenant;
@@ -1647,7 +1642,8 @@ export function createApp(dbPath?: string): express.Express {
 
     if (targetComp?.id) {
       if (req.body?.companyName && typeof req.body.companyName === 'string' && req.body.companyName.trim()) {
-        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ? WHERE id = ?").run(now, req.body.companyName.trim(), targetComp.id);
+        const syncedName = req.body.companyName.trim();
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ?, name = ? WHERE id = ?").run(now, syncedName, syncedName, targetComp.id);
       } else {
         db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, targetComp.id);
       }
@@ -2310,6 +2306,29 @@ export function createApp(dbPath?: string): express.Express {
             VALUES (?, ?, ?)
             ON CONFLICT(itemId, godownId) DO UPDATE SET qty = excluded.qty
           `).run(itemId, b.godownId, b.qty);
+
+          if (b.qty !== 0) {
+            const godownRow = db.prepare('SELECT name FROM godowns WHERE id = ?').get(b.godownId) as any;
+            const outboxId = `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const adjPayload = JSON.stringify({
+              id: outboxId,
+              outboxId,
+              kind: 'stock_journal',
+              refId: itemId,
+              itemName: name.trim(),
+              godownId: b.godownId,
+              godownName: godownRow?.name || 'Main Location',
+              deltaQty: b.qty,
+              unit: unit ? String(unit).trim() : 'pcs',
+              rate: typeof rate === 'number' ? Math.round(rate) : 0,
+              reason: `Initial stock created in Web App (${name.trim()})`,
+              date: getTodayIST(),
+            });
+            db.prepare(`
+              INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+              VALUES (?, ?, 'stock_journal', ?, 'queued', 1, NULL, ?)
+            `).run(outboxId, resolvedCompanyId, itemId, adjPayload);
+          }
         }
       }
     }
@@ -2434,11 +2453,39 @@ export function createApp(dbPath?: string): express.Express {
     if (Array.isArray(balances)) {
       for (const b of balances) {
         if (b.godownId && typeof b.qty === 'number') {
+          const prevBal = db.prepare('SELECT qty FROM stock_balances WHERE itemId = ? AND godownId = ?').get(it.id, b.godownId) as any;
+          const prevQty = typeof prevBal?.qty === 'number' ? prevBal.qty : 0;
+          const deltaQty = b.qty - prevQty;
+
           db.prepare(`
             INSERT INTO stock_balances (itemId, godownId, qty)
             VALUES (?, ?, ?)
             ON CONFLICT(itemId, godownId) DO UPDATE SET qty = excluded.qty
           `).run(it.id, b.godownId, b.qty);
+
+          if (deltaQty !== 0) {
+            const godownRow = db.prepare('SELECT name FROM godowns WHERE id = ?').get(b.godownId) as any;
+            const outboxId = `out-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            const compId = it.companyId || 'c1';
+            const adjPayload = JSON.stringify({
+              id: outboxId,
+              outboxId,
+              kind: 'stock_journal',
+              refId: it.id,
+              itemName: updatedName,
+              godownId: b.godownId,
+              godownName: godownRow?.name || 'Main Location',
+              deltaQty,
+              unit: updatedUnit || 'pcs',
+              rate: updatedRate || 0,
+              reason: `Stock updated in Web App (${prevQty} -> ${b.qty})`,
+              date: getTodayIST(),
+            });
+            db.prepare(`
+              INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+              VALUES (?, ?, 'stock_journal', ?, 'queued', 1, NULL, ?)
+            `).run(outboxId, compId, it.id, adjPayload);
+          }
         }
       }
     }
@@ -4120,22 +4167,28 @@ export function createApp(dbPath?: string): express.Express {
             : s.id;
         stmt.run(safeItemId, resolvedCompanyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);
         if (s.closingQty !== undefined) {
-          let defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
-          if (!defaultGodown) {
-            const newGodownId = `g-${resolvedCompanyId}-main`;
-            db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
-              newGodownId,
-              resolvedCompanyId,
-              'Main Location'
-            );
-            defaultGodown = { id: newGodownId };
+          // Do not overwrite Web App stock balance with stale Tally quantity while an outbox adjustment for this item is still queued
+          const hasPendingOutbox = db
+            .prepare("SELECT 1 FROM outbox_items WHERE companyId = ? AND status = 'queued' AND (refId = ? OR payload LIKE ?) LIMIT 1")
+            .get(resolvedCompanyId, safeItemId, `%${safeItemId}%`);
+          if (!hasPendingOutbox) {
+            let defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
+            if (!defaultGodown) {
+              const newGodownId = `g-${resolvedCompanyId}-main`;
+              db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
+                newGodownId,
+                resolvedCompanyId,
+                'Main Location'
+              );
+              defaultGodown = { id: newGodownId };
+            }
+            const godownId = defaultGodown.id;
+            db.prepare(`
+              INSERT INTO stock_balances (itemId, godownId, qty)
+              VALUES (?, ?, ?)
+              ON CONFLICT(itemId, godownId) DO UPDATE SET qty = ?
+            `).run(safeItemId, godownId, s.closingQty, s.closingQty);
           }
-          const godownId = defaultGodown.id;
-          db.prepare(`
-            INSERT INTO stock_balances (itemId, godownId, qty)
-            VALUES (?, ?, ?)
-            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = ?
-          `).run(safeItemId, godownId, s.closingQty, s.closingQty);
         }
         stockUpdated++;
       }
@@ -4148,7 +4201,8 @@ export function createApp(dbPath?: string): express.Express {
 
     if (compRow?.id) {
       if (companyName && typeof companyName === 'string' && companyName.trim()) {
-        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ? WHERE id = ?").run(now, companyName.trim(), compRow.id);
+        const syncedName = companyName.trim();
+        db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online', tallyName = ?, name = ? WHERE id = ?").run(now, syncedName, syncedName, compRow.id);
       } else {
         db.prepare("UPDATE companies SET lastSyncedAt = ?, agentStatus = 'online' WHERE id = ?").run(now, compRow.id);
       }

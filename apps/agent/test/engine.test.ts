@@ -40,10 +40,11 @@ describe('Sync Engine', () => {
     expect(state.lastAlterId).toBe(1480);
     expect(state.status).toBe('online');
 
-    // Second sync should fetch 0 new items because AlterID is 1480
+    // Second sync also fetches all live ledgers & stock items (so voucher entries in Tally that change
+    // closingBalance or closingQty without altering Master $AlterId are always synced!)
     const payload2 = await engine.runSyncOnce();
-    expect(payload2.ledgers.length).toBe(0);
-    expect(payload2.stockItems.length).toBe(0);
+    expect(payload2.ledgers.length).toBe(5);
+    expect(payload2.stockItems.length).toBe(4);
     expect(payload2.maxAlterId).toBe(1480);
 
     // Clean up test file
@@ -424,6 +425,70 @@ describe('Sync Engine', () => {
       const updatedState = store.get();
       expect(updatedState.openTallyCompanies).toEqual(['Manohar Traders', 'Manohar Hosiery Works']);
       expect(updatedState.companies?.some((c) => c.companyId === 'c-manohar-hosiery')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);
+      const bakPath = `${testStatePath}.bak`;
+      if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
+    }
+  });
+
+  it('sends all data for whatever company is open in Tally even when Web App companyName is completely different', async () => {
+    const store = new StateStore(testStatePath);
+    store.update({
+      companyId: 'c1',
+      companyName: 'Different Name In Web App',
+      lastAlterId: 9999,
+      status: 'online',
+    });
+
+    const client = new TallyClient({ mock: true });
+    let pushedBody: any = null;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/sync/push')) {
+        pushedBody = JSON.parse(init.body);
+        return new Response(
+          JSON.stringify({
+            success: true,
+            companyId: 'c1',
+            companyName: pushedBody.companyName,
+            partiesUpdated: pushedBody.parties.length,
+            billsUpdated: pushedBody.bills.length,
+            stockUpdated: pushedBody.stockItems.length,
+          }),
+          { status: 200 }
+        );
+      }
+      if (urlStr.includes('/api/sync/pull')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true, commands: [] }), { status: 200 });
+    };
+
+    try {
+      const engine = new SyncEngine({
+        client,
+        store,
+        cloudUrl: 'https://test-cloud.example.com',
+        companyId: 'c1',
+      });
+
+      const payload = await engine.runSyncOnce();
+
+      expect(payload.company.name).toBe('Manohar Traders');
+      expect(payload.ledgers.length).toBe(5);
+      expect(payload.bills.length).toBe(4);
+      expect(payload.stockItems.length).toBe(4);
+
+      expect(pushedBody).toBeDefined();
+      expect(pushedBody.companyId).toBe('c1');
+      expect(pushedBody.companyName).toBe('Manohar Traders');
+      expect(pushedBody.parties.length).toBe(5);
+      expect(pushedBody.bills.length).toBe(4);
+      expect(pushedBody.stockItems.length).toBe(4);
+      expect(store.get().companyName).toBe('Manohar Traders');
     } finally {
       globalThis.fetch = originalFetch;
       if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);

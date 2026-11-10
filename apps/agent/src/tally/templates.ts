@@ -255,6 +255,20 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
     </DESC>
     <DATA>
       <TALLYMESSAGE>
+        <UNIT NAME="${escapeXml(params.unit)}" ACTION="Create">
+          <NAME>${escapeXml(params.unit)}</NAME>
+          <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
+        </UNIT>
+      </TALLYMESSAGE>
+      <TALLYMESSAGE>
+        <STOCKITEM NAME="${escapeXml(params.itemName)}" ACTION="Alter">
+          <NAME.LIST>
+            <NAME>${escapeXml(params.itemName)}</NAME>
+          </NAME.LIST>
+          <BASEUNITS>${escapeXml(params.unit)}</BASEUNITS>
+        </STOCKITEM>
+      </TALLYMESSAGE>
+      <TALLYMESSAGE>
         <VOUCHER VCHTYPE="Stock Journal" ACTION="Create">
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
