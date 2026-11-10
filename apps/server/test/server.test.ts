@@ -664,4 +664,62 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(ledgerRes.body[0].debit).toBe(4500000);
     expect(ledgerRes.body[0].voucherType).toBe('Balance');
   });
+
+  it('auto-maps and auto-provisions newly opened Tally companies without contaminating primary company c1', async () => {
+    // Simulate agent pushing a newly opened Tally company ("Sunrise Industrial Machines") while passing default companyId "c1"
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: 'c1',
+        companyName: 'Sunrise Industrial Machines',
+        alterId: 501,
+        parties: [
+          {
+            id: 'p-sunrise-cust-1',
+            name: 'Sunrise Exclusive Buyer',
+            city: 'Panipat',
+            closingBalance: 9200000,
+          },
+        ],
+        bills: [],
+        stockItems: [
+          {
+            id: 's-sunrise-item-1',
+            name: 'Sunrise Heavy Loom X1',
+            unit: 'set',
+            group: 'Looms',
+            rate: 12500000,
+            closingQty: 7,
+          },
+        ],
+      });
+
+    expect(pushRes.status).toBe(200);
+    expect(pushRes.body.success).toBe(true);
+    // Server must NOT dump Sunrise data into c1; it must auto-provision/resolve a separate companyId
+    expect(pushRes.body.companyId).toBeDefined();
+    expect(pushRes.body.companyId).not.toBe('c1');
+    const newCompId = pushRes.body.companyId;
+
+    // Verify c1 does NOT contain Sunrise Exclusive Buyer
+    const c1PartiesRes = await request(app)
+      .get('/api/parties?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(c1PartiesRes.status).toBe(200);
+    expect(c1PartiesRes.body.some((p: any) => p.name === 'Sunrise Exclusive Buyer')).toBe(false);
+
+    // Verify newCompId contains Sunrise Exclusive Buyer and Sunrise Heavy Loom X1
+    const newPartiesRes = await request(app)
+      .get(`/api/parties?companyId=${newCompId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(newPartiesRes.status).toBe(200);
+    expect(newPartiesRes.body.some((p: any) => p.name === 'Sunrise Exclusive Buyer')).toBe(true);
+
+    const newStockRes = await request(app)
+      .get(`/api/stock?companyId=${newCompId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(newStockRes.status).toBe(200);
+    expect(newStockRes.body.some((s: any) => s.item.name === 'Sunrise Heavy Loom X1' && s.totalQty === 7)).toBe(true);
+  });
 });

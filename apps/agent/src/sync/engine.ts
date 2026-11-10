@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { TallyClient, matchFuzzyCompanyName } from '../tally/client.js';
+import { TallyClient, matchFuzzyCompanyName, normalizeTallyCompanyName } from '../tally/client.js';
 import { StateStore } from './state.js';
 import {
   TallySyncPayload,
@@ -11,6 +11,7 @@ import {
   TallyLedger,
   TallyBill,
   TallyStockItem,
+  CompanySyncConfig,
 } from '../types.js';
 import {
   StockAdjustmentVoucherParams,
@@ -146,10 +147,19 @@ export class SyncEngine {
     }
   }
 
+  private findCompanyConfigByName(name: string | undefined, list: CompanySyncConfig[] = []): CompanySyncConfig | undefined {
+    if (!name) return undefined;
+    const norm = normalizeTallyCompanyName(name);
+    if (!norm) return undefined;
+    return list.find((c) => {
+      const cNorm = normalizeTallyCompanyName(c.tallyName || c.companyName);
+      return cNorm && (cNorm === norm || cNorm.includes(norm) || norm.includes(cNorm));
+    });
+  }
+
   public async runSyncOnce(): Promise<TallySyncPayload> {
     const startTime = Date.now();
     const currentState = this.store.get();
-    const lastAlterId = currentState.lastAlterId || 0;
     const configuredCompanyName = currentState.companyName;
 
     this.syncCount += 1;
@@ -158,7 +168,7 @@ export class SyncEngine {
     }
 
     try {
-      // 1. Fetch Company Info from Tally (auto-detect currently active company & port from Tally)
+      // 1. Fetch Company Info & Discover ALL Open Companies in TallyPrime
       let company: TallyCompanyInfo;
       try {
         company = await this.client.getCompanyInfo();
@@ -166,11 +176,27 @@ export class SyncEngine {
         company = await this.client.getCompanyInfo(configuredCompanyName);
       }
 
+      let openCompanies: TallyCompanyInfo[] = [];
+      try {
+        openCompanies = await this.client.getOpenCompanies();
+      } catch {
+        openCompanies = company?.name ? [company] : [];
+      }
+
+      const openNamesSet = new Set<string>();
+      const openCompanyNames: string[] = [];
+      for (const oc of [company, ...openCompanies]) {
+        if (oc?.name && !openNamesSet.has(oc.name.toLowerCase())) {
+          openNamesSet.add(oc.name.toLowerCase());
+          openCompanyNames.push(oc.name);
+        }
+      }
+
       // Fuzzy match company name (ignoring trailing FY suffixes like "- (from 1-Apr-2026)")
-      const matchedName = matchFuzzyCompanyName(configuredCompanyName, company?.name ? [company.name] : []);
+      const matchedName = matchFuzzyCompanyName(configuredCompanyName, openCompanyNames);
       if (configuredCompanyName && company?.name && matchedName && matchedName.toLowerCase() !== company.name.toLowerCase()) {
         try {
-          const specific = await this.client.getCompanyInfo(configuredCompanyName);
+          const specific = await this.client.getCompanyInfo(matchedName);
           if (specific?.name) company = specific;
         } catch {
           // Keep active company
@@ -179,18 +205,34 @@ export class SyncEngine {
 
       const targetCompany = company?.name || configuredCompanyName;
       const activePort = this.client.getActivePort();
+
+      // Resolve the accurate companyId & lastAlterId for targetCompany so switching companies in Tally never cross-contaminates IDs
+      const knownList: CompanySyncConfig[] = Array.isArray(currentState.companies) ? [...currentState.companies] : [];
+      const matchedConfig = this.findCompanyConfigByName(targetCompany, knownList);
+      const isPrimaryCompanyMatch =
+        !configuredCompanyName ||
+        !targetCompany ||
+        normalizeTallyCompanyName(configuredCompanyName) === normalizeTallyCompanyName(targetCompany) ||
+        normalizeTallyCompanyName(configuredCompanyName).includes(normalizeTallyCompanyName(targetCompany)) ||
+        normalizeTallyCompanyName(targetCompany).includes(normalizeTallyCompanyName(configuredCompanyName));
+
+      const primaryCompanyId = matchedConfig?.companyId || (isPrimaryCompanyMatch ? (this.companyId || currentState.companyId) : undefined);
+      const lastAlterId = matchedConfig && !isPrimaryCompanyMatch
+        ? (matchedConfig.lastAlterId || 0)
+        : (currentState.lastAlterId || 0);
+
       if (company?.name) {
         this.store.update({
-          companyName: company.name,
+          companyName: isPrimaryCompanyMatch ? company.name : (configuredCompanyName || company.name),
           tallyPort: activePort,
-          openTallyCompanies: [company.name],
+          openTallyCompanies: openCompanyNames.length > 0 ? openCompanyNames : [company.name],
         });
       }
 
       // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (stock adjustments & challans) FIRST
       // and write them to Tally BEFORE reading Tally's closing stock & ledger balances!
-      if (this.cloudUrl) {
-        await this.pullOutboxFromCloud(this.companyId || currentState.companyId, targetCompany);
+      if (this.cloudUrl && primaryCompanyId) {
+        await this.pullOutboxFromCloud(primaryCompanyId, targetCompany);
       }
 
       // 3. Fetch Ledgers incrementally where AlterID > lastAlterId
@@ -238,40 +280,116 @@ export class SyncEngine {
       };
 
       // 7. Push fresh Tally snapshot to SaaS Cloud
+      let resolvedPrimaryId = primaryCompanyId;
       if (this.cloudUrl) {
-        await this.pushToCloud(payload, this.companyId || currentState.companyId);
+        const pushResultId = await this.pushToCloud(payload, primaryCompanyId);
+        if (pushResultId) resolvedPrimaryId = pushResultId;
       }
 
-      // 8. Multi-company secondary sync loop: if agent-state.json lists additional sister companies, sync them too
-      const extraCompanies = (currentState.companies || []).filter(
-        c => c.companyId && c.companyId !== (this.companyId || currentState.companyId)
-      );
-      for (const extra of extraCompanies) {
+      // Record primary company sync in knownList
+      const syncedNamesNorm = new Set<string>();
+      const syncedCompanyIds = new Set<string>();
+      if (targetCompany) syncedNamesNorm.add(normalizeTallyCompanyName(targetCompany));
+      if (resolvedPrimaryId) syncedCompanyIds.add(resolvedPrimaryId);
+
+      if (resolvedPrimaryId && targetCompany) {
+        const existingIdx = knownList.findIndex(
+          (c) => c.companyId === resolvedPrimaryId || normalizeTallyCompanyName(c.tallyName || c.companyName) === normalizeTallyCompanyName(targetCompany)
+        );
+        const updatedEntry: CompanySyncConfig = {
+          companyId: resolvedPrimaryId,
+          companyName: existingIdx >= 0 ? knownList[existingIdx]!.companyName : targetCompany,
+          tallyName: targetCompany,
+          lastAlterId: this.pendingAlterIdReset ? 0 : maxAlterId,
+          lastSyncedAt: nowIso,
+        };
+        if (existingIdx >= 0) {
+          knownList[existingIdx] = updatedEntry;
+        } else {
+          knownList.push(updatedEntry);
+        }
+      }
+
+      // 8. Multi-company secondary sync loop:
+      // Combine configured sister companies in agent-state.json AND any additional open companies auto-discovered in TallyPrime
+      const additionalTargets: Array<{ companyId?: string; tallyName: string; lastAlterId: number }> = [];
+
+      for (const cfg of knownList) {
+        const cfgName = cfg.tallyName || cfg.companyName;
+        const cfgNorm = normalizeTallyCompanyName(cfgName);
+        if (cfg.companyId && syncedCompanyIds.has(cfg.companyId)) continue;
+        if (cfgNorm && syncedNamesNorm.has(cfgNorm)) continue;
+        additionalTargets.push({
+          companyId: cfg.companyId,
+          tallyName: cfgName,
+          lastAlterId: cfg.lastAlterId || 0,
+        });
+        if (cfg.companyId) syncedCompanyIds.add(cfg.companyId);
+        if (cfgNorm) syncedNamesNorm.add(cfgNorm);
+      }
+
+      for (const openCompName of openCompanyNames) {
+        const openNorm = normalizeTallyCompanyName(openCompName);
+        if (!openNorm || syncedNamesNorm.has(openNorm)) continue;
+        const matchedCfg = this.findCompanyConfigByName(openCompName, knownList);
+        if (matchedCfg?.companyId && syncedCompanyIds.has(matchedCfg.companyId)) continue;
+        additionalTargets.push({
+          companyId: matchedCfg?.companyId,
+          tallyName: openCompName,
+          lastAlterId: matchedCfg?.lastAlterId || 0,
+        });
+        if (matchedCfg?.companyId) syncedCompanyIds.add(matchedCfg.companyId);
+        syncedNamesNorm.add(openNorm);
+      }
+
+      for (const extra of additionalTargets) {
         try {
-          const extraTarget = extra.tallyName || extra.companyName;
-          await this.pullOutboxFromCloud(extra.companyId, extraTarget);
+          const extraTarget = extra.tallyName;
+          if (this.cloudUrl && extra.companyId) {
+            await this.pullOutboxFromCloud(extra.companyId, extraTarget);
+          }
           const extraInfo = await this.client.getCompanyInfo(extraTarget);
-          if (extraInfo?.name) {
+          if (extraInfo?.name && normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget)) {
             const extraLedgers = await this.client.getLedgers(extra.lastAlterId || 0, extraTarget);
             const extraBills = await this.client.getBills(undefined, extraTarget);
             const extraStock = await this.client.getStockItems(extra.lastAlterId || 0, extraTarget);
             let extraMaxAlter = extra.lastAlterId || 0;
             for (const l of extraLedgers) if (l.alterId > extraMaxAlter) extraMaxAlter = l.alterId;
             for (const s of extraStock) if (s.alterId > extraMaxAlter) extraMaxAlter = s.alterId;
-            await this.pushToCloud(
-              {
-                company: extraInfo,
-                ledgers: extraLedgers,
-                bills: extraBills,
-                stockItems: extraStock,
-                maxAlterId: extraMaxAlter,
-                syncedAt: nowIso,
-                durationMs: Date.now() - startTime,
-              },
-              extra.companyId
-            );
-            extra.lastAlterId = extraMaxAlter;
-            extra.lastSyncedAt = nowIso;
+            let resolvedExtraId = extra.companyId;
+            if (this.cloudUrl) {
+              const cloudId = await this.pushToCloud(
+                {
+                  company: extraInfo,
+                  ledgers: extraLedgers,
+                  bills: extraBills,
+                  stockItems: extraStock,
+                  maxAlterId: extraMaxAlter,
+                  syncedAt: nowIso,
+                  durationMs: Date.now() - startTime,
+                },
+                extra.companyId
+              );
+              if (cloudId) resolvedExtraId = cloudId;
+              // If newly mapped by cloud, pull its outbox too
+              if (!extra.companyId && resolvedExtraId) {
+                await this.pullOutboxFromCloud(resolvedExtraId, extraInfo.name);
+              }
+            }
+            if (resolvedExtraId) {
+              const idx = knownList.findIndex(
+                (c) => c.companyId === resolvedExtraId || normalizeTallyCompanyName(c.tallyName || c.companyName) === normalizeTallyCompanyName(extraInfo.name)
+              );
+              const entry: CompanySyncConfig = {
+                companyId: resolvedExtraId,
+                companyName: idx >= 0 ? knownList[idx]!.companyName : extraInfo.name,
+                tallyName: extraInfo.name,
+                lastAlterId: extraMaxAlter,
+                lastSyncedAt: nowIso,
+              };
+              if (idx >= 0) knownList[idx] = entry;
+              else knownList.push(entry);
+            }
           }
         } catch {
           // Sister company might not be open in Tally right now; continue gracefully
@@ -279,16 +397,16 @@ export class SyncEngine {
       }
 
       // 9. Update local state after successful cloud push
-      const newAlterId = this.pendingAlterIdReset ? 0 : maxAlterId;
+      const newAlterId = this.pendingAlterIdReset ? 0 : (isPrimaryCompanyMatch ? maxAlterId : (currentState.lastAlterId || 0));
       this.pendingAlterIdReset = false;
-      const latestCompanies = this.store.get().companies || currentState.companies;
       this.store.update({
-        companyName: company.name,
+        companyName: isPrimaryCompanyMatch ? company.name : (configuredCompanyName || company.name),
         lastAlterId: newAlterId,
         lastSyncedAt: nowIso,
         status: 'online',
         tallyPort: activePort,
-        companies: latestCompanies,
+        openTallyCompanies: openCompanyNames.length > 0 ? openCompanyNames : [company.name],
+        companies: knownList.length > 0 ? knownList : currentState.companies,
       });
 
       this.onSyncComplete?.(payload);
@@ -366,14 +484,14 @@ export class SyncEngine {
     }
   }
 
-  public async pushToCloud(payload: TallySyncPayload, targetCompanyId?: string): Promise<void> {
-    if (!this.cloudUrl) return;
+  public async pushToCloud(payload: TallySyncPayload, targetCompanyId?: string): Promise<string | undefined> {
+    if (!this.cloudUrl) return targetCompanyId;
 
     const state = this.store.get();
     const companyId = targetCompanyId || this.companyId || state.companyId;
     const companyName = payload.company?.name || state.companyName;
     const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
-    const companyPrefix = companyId ? `${slugify(companyId)}-` : '';
+    const companyPrefix = companyId ? `${slugify(companyId)}-` : (companyName ? `${slugify(companyName)}-` : '');
 
     // Map ledgers (Sundry Debtors & Creditors) to Parties with company-scoped IDs to prevent cross-company collisions
     for (const l of payload.ledgers) {
@@ -457,6 +575,27 @@ export class SyncEngine {
     if (Array.isArray(pushData?.commands) && pushData.commands.length > 0) {
       this.handleCloudCommands(pushData.commands);
     }
+
+    // Merge any server-discovered tenant companies into local state
+    if (Array.isArray(pushData?.tenantCompanies) && pushData.tenantCompanies.length > 0) {
+      const currentList: CompanySyncConfig[] = Array.isArray(this.store.get().companies)
+        ? [...(this.store.get().companies || [])]
+        : [];
+      for (const tc of pushData.tenantCompanies) {
+        if (!tc?.companyId) continue;
+        const exists = currentList.some((c) => c.companyId === tc.companyId);
+        if (!exists) {
+          currentList.push({
+            companyId: tc.companyId,
+            companyName: tc.companyName || tc.tallyName || 'Tally Company',
+            tallyName: tc.tallyName || tc.companyName,
+            lastAlterId: 0,
+          });
+        }
+      }
+      this.store.update({ companies: currentList });
+    }
+
     this.store.update({
       cloudStatus: 'connected',
       lastCloudSyncAt: new Date().toISOString(),
@@ -469,6 +608,7 @@ export class SyncEngine {
 
     // Ping agent state
     await this.sendCloudHeartbeat(true);
+    return pushData?.companyId || companyId;
   }
 
   public async pullOutboxFromCloud(targetCompanyId?: string, overrideCompanyName?: string): Promise<number> {

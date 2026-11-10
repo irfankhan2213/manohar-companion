@@ -36,7 +36,7 @@ export const TasksScreen: React.FC = () => {
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
   // Assign New Task Form State
-  const [assignedToUserId, setAssignedToUserId] = useState('u5'); // Suresh Kumar default
+  const [assignedToUserId, setAssignedToUserId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [selectedChallanId, setSelectedChallanId] = useState('');

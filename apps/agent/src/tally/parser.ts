@@ -89,6 +89,41 @@ export function parseCompanyInfoResponse(xmlString: string): TallyCompanyInfo {
   };
 }
 
+export function parseOpenCompaniesResponse(xmlString: string): TallyCompanyInfo[] {
+  const parsed = xmlParser.parse(xmlString);
+  const envelope = parsed?.ENVELOPE || parsed?.envelope;
+  const body = envelope?.BODY || envelope?.body;
+  const data = body?.DATA || body?.data;
+
+  const messages = toArray(data?.TALLYMESSAGE || data?.COLLECTION?.COMPANY || data?.COMPANY);
+  const companies: TallyCompanyInfo[] = [];
+  const seen = new Set<string>();
+
+  for (const msg of messages) {
+    const rawComp = msg?.COMPANY || msg;
+    if (!rawComp || typeof rawComp !== 'object') continue;
+
+    const name = rawComp['@_NAME'] || rawComp.NAME || rawComp.COMPANYNAME;
+    if (!name) continue;
+    const cleanName = String(name).trim();
+    if (!cleanName || seen.has(cleanName.toLowerCase())) continue;
+    seen.add(cleanName.toLowerCase());
+
+    const fromDate = parseTallyDate(rawComp.STARTINGFROM || rawComp.COMPYEARFIELD || '20260401');
+    const booksFrom = parseTallyDate(rawComp.BOOKSFROM || rawComp.COMPBOOKSFIELD || fromDate);
+    const guid = rawComp.GUID ? String(rawComp.GUID).trim() : undefined;
+
+    companies.push({
+      name: cleanName,
+      financialYearFrom: fromDate,
+      booksFrom,
+      guid,
+    });
+  }
+
+  return companies;
+}
+
 export function parseLedgersResponse(xmlString: string): TallyLedger[] {
   const parsed = xmlParser.parse(xmlString);
   const envelope = parsed?.ENVELOPE || parsed?.envelope;

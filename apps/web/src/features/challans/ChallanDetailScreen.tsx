@@ -40,7 +40,7 @@ export const ChallanDetailScreen: React.FC = () => {
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
   // Task form state
-  const [taskAssigneeId, setTaskAssigneeId] = useState('u5'); // Suresh Kumar
+  const [taskAssigneeId, setTaskAssigneeId] = useState('');
   const [taskTitle, setTaskTitle] = useState('');
   const [taskNotes, setTaskNotes] = useState('');
   const [taskPhotoUrl, setTaskPhotoUrl] = useState('');

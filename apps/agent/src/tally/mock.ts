@@ -16,6 +16,27 @@ export function getMockCompanyInfoXml(): string {
 </ENVELOPE>`;
 }
 
+export function getMockOpenCompaniesXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <STATUS>1</STATUS>
+  </HEADER>
+  <BODY>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <COMPANY NAME="Manohar Traders">
+          <NAME>Manohar Traders</NAME>
+          <STARTINGFROM>20260401</STARTINGFROM>
+          <BOOKSFROM>20260401</BOOKSFROM>
+        </COMPANY>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
 export function getMockLedgersXml(lastAlterId: number = 0): string {
   const allLedgers = [
     {

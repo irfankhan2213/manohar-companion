@@ -7,12 +7,14 @@ import {
 } from '../types.js';
 import {
   buildCompanyInfoQuery,
+  buildOpenCompaniesQuery,
   buildLedgersQuery,
   buildBillsQuery,
   buildStockItemsQuery,
 } from './templates.js';
 import {
   parseCompanyInfoResponse,
+  parseOpenCompaniesResponse,
   parseLedgersResponse,
   parseBillsResponse,
   parseStockItemsResponse,
@@ -20,6 +22,7 @@ import {
 } from './parser.js';
 import {
   getMockCompanyInfoXml,
+  getMockOpenCompaniesXml,
   getMockLedgersXml,
   getMockBillsXml,
   getMockStockItemsXml,
@@ -127,6 +130,7 @@ export class TallyClient {
   private async postXml(xmlPayload: string, allowPortScan: boolean = true): Promise<string> {
     if (this.mock) {
       // Determine request type from payload
+      if (xmlPayload.includes('ListOfOpenCompanies')) return getMockOpenCompaniesXml();
       if (xmlPayload.includes('CompanyInfo')) return getMockCompanyInfoXml();
       if (xmlPayload.includes('CustomLedgerCollection')) {
         const alterMatch = xmlPayload.match(/AlterId &gt; (\d+)/);
@@ -196,6 +200,22 @@ export class TallyClient {
   public async getCompanyInfo(companyName?: string): Promise<TallyCompanyInfo> {
     const xml = await this.postXml(buildCompanyInfoQuery(companyName));
     return parseCompanyInfoResponse(xml);
+  }
+
+  public async getOpenCompanies(): Promise<TallyCompanyInfo[]> {
+    try {
+      const xml = await this.postXml(buildOpenCompaniesQuery());
+      const openList = parseOpenCompaniesResponse(xml);
+      if (openList.length > 0) {
+        return openList;
+      }
+    } catch {}
+    try {
+      const active = await this.getCompanyInfo();
+      return active?.name ? [active] : [];
+    } catch {
+      return [];
+    }
   }
 
   public async getLedgers(lastAlterId: number = 0, companyName?: string): Promise<TallyLedger[]> {

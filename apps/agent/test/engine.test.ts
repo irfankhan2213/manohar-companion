@@ -350,4 +350,85 @@ describe('Sync Engine', () => {
       if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
     }
   });
+
+  it('auto-discovers multiple open companies in TallyPrime and syncs each to its mapped companyId', async () => {
+    const store = new StateStore(testStatePath);
+    store.update({
+      companyId: 'c1',
+      companyName: 'Manohar Traders',
+      lastAlterId: 0,
+      status: 'online',
+    });
+
+    const client = new TallyClient({ mock: true });
+    // Override getOpenCompanies and getCompanyInfo to simulate 2 open Tally companies
+    client.getOpenCompanies = async () => [
+      { name: 'Manohar Traders', financialYearFrom: '2026-04-01', booksFrom: '2026-04-01' },
+      { name: 'Manohar Hosiery Works', financialYearFrom: '2026-04-01', booksFrom: '2026-04-01' },
+    ];
+    const origGetCompanyInfo = client.getCompanyInfo.bind(client);
+    client.getCompanyInfo = async (companyName?: string) => {
+      if (companyName && companyName.includes('Hosiery')) {
+        return { name: 'Manohar Hosiery Works', financialYearFrom: '2026-04-01', booksFrom: '2026-04-01' };
+      }
+      return origGetCompanyInfo(companyName);
+    };
+
+    const pushedPayloads: any[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (url: any, init: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/sync/push')) {
+        const body = JSON.parse(init.body);
+        pushedPayloads.push(body);
+        const resolvedId = body.companyName === 'Manohar Hosiery Works' ? 'c-manohar-hosiery' : 'c1';
+        return new Response(
+          JSON.stringify({
+            success: true,
+            companyId: resolvedId,
+            companyName: body.companyName,
+            partiesUpdated: body.parties.length,
+            billsUpdated: body.bills.length,
+            stockUpdated: body.stockItems.length,
+            tenantCompanies: [
+              { companyId: 'c1', companyName: 'Manohar Traders', tallyName: 'Manohar Traders' },
+              { companyId: 'c-manohar-hosiery', companyName: 'Manohar Hosiery Works', tallyName: 'Manohar Hosiery Works' },
+            ],
+          }),
+          { status: 200 }
+        );
+      }
+      if (urlStr.includes('/api/sync/pull')) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ success: true, commands: [] }), { status: 200 });
+    };
+
+    try {
+      const engine = new SyncEngine({
+        client,
+        store,
+        cloudUrl: 'https://test-cloud.example.com',
+        companyId: 'c1',
+      });
+
+      await engine.runSyncOnce();
+
+      // Both open companies should have been pushed separately
+      expect(pushedPayloads.length).toBe(2);
+      expect(pushedPayloads[0].companyName).toBe('Manohar Traders');
+      expect(pushedPayloads[0].companyId).toBe('c1');
+      expect(pushedPayloads[1].companyName).toBe('Manohar Hosiery Works');
+
+      // State should record both open companies and their resolved companyIds
+      const updatedState = store.get();
+      expect(updatedState.openTallyCompanies).toEqual(['Manohar Traders', 'Manohar Hosiery Works']);
+      expect(updatedState.companies?.some((c) => c.companyId === 'c-manohar-hosiery')).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (fs.existsSync(testStatePath)) fs.unlinkSync(testStatePath);
+      const bakPath = `${testStatePath}.bak`;
+      if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
+    }
+  });
 });

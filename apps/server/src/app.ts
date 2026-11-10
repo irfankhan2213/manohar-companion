@@ -112,18 +112,99 @@ export function createApp(dbPath?: string): express.Express {
     return { valid: false, isGlobal: false };
   }
 
-  function resolveCompanyForAgent(companyId?: string, companyName?: string, tenantId?: string): any | null {
-    if (companyId) {
-      const byId = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId) as any;
+  function normalizeTallyName(name?: string | null): string {
+    return String(name || '')
+      .toLowerCase()
+      .replace(/\s*-\s*\(from.*?\)/gi, '')
+      .replace(/\s*\(\s*\d{2,4}\s*-\s*\d{2,4}\s*\)/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function namesMatchFuzzy(a?: string | null, b?: string | null): boolean {
+    const na = normalizeTallyName(a);
+    const nb = normalizeTallyName(b);
+    if (!na || !nb) return false;
+    return na === nb || na.includes(nb) || nb.includes(na);
+  }
+
+  function resolveCompanyForAgent(
+    companyId?: string,
+    companyName?: string,
+    tenantId?: string,
+    autoCreate: boolean = false
+  ): any | null {
+    const byId = companyId ? (db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId) as any) : null;
+    const effectiveTenantId = byId?.tenantId || tenantId;
+    const cleanName = typeof companyName === 'string' ? companyName.trim() : '';
+
+    // If no companyName was provided, return byId if found
+    if (!cleanName) {
       if (byId) return byId;
+      if (effectiveTenantId) {
+        const byTenant = db.prepare('SELECT * FROM companies WHERE tenantId = ? LIMIT 1').get(effectiveTenantId) as any;
+        if (byTenant) return byTenant;
+      }
+      return (db.prepare('SELECT * FROM companies LIMIT 1').get() as any) || null;
     }
-    if (companyName && typeof companyName === 'string' && companyName.trim()) {
-      const clean = companyName.trim();
-      const byName = db.prepare('SELECT * FROM companies WHERE LOWER(name) = LOWER(?) OR LOWER(tallyName) = LOWER(?) LIMIT 1').get(clean, clean) as any;
-      if (byName) return byName;
+
+    // If byId exists and its name/tallyName matches companyName (or is a generic placeholder), use byId
+    if (
+      byId &&
+      (namesMatchFuzzy(byId.name, cleanName) ||
+        namesMatchFuzzy(byId.tallyName, cleanName) ||
+        normalizeTallyName(byId.name) === 'tally company')
+    ) {
+      return byId;
     }
-    if (tenantId) {
-      const byTenant = db.prepare('SELECT * FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
+
+    // Search within the tenant (or globally if no tenant) for a company matching cleanName
+    const candidateRows = effectiveTenantId
+      ? (db.prepare('SELECT * FROM companies WHERE tenantId = ?').all(effectiveTenantId) as any[])
+      : (db.prepare('SELECT * FROM companies').all() as any[]);
+
+    // 1. Exact case-insensitive match on name or tallyName
+    const exactMatch = candidateRows.find(
+      (c) =>
+        String(c.name || '').trim().toLowerCase() === cleanName.toLowerCase() ||
+        String(c.tallyName || '').trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (exactMatch) return exactMatch;
+
+    // 2. Normalized fuzzy match (ignoring FY suffix)
+    const fuzzyMatch = candidateRows.find(
+      (c) => namesMatchFuzzy(c.name, cleanName) || namesMatchFuzzy(c.tallyName, cleanName)
+    );
+    if (fuzzyMatch) return fuzzyMatch;
+
+    // 3. If autoCreate is enabled and a new Tally company is open for this tenant, auto-provision it
+    // so multi-company Tally setups never contaminate another company's ledgers/bills/stock
+    if (autoCreate && effectiveTenantId) {
+      const slug =
+        normalizeTallyName(cleanName)
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 24) || 'branch';
+      const newCompId = `c-${slug}-${Date.now().toString().slice(-4)}`;
+      const now = new Date().toISOString();
+      try {
+        db.prepare(`
+          INSERT INTO companies (id, tenantId, name, tallyName, financialYear, lastSyncedAt, agentStatus)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(newCompId, effectiveTenantId, cleanName, cleanName, '2026-27', now, 'online');
+        db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
+          `g-${newCompId}-main`,
+          newCompId,
+          'Main Location'
+        );
+        const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(newCompId) as any;
+        if (created) return created;
+      } catch {}
+    }
+
+    if (byId) return byId;
+    if (effectiveTenantId) {
+      const byTenant = db.prepare('SELECT * FROM companies WHERE tenantId = ? LIMIT 1').get(effectiveTenantId) as any;
       if (byTenant) return byTenant;
     }
     return (db.prepare('SELECT * FROM companies LIMIT 1').get() as any) || null;
@@ -1555,7 +1636,12 @@ export function createApp(dbPath?: string): express.Express {
     const agentAuth = resolveAgentAuth(req, user);
     const now = new Date().toISOString();
 
-    const targetComp = resolveCompanyForAgent(req.body?.companyId, req.body?.companyName, user?.tenantId || agentAuth.tenantId);
+    const targetComp = resolveCompanyForAgent(
+      req.body?.companyId,
+      req.body?.companyName,
+      user?.tenantId || agentAuth.tenantId,
+      true
+    );
     const companyId = targetComp?.id || req.body?.companyId || 'default';
     const resolvedTenantId = targetComp?.tenantId || user?.tenantId || agentAuth.tenantId;
 
@@ -1580,6 +1666,12 @@ export function createApp(dbPath?: string): express.Express {
       }
       if (Array.isArray(req.body?.openTallyCompanies)) {
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`openTallyCompanies_${resolvedTenantId}`, JSON.stringify(req.body.openTallyCompanies));
+        // Ensure every open Tally company reported by the agent is mapped or auto-created under this tenant
+        for (const openName of req.body.openTallyCompanies) {
+          if (typeof openName === 'string' && openName.trim()) {
+            resolveCompanyForAgent(undefined, openName.trim(), resolvedTenantId, true);
+          }
+        }
       }
     }
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
@@ -1622,6 +1714,10 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    const tenantCompanies = resolvedTenantId
+      ? (db.prepare('SELECT id as companyId, name as companyName, tallyName FROM companies WHERE tenantId = ?').all(resolvedTenantId) as any[])
+      : [];
+
     res.json({
       success: true,
       syncedAt: now,
@@ -1630,6 +1726,7 @@ export function createApp(dbPath?: string): express.Express {
       vouchersCount,
       stockCount,
       commands: commandsToSend,
+      tenantCompanies,
     });
   });
 
@@ -3892,7 +3989,7 @@ export function createApp(dbPath?: string): express.Express {
     if (!companyId && !companyName) {
       return res.status(400).json({ error: 'Missing companyId: Tally agent must connect to a specific company/organization' });
     }
-    const compRow = resolveCompanyForAgent(companyId, companyName, user?.tenantId || agentAuth.tenantId);
+    const compRow = resolveCompanyForAgent(companyId, companyName, user?.tenantId || agentAuth.tenantId, true);
     if (!compRow) {
       return res.status(404).json({ error: `Company ${companyId} not found` });
     }
@@ -4083,14 +4180,21 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    const tenantCompanies = defaultTenantId
+      ? (db.prepare('SELECT id as companyId, name as companyName, tallyName FROM companies WHERE tenantId = ?').all(defaultTenantId) as any[])
+      : [];
+
     res.json({
       success: true,
+      companyId: resolvedCompanyId,
+      companyName: compRow?.name || companyName,
       syncedAt: now,
       alterId,
       partiesUpdated,
       billsUpdated,
       stockUpdated,
       commands: commandsToSend,
+      tenantCompanies,
     });
   });
 

@@ -74,6 +74,32 @@ export function buildCompanyInfoQuery(companyName?: string): string {
 </ENVELOPE>`;
 }
 
+export function buildOpenCompaniesQuery(): string {
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>ListOfOpenCompanies</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="ListOfOpenCompanies" ISMODIFY="No">
+            <TYPE>Company</TYPE>
+            <FETCH>NAME, STARTINGFROM, BOOKSFROM, PARTYGSTIN, GSTIN, GUID</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
 export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string): string {
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
