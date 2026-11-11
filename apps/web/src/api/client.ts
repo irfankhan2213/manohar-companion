@@ -117,6 +117,8 @@ export interface ApiClient {
     get: (id: Id) => Promise<Challan | null>;
     create: (data: Omit<Challan, 'id'>) => Promise<Challan>;
     retry: (id: Id) => Promise<Challan>;
+    updateStatus?: (id: Id, status: Challan['status'], failureReason?: string) => Promise<Challan>;
+    delete?: (id: Id) => Promise<{ success: boolean; id: string }>;
   };
   tasks: {
     list: (
@@ -141,6 +143,7 @@ export interface ApiClient {
     list: (companyId: Id | 'all') => Promise<Notebook[]>;
     get: (id: Id) => Promise<Notebook | null>;
     save: (notebook: Notebook) => Promise<Notebook>;
+    delete?: (id: Id) => Promise<{ success: boolean }>;
   };
   activity: {
     list: (companyId: Id | 'all') => Promise<ActivityEvent[]>;

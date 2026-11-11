@@ -232,16 +232,14 @@ export class SyncEngine {
         await this.pullOutboxFromCloud(primaryCompanyId, targetCompany);
       }
 
-      // 3. Always fetch all Ledgers (from AlterID 0) because voucher entries in Tally (Sales, Receipt, Payment, Journal)
-      // change a Ledger's CLOSINGBALANCE without incrementing the Ledger master's $AlterId!
-      const ledgers: TallyLedger[] = await this.client.getLedgers(0);
+      // 3. Always fetch all Ledgers (from AlterID 0) for targetCompany
+      const ledgers: TallyLedger[] = await this.client.getLedgers(0, targetCompany);
 
-      // 4. Fetch Bills Outstanding from the currently active Tally company without SVCURRENTCOMPANY name filtering
-      const bills: TallyBill[] = await this.client.getBills();
+      // 4. Fetch Bills Outstanding for targetCompany
+      const bills: TallyBill[] = await this.client.getBills(undefined, targetCompany);
 
-      // 5. Always fetch all Stock Items (from AlterID 0) because voucher entries in Tally (Sales, Purchase, Challan, Stock Journal)
-      // change a StockItem's CLOSINGBALANCE quantity without incrementing the StockItem master's $AlterId!
-      const stockItems: TallyStockItem[] = await this.client.getStockItems(0);
+      // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
+      const stockItems: TallyStockItem[] = await this.client.getStockItems(0, targetCompany);
 
       // 6. Compute max AlterID seen across new ledgers & stock items
       let maxAlterId = lastAlterId;
@@ -615,6 +613,7 @@ export class SyncEngine {
 
     this.store.update({
       cloudStatus: 'connected',
+      companyName: pushData?.companyName || companyName || this.store.get().companyName,
       lastCloudSyncAt: new Date().toISOString(),
       lastSyncStats: {
         partiesUpdated: pushData.partiesUpdated || 0,

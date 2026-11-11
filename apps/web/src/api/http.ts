@@ -184,6 +184,13 @@ export const httpApiClient: ApiClient = {
     create: (data: Omit<Challan, 'id'>) =>
       fetchJSON<Challan>('/challans', { method: 'POST', body: JSON.stringify(data) }),
     retry: (id: Id) => fetchJSON<Challan>(`/challans/${id}/retry`, { method: 'POST' }),
+    updateStatus: (id: Id, status: Challan['status'], failureReason?: string) =>
+      fetchJSON<Challan>(`/challans/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status, failureReason }),
+      }),
+    delete: (id: Id) =>
+      fetchJSON<{ success: boolean; id: string }>(`/challans/${id}`, { method: 'DELETE' }),
   },
   tasks: {
     list: (
@@ -225,6 +232,8 @@ export const httpApiClient: ApiClient = {
     get: (id: Id) => fetchJSON<Notebook>(`/notebooks/${id}`),
     save: (notebook: Notebook) =>
       fetchJSON<Notebook>('/notebook', { method: 'PUT', body: JSON.stringify(notebook) }),
+    delete: (id: Id) =>
+      fetchJSON<{ success: boolean }>(`/notebooks/${id}`, { method: 'DELETE' }),
   },
   activity: {
     list: (companyId: Id | 'all') => fetchJSON<ActivityEvent[]>(`/activity?companyId=${companyId}`),

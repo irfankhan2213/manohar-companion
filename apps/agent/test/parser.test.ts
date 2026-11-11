@@ -156,4 +156,26 @@ describe('Tally Parser', () => {
     expect(parseTallyAmount(0)).toBe(0);
     expect(parseTallyAmount('')).toBe(0);
   });
+
+  it('parseTallyLedgerBalance correctly normalizes Tally debtor debit signs into positive receivables', () => {
+    // Tally exports raw double-entry Debits with negative sign
+    const debtorWithMinus = `<ENVELOPE><BODY><DATA><TALLYMESSAGE><LEDGER NAME="Ad Sewing Machine"><NAME>Ad Sewing Machine</NAME><PARENT>Sundry Debtors</PARENT><CLOSINGBALANCE>-329430.00</CLOSINGBALANCE><ALTERID>1</ALTERID></LEDGER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+    const ledgers1 = parseLedgersResponse(debtorWithMinus);
+    expect(ledgers1[0]?.closingBalance).toBe(32943000);
+
+    // Tally with explicit Dr
+    const debtorWithDr = `<ENVELOPE><BODY><DATA><TALLYMESSAGE><LEDGER NAME="Ad Sewing Machine"><NAME>Ad Sewing Machine</NAME><PARENT>Sundry Debtors</PARENT><CLOSINGBALANCE>329430.00 Dr</CLOSINGBALANCE><ALTERID>1</ALTERID></LEDGER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+    const ledgers2 = parseLedgersResponse(debtorWithDr);
+    expect(ledgers2[0]?.closingBalance).toBe(32943000);
+
+    // Tally unsigned
+    const debtorUnsigned = `<ENVELOPE><BODY><DATA><TALLYMESSAGE><LEDGER NAME="Ad Sewing Machine"><NAME>Ad Sewing Machine</NAME><PARENT>Sundry Debtors</PARENT><CLOSINGBALANCE>329430.00</CLOSINGBALANCE><ALTERID>1</ALTERID></LEDGER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+    const ledgers3 = parseLedgersResponse(debtorUnsigned);
+    expect(ledgers3[0]?.closingBalance).toBe(32943000);
+
+    // Customer advance (Cr)
+    const debtorAdvance = `<ENVELOPE><BODY><DATA><TALLYMESSAGE><LEDGER NAME="Ad Sewing Machine"><NAME>Ad Sewing Machine</NAME><PARENT>Sundry Debtors</PARENT><CLOSINGBALANCE>50000.00 Cr</CLOSINGBALANCE><ALTERID>1</ALTERID></LEDGER></TALLYMESSAGE></DATA></BODY></ENVELOPE>`;
+    const ledgers4 = parseLedgersResponse(debtorAdvance);
+    expect(ledgers4[0]?.closingBalance).toBe(-5000000);
+  });
 });

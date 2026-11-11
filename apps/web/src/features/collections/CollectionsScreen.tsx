@@ -76,7 +76,7 @@ export const CollectionsScreen: React.FC = () => {
       const totalPending =
         pBills.length > 0
           ? pBills.reduce((acc, b) => acc + b.pending, 0)
-          : (p.closingBalance || 0);
+          : Math.abs(p.closingBalance || 0);
 
       let maxDaysLate = 0;
       let worstBucket: AgingBucket = 'not_due';

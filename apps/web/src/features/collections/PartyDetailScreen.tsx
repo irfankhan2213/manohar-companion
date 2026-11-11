@@ -92,7 +92,10 @@ export const PartyDetailScreen: React.FC = () => {
   const canEdit = can(currentUser || currentRole, 'party.edit');
   const canSend = can(currentUser || currentRole, 'reminders.send');
 
-  const totalOwed = bills.reduce((sum, b) => sum + b.pending, 0);
+  const totalOwed =
+    bills.length > 0
+      ? bills.reduce((sum, b) => sum + b.pending, 0)
+      : Math.abs((party as any)?.closingBalance || 0);
 
   // Find oldest bill days late
   let maxDaysLate = 0;

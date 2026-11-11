@@ -1,7 +1,7 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Printer } from 'lucide-react';
+import { ArrowLeft, Printer, Download } from 'lucide-react';
 import { formatINR, numberToIndianWords } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
@@ -9,6 +9,7 @@ import { Button } from '../../components/ui/Button.js';
 export const ChallanPrintScreen: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const printRef = React.useRef<HTMLDivElement>(null);
 
   const { data: challan, isLoading } = useQuery({
     queryKey: ['challan', id],
@@ -46,10 +47,12 @@ export const ChallanPrintScreen: React.FC = () => {
     line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18;
   const getLineHsn = (line: typeof challan.lines[0]) =>
     line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452';
+  const getLineAmount = (line: typeof challan.lines[0]) =>
+    typeof line.amount === 'number' && line.amount > 0 ? line.amount : Math.round((line.qty || 1) * (line.rate || 0));
 
-  const subtotalPaise = challan.lines.reduce((acc, l) => acc + l.amount, 0);
+  const subtotalPaise = challan.lines.reduce((acc, l) => acc + getLineAmount(l), 0);
   const totalGstPaise = challan.lines.reduce(
-    (acc, l) => acc + Math.round(l.amount * (getLineGstRate(l) / 100)),
+    (acc, l) => acc + Math.round(getLineAmount(l) * (getLineGstRate(l) / 100)),
     0
   );
   const uniqueRates = Array.from(new Set(challan.lines.map((l) => getLineGstRate(l))));
@@ -73,6 +76,64 @@ export const ChallanPrintScreen: React.FC = () => {
       ? 'PURCHASE VOUCHER'
       : 'DELIVERY CHALLAN';
 
+  // Standalone A4 PDF generator that prints cleanly without any app navigation or mobile layout chrome
+  const handlePrintOrDownloadPdf = () => {
+    const safeFileName = `${challan.number.replace(/[^a-zA-Z0-9-_]/g, '-')}-${challan.date}`;
+    const originalTitle = document.title;
+    document.title = safeFileName;
+
+    if (printRef.current) {
+      const iframe = document.createElement('iframe');
+      iframe.style.position = 'fixed';
+      iframe.style.right = '0';
+      iframe.style.bottom = '0';
+      iframe.style.width = '0';
+      iframe.style.height = '0';
+      iframe.style.border = '0';
+      document.body.appendChild(iframe);
+
+      const doc = iframe.contentWindow?.document;
+      if (doc) {
+        const styleLinks = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+          .map((el) => el.outerHTML)
+          .join('\n');
+        doc.open();
+        doc.write(`<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>${safeFileName}</title>
+    ${styleLinks}
+    <style>
+      @page { size: A4 portrait; margin: 10mm; }
+      html, body { background: #fff !important; color: #000 !important; margin: 0 !important; padding: 0 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    </style>
+  </head>
+  <body>
+    ${printRef.current.outerHTML}
+  </body>
+</html>`);
+        doc.close();
+        setTimeout(() => {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+          setTimeout(() => {
+            document.title = originalTitle;
+            if (document.body.contains(iframe)) {
+              document.body.removeChild(iframe);
+            }
+          }, 1000);
+        }, 250);
+        return;
+      }
+    }
+
+    window.print();
+    setTimeout(() => {
+      document.title = originalTitle;
+    }, 500);
+  };
+
   return (
     <div className="min-h-screen bg-bg print:bg-white flex flex-col items-center py-6 px-4 print:p-0">
       {/* Top Action Toolbar (Hidden in print) */}
@@ -87,13 +148,22 @@ export const ChallanPrintScreen: React.FC = () => {
           <span>Back to Challan</span>
         </Button>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-footnote text-label-2 hidden sm:inline">
-            Print preview · A4 Portrait
+            A4 Portrait · {challan.number}
           </span>
           <Button
+            variant="tinted"
             size="small"
-            onClick={() => window.print()}
+            onClick={handlePrintOrDownloadPdf}
+            className="flex items-center gap-1.5"
+          >
+            <Download className="w-4 h-4" />
+            <span>Save PDF</span>
+          </Button>
+          <Button
+            size="small"
+            onClick={handlePrintOrDownloadPdf}
             className="flex items-center gap-1.5"
           >
             <Printer className="w-4 h-4" />
@@ -103,7 +173,11 @@ export const ChallanPrintScreen: React.FC = () => {
       </div>
 
       {/* A4 Printable Canvas */}
-      <div className="w-full max-w-4xl bg-white text-black p-8 rounded-2xl shadow-sm border border-separator/60 print:shadow-none print:border-none print:p-0 print:m-0 text-[13px] leading-tight font-sans">
+      <div
+        ref={printRef}
+        id="challan-print-sheet"
+        className="w-full max-w-4xl bg-white text-black p-8 rounded-2xl shadow-sm border border-separator/60 print:shadow-none print:border-none print:p-0 print:m-0 text-[13px] leading-tight font-sans"
+      >
         {/* Document Header */}
         <div className="border border-black flex flex-col">
           {/* Company Banner */}
@@ -115,10 +189,14 @@ export const ChallanPrintScreen: React.FC = () => {
               {company?.name || 'DELIVERY CHALLAN'}
             </h1>
             <p className="text-xs text-gray-700 mt-0.5">
-              {company?.tallyName && company.tallyName !== company.name ? company.tallyName : 'Material & Goods Dispatch'}
+              {company?.address ||
+                (company?.tallyName && company.tallyName !== company.name
+                  ? company.tallyName
+                  : 'Material & Goods Dispatch')}
             </p>
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 mt-1 text-xs font-semibold text-center">
               {company?.gstin && <span>GSTIN: {company.gstin}</span>}
+              {company?.phone && <span>• Ph: {company.phone}</span>}
               {company?.financialYear && <span>• FY {company.financialYear}</span>}
             </div>
           </div>
@@ -137,7 +215,7 @@ export const ChallanPrintScreen: React.FC = () => {
               </span>
               <span className="font-bold text-sm">{party?.name ?? '—'}</span>
               <span className="text-xs">{party?.city ?? '—'}</span>
-              <span className="text-xs">Phone: {party?.phones[0] ?? '—'}</span>
+              <span className="text-xs">Phone: {party?.phones?.[0] ?? '—'}</span>
               <span className="text-xs font-mono font-semibold">
                 GSTIN: {party?.gstin ?? 'Unregistered'}
               </span>
@@ -157,6 +235,12 @@ export const ChallanPrintScreen: React.FC = () => {
                 <span className="text-gray-600">Vehicle No:</span>
                 <span className="font-bold text-right font-mono uppercase">
                   {challan.vehicleNo || 'Self Pick-up'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 py-1">
+                <span className="text-gray-600">Transporter:</span>
+                <span className="font-semibold text-right">
+                  {challan.transporter || '—'}
                 </span>
               </div>
               <div className="grid grid-cols-2 pt-1">
@@ -182,30 +266,33 @@ export const ChallanPrintScreen: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-300">
-              {challan.lines.map((line, idx) => (
-                <tr key={idx} className="text-xs">
-                  <td className="py-2.5 px-2.5 border-r border-black text-center">{idx + 1}</td>
-                  <td className="py-2.5 px-3 border-r border-black font-medium">
-                    <div>{line.description}</div>
-                    <div className="text-[10px] text-gray-500 font-mono">GST {getLineGstRate(line)}%</div>
-                  </td>
-                  <td className="py-2.5 px-2.5 border-r border-black text-center font-mono">
-                    {getLineHsn(line)}
-                  </td>
-                  <td className="py-2.5 px-2.5 border-r border-black text-right font-semibold">
-                    {line.qty}
-                  </td>
-                  <td className="py-2.5 px-2.5 border-r border-black text-center uppercase">
-                    {line.unit}
-                  </td>
-                  <td className="py-2.5 px-3 border-r border-black text-right font-mono">
-                    {formatINR(line.rate, { symbol: false })}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-semibold font-mono">
-                    {formatINR(line.amount, { symbol: false })}
-                  </td>
-                </tr>
-              ))}
+              {challan.lines.map((line, idx) => {
+                const lineAmt = getLineAmount(line);
+                return (
+                  <tr key={idx} className="text-xs">
+                    <td className="py-2.5 px-2.5 border-r border-black text-center">{idx + 1}</td>
+                    <td className="py-2.5 px-3 border-r border-black font-medium">
+                      <div>{line.description}</div>
+                      <div className="text-[10px] text-gray-500 font-mono">GST {getLineGstRate(line)}%</div>
+                    </td>
+                    <td className="py-2.5 px-2.5 border-r border-black text-center font-mono">
+                      {getLineHsn(line)}
+                    </td>
+                    <td className="py-2.5 px-2.5 border-r border-black text-right font-semibold">
+                      {line.qty}
+                    </td>
+                    <td className="py-2.5 px-2.5 border-r border-black text-center uppercase">
+                      {line.unit || 'pcs'}
+                    </td>
+                    <td className="py-2.5 px-3 border-r border-black text-right font-mono">
+                      {formatINR(line.rate || 0, { symbol: false })}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-semibold font-mono">
+                      {formatINR(lineAmt, { symbol: false })}
+                    </td>
+                  </tr>
+                );
+              })}
               {/* Fill remaining empty rows to keep uniform height */}
               {Array.from({ length: Math.max(0, 4 - challan.lines.length) }).map((_, i) => (
                 <tr key={`empty-${i}`} className="text-xs h-8">
@@ -285,8 +372,8 @@ export const ChallanPrintScreen: React.FC = () => {
                 Terms & Conditions:
               </span>
               <p>1. Goods received in sound condition and complete count.</p>
-              <p>2. Subject to Ludhiana jurisdiction only.</p>
-              <p>3. This is a computer generated delivery challan.</p>
+              <p>2. Subject to local jurisdiction only.</p>
+              <p>3. This is a computer generated challan.</p>
             </div>
 
             <div className="flex flex-col justify-between pl-2 min-h-[90px]">

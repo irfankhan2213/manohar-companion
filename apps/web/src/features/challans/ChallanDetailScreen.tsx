@@ -251,14 +251,47 @@ export const ChallanDetailScreen: React.FC = () => {
     );
   }
 
+  const cancelChallanMutation = useMutation({
+    mutationFn: () => (api.challans.updateStatus ? api.challans.updateStatus(id, 'cancelled') : Promise.resolve(null as any)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['challan', id] });
+      queryClient.invalidateQueries({ queryKey: ['challans'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
+      showToast({
+        message:
+          challan?.type === 'sales'
+            ? 'Challan cancelled and sales stock restored to godown'
+            : 'Challan marked as cancelled',
+        variant: 'neutral',
+      });
+    },
+  });
+
+  const deleteChallanMutation = useMutation({
+    mutationFn: () => (api.challans.delete ? api.challans.delete(id) : Promise.resolve({ success: true, id })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['challans'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
+      showToast({
+        message: 'Challan deleted',
+        variant: 'neutral',
+      });
+      navigate('/challans');
+    },
+  });
+
   const getLineGstRate = (line: typeof challan.lines[0]) =>
     line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18;
   const getLineHsn = (line: typeof challan.lines[0]) =>
     line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452';
+  const getLineAmount = (line: typeof challan.lines[0]) =>
+    Number(line.amount) > 0 ? Number(line.amount) : Math.round((Number(line.qty) || 0) * (Number(line.rate) || 0));
 
-  const subtotalPaise = challan.lines.reduce((acc, l) => acc + l.amount, 0);
+  const subtotalPaise = challan.lines.reduce((acc, l) => acc + getLineAmount(l), 0);
   const gstPaise = challan.lines.reduce(
-    (acc, l) => acc + Math.round(l.amount * (getLineGstRate(l) / 100)),
+    (acc, l) => acc + Math.round(getLineAmount(l) * (getLineGstRate(l) / 100)),
     0
   );
   const grandTotalPaise = subtotalPaise + gstPaise;
@@ -376,7 +409,7 @@ export const ChallanDetailScreen: React.FC = () => {
 
         {challan.status === 'synced' && (
           <span className="text-caption text-label-2">
-            Verified in TallyPrime · Master AlterID #1480
+            Verified in TallyPrime · {challan.type === 'sales' ? 'Godown stock deducted' : 'No godown stock deduction (non-sales challan)'}
           </span>
         )}
       </div>
@@ -399,6 +432,38 @@ export const ChallanDetailScreen: React.FC = () => {
         >
           <Share2 className="w-4 h-4" />
           <span>Share WhatsApp</span>
+        </Button>
+      </div>
+
+      {/* Secondary Actions: Cancel / Delete */}
+      <div className="flex items-center gap-2">
+        {challan.status !== 'cancelled' && (
+          <Button
+            variant="plain"
+            size="small"
+            disabled={cancelChallanMutation.isPending}
+            onClick={() => cancelChallanMutation.mutate()}
+            className="text-caption text-label-2 hover:text-danger border border-separator/50 rounded-xl px-3 py-1.5"
+          >
+            <XCircle className="w-3.5 h-3.5 mr-1.5" />
+            <span>
+              {cancelChallanMutation.isPending
+                ? 'Cancelling...'
+                : challan.type === 'sales'
+                  ? 'Cancel Challan & Restore Stock'
+                  : 'Cancel Challan'}
+            </span>
+          </Button>
+        )}
+        <Button
+          variant="plain"
+          size="small"
+          disabled={deleteChallanMutation.isPending}
+          onClick={() => deleteChallanMutation.mutate()}
+          className="text-caption text-danger/80 hover:text-danger border border-danger/20 rounded-xl px-3 py-1.5"
+        >
+          <X className="w-3.5 h-3.5 mr-1" />
+          <span>{deleteChallanMutation.isPending ? 'Deleting...' : 'Delete Challan'}</span>
         </Button>
       </div>
 
@@ -480,7 +545,7 @@ export const ChallanDetailScreen: React.FC = () => {
               </span>
             </div>
             <span className="text-subhead font-bold text-label tabular-nums">
-              {formatINR(line.amount)}
+              {formatINR(getLineAmount(line))}
             </span>
           </div>
         ))}

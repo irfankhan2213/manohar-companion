@@ -203,11 +203,21 @@ export const NotebookRowSchema = z.object({
 });
 export type NotebookRow = z.infer<typeof NotebookRowSchema>;
 
+export const NotebookTableSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  columns: z.array(NotebookColumnSchema),
+  rows: z.array(NotebookRowSchema),
+});
+export type NotebookTable = z.infer<typeof NotebookTableSchema>;
+
 export const NotebookSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   userId: z.string().optional(),
   title: z.string(),
+  content: z.string().optional(),
+  tables: z.array(NotebookTableSchema).optional(),
   columns: z.array(NotebookColumnSchema),
   rows: z.array(NotebookRowSchema),
   updatedAt: z.string(),

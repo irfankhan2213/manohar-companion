@@ -167,8 +167,11 @@ export function createApp(dbPath?: string): express.Express {
     );
     if (fuzzyMatch) return fuzzyMatch;
 
-    // 3. If byId was provided, check if byId's name actually matches cleanName
-    const byIdMatches = byId && (namesMatchFuzzy(byId.name, cleanName) || namesMatchFuzzy(byId.tallyName, cleanName));
+    // 3. If byId was provided:
+    // If byId's name matches cleanName, or if byId has never been synced yet (initial setup/pairing with placeholder name),
+    // accept byId so the initial paired company is configured and renamed rather than abandoned.
+    const isInitialUnsyncedCompany = byId && (!byId.lastSyncedAt || byId.name === 'Manohar Traders' || byId.name === 'Manohar Traders Pvt Ltd');
+    const byIdMatches = byId && (namesMatchFuzzy(byId.name, cleanName) || namesMatchFuzzy(byId.tallyName, cleanName) || isInitialUnsyncedCompany);
     if (byId && byIdMatches) {
       return byId;
     }
@@ -899,12 +902,20 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
     const rows = db.prepare(query).all(...params) as any[];
-    let parties: Party[] = rows.map(p => ({
-      ...p,
-      phones: JSON.parse(p.phones || '[]'),
-      remindersPaused: Boolean(p.remindersPaused),
-      closingBalance: p.closingBalance ?? 0,
-    }));
+    let parties: Party[] = rows.map(p => {
+      const notesStr = String(p.notes || '');
+      const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
+      const rawClosing = p.closingBalance ?? 0;
+      const closing = isDebtor && rawClosing < 0 && !notesStr.toLowerCase().includes('advance')
+        ? Math.abs(rawClosing)
+        : rawClosing;
+      return {
+        ...p,
+        phones: JSON.parse(p.phones || '[]'),
+        remindersPaused: Boolean(p.remindersPaused),
+        closingBalance: closing,
+      };
+    });
     if (req.query.q) {
       const q = (req.query.q as string).toLowerCase();
       parties = parties.filter(p => p.name.toLowerCase().includes(q) || p.city.toLowerCase().includes(q));
@@ -935,11 +946,17 @@ export function createApp(dbPath?: string): express.Express {
     if (p.companyId && !canAccessCompany(user, p.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Access denied to company branch' });
     }
+    const notesStr = String(p.notes || '');
+    const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
+    const rawClosing = p.closingBalance ?? 0;
+    const closing = isDebtor && rawClosing < 0 && !notesStr.toLowerCase().includes('advance')
+      ? Math.abs(rawClosing)
+      : rawClosing;
     res.json({
       ...p,
       phones: JSON.parse(p.phones || '[]'),
       remindersPaused: Boolean(p.remindersPaused),
-      closingBalance: p.closingBalance ?? 0,
+      closingBalance: closing,
     });
   });
 
@@ -2836,9 +2853,9 @@ export function createApp(dbPath?: string): express.Express {
       actorId
     );
 
-    // Automatically update stock balances when challan is queued/synced (not draft or cancelled)
-    if (status !== 'draft' && status !== 'cancelled' && resolvedGodownId) {
-      const direction = challanType === 'purchase' ? 1 : -1;
+    // Automatically deduct stock balances ONLY when a sales challan is queued/synced (not delivery, purchase, draft, or cancelled)
+    if (status !== 'draft' && status !== 'cancelled' && resolvedGodownId && challanType === 'sales') {
+      const direction = -1;
       for (const line of parsedLines) {
         if (line.itemId && typeof line.qty === 'number') {
           const delta = direction * line.qty;
@@ -2893,18 +2910,20 @@ export function createApp(dbPath?: string): express.Express {
       existing.godownId ||
       (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
       `g-${existing.companyId}-main`;
-    const direction = existing.type === 'purchase' ? 1 : -1;
+    const direction = -1;
 
-    // If transitioning from draft/cancelled to active (queued/synced), apply stock adjustment
+    // If transitioning from draft/cancelled to active (queued/synced), apply stock deduction ONLY for sales challans
     if (!prevWasDeducted && nextIsDeducted) {
-      for (const line of parsedLines) {
-        if (line.itemId && typeof line.qty === 'number') {
-          const delta = direction * line.qty;
-          db.prepare(`
-            INSERT INTO stock_balances (itemId, godownId, qty)
-            VALUES (?, ?, ?)
-            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
-          `).run(line.itemId, resolvedGodownId, delta, delta);
+      if (existing.type === 'sales') {
+        for (const line of parsedLines) {
+          if (line.itemId && typeof line.qty === 'number') {
+            const delta = direction * line.qty;
+            db.prepare(`
+              INSERT INTO stock_balances (itemId, godownId, qty)
+              VALUES (?, ?, ?)
+              ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+            `).run(line.itemId, resolvedGodownId, delta, delta);
+          }
         }
       }
       if (status === 'queued') {
@@ -2914,15 +2933,17 @@ export function createApp(dbPath?: string): express.Express {
         `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
       }
     } else if (prevWasDeducted && !nextIsDeducted) {
-      // Reversing an active challan to cancelled or draft: restore stock balances and cancel outbox item
-      for (const line of parsedLines) {
-        if (line.itemId && typeof line.qty === 'number') {
-          const reverseDelta = -direction * line.qty;
-          db.prepare(`
-            INSERT INTO stock_balances (itemId, godownId, qty)
-            VALUES (?, ?, ?)
-            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
-          `).run(line.itemId, resolvedGodownId, reverseDelta, reverseDelta);
+      // Reversing an active sales challan to cancelled or draft: restore stock balances and cancel outbox item
+      if (existing.type === 'sales') {
+        for (const line of parsedLines) {
+          if (line.itemId && typeof line.qty === 'number') {
+            const reverseDelta = -direction * line.qty;
+            db.prepare(`
+              INSERT INTO stock_balances (itemId, godownId, qty)
+              VALUES (?, ?, ?)
+              ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty + ?
+            `).run(line.itemId, resolvedGodownId, reverseDelta, reverseDelta);
+          }
         }
       }
       db.prepare("UPDATE outbox_items SET status = 'cancelled', lastError = 'Challan cancelled' WHERE refId = ? AND status = 'queued'").run(req.params.id);
@@ -2943,14 +2964,14 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant deletion denied' });
     }
 
-    // Reverse stock balances if the challan had deducted/added inventory
-    if (existing.status !== 'draft' && existing.status !== 'cancelled') {
+    // Reverse stock balances if the sales challan had deducted inventory
+    if (existing.status !== 'draft' && existing.status !== 'cancelled' && existing.type === 'sales') {
       const parsedLines = JSON.parse(existing.lines || '[]');
       const resolvedGodownId =
         existing.godownId ||
         (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
         `g-${existing.companyId}-main`;
-      const direction = existing.type === 'purchase' ? 1 : -1;
+      const direction = -1;
       for (const line of parsedLines) {
         if (line.itemId && typeof line.qty === 'number') {
           const reverseDelta = -direction * line.qty;
@@ -2987,14 +3008,14 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
     }
 
-    // If existing challan was a draft, deduct/add stock balances now that it is being sent to Tally
-    if (existing.status === 'draft') {
+    // If existing sales challan was a draft, deduct stock balances now that it is being sent to Tally
+    if (existing.status === 'draft' && existing.type === 'sales') {
       const parsedLines = JSON.parse(existing.lines || '[]');
       const resolvedGodownId =
         existing.godownId ||
         (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(existing.companyId) as any)?.id ||
         `g-${existing.companyId}-main`;
-      const direction = existing.type === 'purchase' ? 1 : -1;
+      const direction = -1;
       for (const line of parsedLines) {
         if (line.itemId && typeof line.qty === 'number') {
           const delta = direction * line.qty;
@@ -3559,6 +3580,8 @@ export function createApp(dbPath?: string): express.Express {
       rows.map(r => ({
         ...r,
         userId: r.userId || r.updatedBy,
+        content: r.content || '',
+        tables: r.tables ? JSON.parse(r.tables) : [],
         columns: JSON.parse(r.columns || '[]'),
         rows: JSON.parse(r.rows || '[]'),
       }))
@@ -3585,9 +3608,31 @@ export function createApp(dbPath?: string): express.Express {
     res.json({
       ...r,
       userId: recordOwnerId || ownerUserId,
+      content: r.content || '',
+      tables: r.tables ? JSON.parse(r.tables) : [],
       columns: JSON.parse(r.columns || '[]'),
       rows: JSON.parse(r.rows || '[]'),
     });
+  });
+
+  app.delete('/api/notebooks/:id', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'notebook.edit')) {
+      return res.status(403).json({ error: 'Forbidden: Missing notebook.edit permission' });
+    }
+    const r = db.prepare('SELECT * FROM notebooks WHERE id = ?').get(req.params.id) as any;
+    if (!r) {
+      return res.status(404).json({ error: 'Notebook not found' });
+    }
+    if (r.companyId && !canAccessCompany(user, r.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+    const recordOwnerId = r.userId || r.updatedBy;
+    if (user && recordOwnerId && recordOwnerId !== user.id && user.role !== 'owner' && user.role !== 'dev') {
+      return res.status(403).json({ error: "Forbidden: Cannot delete another user's private notebook" });
+    }
+    db.prepare('DELETE FROM notebooks WHERE id = ?').run(req.params.id);
+    res.json({ success: true, id: req.params.id });
   });
 
   // 12b. Outbox
@@ -3630,6 +3675,8 @@ export function createApp(dbPath?: string): express.Express {
         companyId: targetCompanyId,
         userId: ownerUserId,
         title: 'Material & Delivery Calculation Notebook',
+        content: '',
+        tables: '[]',
         columns: JSON.stringify([
           { id: 'c-desc', key: 'desc', title: 'Description', type: 'text' },
           { id: 'c-qty', key: 'qty', title: 'Qty', type: 'number', total: 'sum' },
@@ -3652,13 +3699,15 @@ export function createApp(dbPath?: string): express.Express {
       };
       try {
         db.prepare(
-          'INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(r.id, r.companyId, r.userId, r.title, r.columns, r.rows, r.updatedAt, r.updatedBy);
+          'INSERT INTO notebooks (id, companyId, userId, title, content, tables, columns, rows, updatedAt, updatedBy) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(r.id, r.companyId, r.userId, r.title, r.content || '', r.tables || '[]', r.columns, r.rows, r.updatedAt, r.updatedBy);
       } catch {}
     }
     res.json({
       ...r,
       userId: r.userId || r.updatedBy,
+      content: r.content || '',
+      tables: r.tables ? JSON.parse(r.tables) : [],
       columns: JSON.parse(r.columns || '[]'),
       rows: JSON.parse(r.rows || '[]'),
     });
@@ -3696,17 +3745,28 @@ export function createApp(dbPath?: string): express.Express {
       companyId,
       userId: ownerUserId,
       title: nb.title || 'Untitled Notebook',
+      content: typeof nb.content === 'string' ? nb.content : (existing?.content || ''),
+      tables: Array.isArray(nb.tables) ? nb.tables : (existing?.tables ? JSON.parse(existing.tables) : []),
       columns: nb.columns || [],
       rows: nb.rows || [],
       updatedAt,
       updatedBy: ownerUserId,
     };
 
+    try {
+      db.prepare("ALTER TABLE notebooks ADD COLUMN content TEXT DEFAULT ''").run();
+    } catch {}
+    try {
+      db.prepare("ALTER TABLE notebooks ADD COLUMN tables TEXT DEFAULT '[]'").run();
+    } catch {}
+
     db.prepare(`
-      INSERT INTO notebooks (id, companyId, userId, title, columns, rows, updatedAt, updatedBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notebooks (id, companyId, userId, title, content, tables, columns, rows, updatedAt, updatedBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
+        content = excluded.content,
+        tables = excluded.tables,
         columns = excluded.columns,
         rows = excluded.rows,
         updatedAt = excluded.updatedAt,
@@ -3717,6 +3777,8 @@ export function createApp(dbPath?: string): express.Express {
       savedNb.companyId,
       savedNb.userId,
       savedNb.title,
+      savedNb.content,
+      JSON.stringify(savedNb.tables),
       JSON.stringify(savedNb.columns),
       JSON.stringify(savedNb.rows),
       savedNb.updatedAt,
@@ -4087,6 +4149,12 @@ export function createApp(dbPath?: string): express.Express {
             ? `${resolvedCompanyId}_${p.id}`
             : p.id;
         partyIdRemap.set(p.id, safePartyId);
+        const notesStr = String(p.notes || existing?.notes || '');
+        const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
+        let closing = p.closingBalance ?? existing?.closingBalance ?? 0;
+        if (isDebtor && closing < 0 && !notesStr.toLowerCase().includes('advance')) {
+          closing = Math.abs(closing);
+        }
         stmt.run(
           safePartyId,
           defaultTenantId,
@@ -4100,7 +4168,7 @@ export function createApp(dbPath?: string): express.Express {
           existing?.remindersPaused ?? 0,
           p.notes || existing?.notes || '',
           existing?.promiseToPay ?? null,
-          p.closingBalance ?? existing?.closingBalance ?? 0
+          closing
         );
         partiesUpdated++;
       }

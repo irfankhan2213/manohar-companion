@@ -66,7 +66,7 @@ export function parseTallyAmount(amountStr?: any): number {
 
 // Convert Tally Ledger balance to paise integer with correct debtor/creditor sign convention.
 // In Tally XML, Debit balances (money customers owe) are exported with a minus sign or "Dr" (e.g. "-329430.00" or "329430.00 Dr").
-// In business terms, Debit is POSITIVE (money receivable from customers).
+// In business terms and SaaS collections, Debit is POSITIVE (money receivable from customers).
 // Credit balances (money owed to suppliers or customer advance) are exported without minus or with "Cr".
 export function parseTallyLedgerBalance(amountStr?: any, isDebtor: boolean = true): number {
   if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
@@ -83,15 +83,25 @@ export function parseTallyLedgerBalance(amountStr?: any, isDebtor: boolean = tru
 
   const paise = rupeesToPaise(parsed);
 
-  // If explicitly Dr or exported as negative in Tally XML -> Debit (Customer owes money -> POSITIVE)
-  if (isDr || (isNegativeInXml && !isCr)) {
+  if (isDebtor) {
+    // For Sundry Debtors (Customers):
+    // Standard Debit balance (money customer owes us) is exported in Tally XML as negative (e.g. "-329430.00"), "Dr", or unsigned.
+    // In SaaS / Collections, money receivable from customers must be POSITIVE (+32943000).
+    // Only if customer has an explicit credit balance (advance payment / credit note marked "Cr") is it negative.
+    if (isCr) {
+      return -paise;
+    }
     return paise;
+  } else {
+    // For Sundry Creditors (Suppliers):
+    // In double-entry convention: Debit is +, Credit is -
+    // A normal creditor has a Credit balance (we owe supplier) -> -paise.
+    // If explicitly Dr or negative in Tally XML (advance paid to supplier) -> +paise.
+    if (isDr || (isNegativeInXml && !isCr)) {
+      return paise;
+    }
+    return -paise;
   }
-  // If explicitly Cr or positive in Tally XML -> Credit (Advance / payable -> NEGATIVE)
-  if (isCr || (!isNegativeInXml && !isDr)) {
-    return isDebtor ? -paise : paise;
-  }
-  return paise;
 }
 
 // Convert Tally date string (e.g. "20261015" or "15-Oct-2026") to YYYY-MM-DD without UTC timezone drift

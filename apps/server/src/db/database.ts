@@ -323,6 +323,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       companyId TEXT,
       userId TEXT,
       title TEXT,
+      content TEXT DEFAULT '',
+      tables TEXT DEFAULT '[]',
       columns TEXT,
       rows TEXT,
       updatedAt TEXT,
@@ -358,6 +360,12 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   try {
     db.prepare('ALTER TABLE notebooks ADD COLUMN userId TEXT').run();
+  } catch {}
+  try {
+    db.prepare("ALTER TABLE notebooks ADD COLUMN content TEXT DEFAULT ''").run();
+  } catch {}
+  try {
+    db.prepare("ALTER TABLE notebooks ADD COLUMN tables TEXT DEFAULT '[]'").run();
   } catch {}
 
   try {

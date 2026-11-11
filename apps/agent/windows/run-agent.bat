@@ -75,7 +75,16 @@ goto MENU
 cls
 echo Running two-way sync with Tally and Cloud...
 echo.
+:SYNC_LOOP
 "%NODE_BIN%" tally-agent.mjs sync
+if %errorlevel% equ 42 (
+    echo.
+    echo =====================================================================
+    echo  [OTA UPDATE] Agent bundle was updated! Running sync with new version...
+    echo =====================================================================
+    timeout /t 2 /nobreak >nul 2>&1
+    goto SYNC_LOOP
+)
 echo.
 pause
 goto MENU
