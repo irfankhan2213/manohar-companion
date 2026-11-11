@@ -1871,7 +1871,7 @@ export function createApp(dbPath?: string): express.Express {
       });
     }
 
-    let stockQuery = 'SELECT s.*, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId WHERE 1=1';
+    let stockQuery = 'SELECT s.*, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId AND b.godownId IN (SELECT id FROM godowns WHERE companyId = s.companyId) WHERE 1=1';
     const stockParams: any[] = [];
     if (companyId && companyId !== 'all') {
       stockQuery += ' AND s.companyId = ? GROUP BY s.id';
@@ -2158,7 +2158,13 @@ export function createApp(dbPath?: string): express.Express {
       const q = (req.query.q as string).toLowerCase();
       items = items.filter(it => it.name.toLowerCase().includes(q) || (it.partNo && it.partNo.toLowerCase().includes(q)));
     }
-    const balances = db.prepare('SELECT * FROM stock_balances').all() as any[];
+    const balances = db.prepare(`
+      SELECT b.*
+      FROM stock_balances b
+      JOIN godowns g ON b.godownId = g.id
+      JOIN stock_items s ON b.itemId = s.id
+      WHERE g.companyId = s.companyId
+    `).all() as any[];
 
     const balancesByItem = new Map<string, any[]>();
     for (const b of balances) {
@@ -2228,7 +2234,12 @@ export function createApp(dbPath?: string): express.Express {
       return {};
     };
 
-    const balances = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(it.id) as any[];
+    const balances = db.prepare(`
+      SELECT b.*
+      FROM stock_balances b
+      JOIN godowns g ON b.godownId = g.id
+      WHERE b.itemId = ? AND g.companyId = ?
+    `).all(it.id, it.companyId) as any[];
     const totalQty = balances.reduce((acc, b) => acc + b.qty, 0);
 
     res.json({
@@ -2530,7 +2541,12 @@ export function createApp(dbPath?: string): express.Express {
     `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, it.companyId || 'c1', actorId, 'stock_updated', `Updated stock item: ${updatedName}`, new Date().toISOString(), 'Desktop');
 
     const updated = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(it.id) as any;
-    const bList = db.prepare('SELECT * FROM stock_balances WHERE itemId = ?').all(it.id) as any[];
+    const bList = db.prepare(`
+      SELECT b.*
+      FROM stock_balances b
+      JOIN godowns g ON b.godownId = g.id
+      WHERE b.itemId = ? AND g.companyId = ?
+    `).all(it.id, it.companyId) as any[];
 
     res.json({
       id: updated.id,
@@ -4280,6 +4296,11 @@ export function createApp(dbPath?: string): express.Express {
               defaultGodown = { id: newGodownId };
             }
             const godownId = defaultGodown.id;
+            db.prepare(`
+              DELETE FROM stock_balances
+              WHERE itemId = ? AND godownId NOT IN (SELECT id FROM godowns WHERE companyId = ?)
+            `).run(safeItemId, resolvedCompanyId);
+
             db.prepare(`
               INSERT INTO stock_balances (itemId, godownId, qty)
               VALUES (?, ?, ?)

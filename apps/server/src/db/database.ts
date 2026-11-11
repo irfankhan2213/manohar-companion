@@ -89,7 +89,19 @@ export function pruneDatabaseTelemetry(db: any) {
       )
     `).run();
 
-    // 4. Note: activities (audit trail) are deliberately preserved for compliance and statutory record retention (never pruned)
+    // 4. Prune orphaned stock balances where godown branch does not match item company
+    db.prepare(`
+      DELETE FROM stock_balances
+      WHERE rowid IN (
+        SELECT b.rowid
+        FROM stock_balances b
+        JOIN godowns g ON b.godownId = g.id
+        JOIN stock_items s ON b.itemId = s.id
+        WHERE g.companyId != s.companyId
+      )
+    `).run();
+
+    // 5. Note: activities (audit trail) are deliberately preserved for compliance and statutory record retention (never pruned)
   } catch {}
 }
 
