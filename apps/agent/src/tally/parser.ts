@@ -64,6 +64,36 @@ export function parseTallyAmount(amountStr?: any): number {
   return parsed < 0 ? -paise : paise;
 }
 
+// Convert Tally Ledger balance to paise integer with correct debtor/creditor sign convention.
+// In Tally XML, Debit balances (money customers owe) are exported with a minus sign or "Dr" (e.g. "-329430.00" or "329430.00 Dr").
+// In business terms, Debit is POSITIVE (money receivable from customers).
+// Credit balances (money owed to suppliers or customer advance) are exported without minus or with "Cr".
+export function parseTallyLedgerBalance(amountStr?: any, isDebtor: boolean = true): number {
+  if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
+  const text = extractXmlText(amountStr);
+  if (!text) return 0;
+  const raw = text.replace(/,/g, '').trim();
+
+  const isCr = /(?:cr|credit)\.?$/i.test(raw);
+  const isDr = /(?:dr|debit)\.?$/i.test(raw);
+  const isNegativeInXml = raw.startsWith('-') || /-\s*$/.test(raw) || raw.endsWith('-');
+  const numOnly = raw.replace(/[^\d.]/g, '');
+  const parsed = parseFloat(numOnly);
+  if (isNaN(parsed) || parsed === 0) return 0;
+
+  const paise = rupeesToPaise(parsed);
+
+  // If explicitly Dr or exported as negative in Tally XML -> Debit (Customer owes money -> POSITIVE)
+  if (isDr || (isNegativeInXml && !isCr)) {
+    return paise;
+  }
+  // If explicitly Cr or positive in Tally XML -> Credit (Advance / payable -> NEGATIVE)
+  if (isCr || (!isNegativeInXml && !isDr)) {
+    return isDebtor ? -paise : paise;
+  }
+  return paise;
+}
+
 // Convert Tally date string (e.g. "20261015" or "15-Oct-2026") to YYYY-MM-DD without UTC timezone drift
 export function parseTallyDate(dateStr?: any): string {
   const text = extractXmlText(dateStr);
@@ -177,8 +207,8 @@ export function parseLedgersResponse(xmlString: string): TallyLedger[] {
     ledgers.push({
       name: name.trim(),
       parent,
-      openingBalance: parseTallyAmount(rawLedger.OPENINGBALANCE),
-      closingBalance: parseTallyAmount(rawLedger.CLOSINGBALANCE),
+      openingBalance: parseTallyLedgerBalance(rawLedger.OPENINGBALANCE, isDebtor),
+      closingBalance: parseTallyLedgerBalance(rawLedger.CLOSINGBALANCE, isDebtor),
       phone,
       email,
       gstin,
