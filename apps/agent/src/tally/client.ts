@@ -35,7 +35,7 @@ export interface TallyClientOptions {
   timeoutMs?: number;
 }
 
-const CANDIDATE_TALLY_PORTS = [9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9999];
+const CANDIDATE_TALLY_PORTS = [25853, 9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9999];
 
 /**
  * Normalizes a Tally company name by stripping trailing FY suffixes like "- (from 1-Apr-2026)" or "(2026-27)"
@@ -74,7 +74,7 @@ export class TallyClient {
   private timeoutMs: number;
 
   constructor(options: TallyClientOptions = {}) {
-    this.url = options.url || 'http://127.0.0.1:9000';
+    this.url = options.url || 'http://127.0.0.1:25853';
     this.mock = options.mock ?? false;
     this.timeoutMs = options.timeoutMs || 8000;
   }

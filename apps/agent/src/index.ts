@@ -26,7 +26,18 @@ const savedState = store.get();
 const cloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
 const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || '');
 const agentSecretKey = keyArg ? keyArg.split('=')[1] : (process.env.AGENT_KEY || savedState.agentSecretKey || 'dev-agent-secret-key');
-const tallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:9000');
+const rawTallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:25853');
+const customPort = (savedState as any)?.tallyPort || (savedState as any)?.port;
+let tallyUrl = rawTallyUrl || 'http://127.0.0.1:25853';
+if (customPort && !tallyArg) {
+  try {
+    const u = new URL(tallyUrl);
+    u.port = String(customPort);
+    tallyUrl = u.toString().replace(/\/$/, '');
+  } catch {
+    tallyUrl = `http://127.0.0.1:${customPort}`;
+  }
+}
 
 const client = new TallyClient({
   url: tallyUrl,

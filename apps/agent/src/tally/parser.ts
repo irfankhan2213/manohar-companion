@@ -16,6 +16,24 @@ const xmlParser = new XMLParser({
   parseTagValue: false, // Keep values as strings to avoid floating point truncation
 });
 
+// Helper to safely extract string text from any fast-xml-parser node (string, object with #text or attributes)
+export function extractXmlText(node: any): string {
+  if (node === undefined || node === null) return '';
+  if (typeof node === 'string') return node.trim();
+  if (typeof node === 'number' || typeof node === 'boolean') return String(node);
+  if (typeof node === 'object') {
+    if (node['#text'] !== undefined) return extractXmlText(node['#text']);
+    if (node._ !== undefined) return extractXmlText(node._);
+    for (const k of Object.keys(node)) {
+      if (!k.startsWith('@_')) {
+        const val = extractXmlText(node[k]);
+        if (val) return val;
+      }
+    }
+  }
+  return '';
+}
+
 // Helper to convert unknown/array to array
 function toArray<T>(val: T | T[] | undefined): T[] {
   if (!val) return [];
@@ -23,10 +41,12 @@ function toArray<T>(val: T | T[] | undefined): T[] {
 }
 
 // Convert Tally amount string to paise integer
-export function parseTallyAmount(amountStr?: string | number): number {
+export function parseTallyAmount(amountStr?: any): number {
   if (amountStr === undefined || amountStr === null || amountStr === '') return 0;
+  const text = extractXmlText(amountStr);
+  if (!text) return 0;
   // Strip any unit suffix after '/' (e.g. "4200.00 / 10 pcs" or "850 / set") before extracting numeric value
-  const beforeSlash = String(amountStr).split('/')[0] || '';
+  const beforeSlash = text.split('/')[0] || '';
   const raw = beforeSlash.replace(/,/g, '').trim();
   // Handle Dr / Cr suffixes and negative signs
   const isCr = /(?:cr|credit)\.?$/i.test(raw);
@@ -45,9 +65,10 @@ export function parseTallyAmount(amountStr?: string | number): number {
 }
 
 // Convert Tally date string (e.g. "20261015" or "15-Oct-2026") to YYYY-MM-DD without UTC timezone drift
-export function parseTallyDate(dateStr?: string): string {
-  if (!dateStr) return new Date().toISOString().slice(0, 10);
-  const clean = dateStr.trim();
+export function parseTallyDate(dateStr?: any): string {
+  const text = extractXmlText(dateStr);
+  if (!text) return new Date().toISOString().slice(0, 10);
+  const clean = text.trim();
   if (/^\d{8}$/.test(clean)) {
     // YYYYMMDD
     return `${clean.slice(0, 4)}-${clean.slice(4, 6)}-${clean.slice(6, 8)}`;
@@ -72,18 +93,19 @@ export function parseCompanyInfoResponse(xmlString: string): TallyCompanyInfo {
   const body = envelope?.BODY || envelope?.body;
   const data = body?.DATA || body?.data;
 
-  // Sometimes Tally returns directly in fields
+  // Prefer exact current company name from Tally
   const companyName =
-    data?.COMPANYNAME ||
-    body?.DESC?.STATICVARIABLES?.SVCURRENTCOMPANY ||
-    data?.COMPNAMEFIELD ||
+    extractXmlText(data?.COMPNAMEFIELD) ||
+    extractXmlText(data?.COMPANYNAME) ||
+    extractXmlText(body?.DESC?.STATICVARIABLES?.SVCURRENTCOMPANY) ||
+    extractXmlText(data?.TALLYMESSAGE?.COMPANY?.NAME) ||
     'Manohar Traders';
 
-  const fromDate = parseTallyDate(data?.COMPYEARFIELD || '20260401');
-  const booksFrom = parseTallyDate(data?.COMPBOOKSFIELD || '20260401');
+  const fromDate = parseTallyDate(extractXmlText(data?.COMPYEARFIELD) || '20260401');
+  const booksFrom = parseTallyDate(extractXmlText(data?.COMPBOOKSFIELD) || fromDate);
 
   return {
-    name: String(companyName).trim(),
+    name: companyName.trim() || 'Manohar Traders',
     financialYearFrom: fromDate,
     booksFrom: booksFrom,
   };
@@ -103,15 +125,15 @@ export function parseOpenCompaniesResponse(xmlString: string): TallyCompanyInfo[
     const rawComp = msg?.COMPANY || msg;
     if (!rawComp || typeof rawComp !== 'object') continue;
 
-    const name = rawComp['@_NAME'] || rawComp.NAME || rawComp.COMPANYNAME;
+    const name = extractXmlText(rawComp['@_NAME'] || rawComp.NAME || rawComp.COMPANYNAME);
     if (!name) continue;
-    const cleanName = String(name).trim();
-    if (!cleanName || seen.has(cleanName.toLowerCase())) continue;
+    const cleanName = name.trim();
+    if (!cleanName || cleanName === '[object Object]' || seen.has(cleanName.toLowerCase())) continue;
     seen.add(cleanName.toLowerCase());
 
-    const fromDate = parseTallyDate(rawComp.STARTINGFROM || rawComp.COMPYEARFIELD || '20260401');
-    const booksFrom = parseTallyDate(rawComp.BOOKSFROM || rawComp.COMPBOOKSFIELD || fromDate);
-    const guid = rawComp.GUID ? String(rawComp.GUID).trim() : undefined;
+    const fromDate = parseTallyDate(extractXmlText(rawComp.STARTINGFROM || rawComp.COMPYEARFIELD) || '20260401');
+    const booksFrom = parseTallyDate(extractXmlText(rawComp.BOOKSFROM || rawComp.COMPBOOKSFIELD) || fromDate);
+    const guid = extractXmlText(rawComp.GUID) || undefined;
 
     companies.push({
       name: cleanName,
@@ -138,28 +160,28 @@ export function parseLedgersResponse(xmlString: string): TallyLedger[] {
     const rawLedger = msg?.LEDGER || msg;
     if (!rawLedger || typeof rawLedger !== 'object') continue;
 
-    const name = rawLedger['@_NAME'] || rawLedger.NAME;
-    if (!name) continue;
+    const name = extractXmlText(rawLedger['@_NAME'] || rawLedger.NAME);
+    if (!name || name === '[object Object]') continue;
 
-    const parent = String(rawLedger.PARENT || '').trim();
+    const parent = extractXmlText(rawLedger.PARENT);
     const parentLower = parent.toLowerCase();
     const isDebtor = parentLower.includes('debtor') || parentLower.includes('customer');
     const isCreditor = parentLower.includes('creditor') || parentLower.includes('supplier');
 
-    const alterId = parseInt(String(rawLedger.ALTERID || '0'), 10) || 0;
-    const phone = rawLedger.LEDGERPHONE || rawLedger.PHONE;
-    const email = rawLedger.EMAIL;
-    const gstin = rawLedger.PARTYGSTIN || rawLedger.GSTIN;
-    const creditDays = parseInt(String(rawLedger.BILLCREDITPERIOD || '30'), 10) || 30;
+    const alterId = parseInt(extractXmlText(rawLedger.ALTERID) || '0', 10) || 0;
+    const phone = extractXmlText(rawLedger.LEDGERPHONE || rawLedger.PHONE) || undefined;
+    const email = extractXmlText(rawLedger.EMAIL) || undefined;
+    const gstin = extractXmlText(rawLedger.PARTYGSTIN || rawLedger.GSTIN) || undefined;
+    const creditDays = parseInt(extractXmlText(rawLedger.BILLCREDITPERIOD) || '30', 10) || 30;
 
     ledgers.push({
-      name: String(name).trim(),
+      name: name.trim(),
       parent,
       openingBalance: parseTallyAmount(rawLedger.OPENINGBALANCE),
       closingBalance: parseTallyAmount(rawLedger.CLOSINGBALANCE),
-      phone: phone ? String(phone).trim() : undefined,
-      email: email ? String(email).trim() : undefined,
-      gstin: gstin ? String(gstin).trim() : undefined,
+      phone,
+      email,
+      gstin,
       creditDays,
       alterId,
       isSundryDebtor: isDebtor,
@@ -183,9 +205,9 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
     const rawBill = msg?.BILLS || msg;
     if (!rawBill || typeof rawBill !== 'object') continue;
 
-    const partyName = rawBill.PARENT || rawBill['@_PARENT'];
-    const billNo = rawBill.BILLREF || rawBill['@_BILLREF'];
-    if (!partyName || !billNo) continue;
+    const partyName = extractXmlText(rawBill.PARENT || rawBill['@_PARENT']);
+    const billNo = extractXmlText(rawBill.BILLREF || rawBill['@_BILLREF']);
+    if (!partyName || !billNo || partyName === '[object Object]' || billNo === '[object Object]') continue;
 
     const billDate = parseTallyDate(rawBill.BILLDATE);
     const dueDate = parseTallyDate(rawBill.BILLDUE || rawBill.BILLDATE);
@@ -194,7 +216,7 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
     const isDebitRaw = rawBill.ISDEBIT !== undefined ? rawBill.ISDEBIT : rawBill['@_ISDEBIT'];
     let isDebit: boolean | undefined = undefined;
     if (isDebitRaw !== undefined && isDebitRaw !== null) {
-      const s = String(isDebitRaw).trim().toLowerCase();
+      const s = extractXmlText(isDebitRaw).trim().toLowerCase();
       if (s === 'yes' || s === 'true' || s === '1') isDebit = true;
       if (s === 'no' || s === 'false' || s === '0') isDebit = false;
     }
@@ -223,8 +245,8 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
     const daysLate = isPending ? getDaysOverdue(dueDate, today) : 0;
 
     bills.push({
-      partyName: String(partyName).trim(),
-      billNo: String(billNo).trim(),
+      partyName: partyName.trim(),
+      billNo: billNo.trim(),
       billDate,
       dueDate,
       openingAmount,
@@ -250,23 +272,31 @@ export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {
     const rawItem = msg?.STOCKITEM || msg;
     if (!rawItem || typeof rawItem !== 'object') continue;
 
-    const name = rawItem['@_NAME'] || rawItem.NAME;
-    if (!name) continue;
+    const name = extractXmlText(rawItem['@_NAME'] || rawItem.NAME);
+    if (!name || name === '[object Object]') continue;
 
     // e.g. "100 pcs" -> 100
-    const rawQtyStr = String(rawItem.CLOSINGBALANCE || '0');
+    const rawQtyStr = extractXmlText(rawItem.CLOSINGBALANCE);
     const qtyMatch = rawQtyStr.match(/([-+]?\d+(\.\d+)?)/);
     const closingQty = qtyMatch && qtyMatch[1] ? parseFloat(qtyMatch[1]) : 0;
 
-    const baseUnits = String(rawItem.BASEUNITS || 'pcs').trim();
+    const rawUnits = extractXmlText(rawItem.BASEUNITS);
+    const baseUnits = rawUnits && rawUnits !== '[object Object]' ? rawUnits : 'pcs';
+
+    const rawParent = extractXmlText(rawItem.PARENT);
+    const parent = rawParent && rawParent !== '[object Object]' ? rawParent : undefined;
+
+    const rawPartNo = extractXmlText(rawItem.PARTNO);
+    const partNo = rawPartNo && rawPartNo !== '[object Object]' ? rawPartNo : undefined;
+
     const closingRate = parseTallyAmount(rawItem.CLOSINGRATE);
     const closingValue = parseTallyAmount(rawItem.CLOSINGVALUE);
-    const alterId = parseInt(String(rawItem.ALTERID || '0'), 10) || 0;
+    const alterId = parseInt(extractXmlText(rawItem.ALTERID) || '0', 10) || 0;
 
     stockItems.push({
-      name: String(name).trim(),
-      parent: rawItem.PARENT ? String(rawItem.PARENT).trim() : undefined,
-      partNo: rawItem.PARTNO ? String(rawItem.PARTNO).trim() : undefined,
+      name: name.trim(),
+      parent,
+      partNo,
       closingQty,
       baseUnits,
       closingRate,
@@ -282,12 +312,12 @@ export function parseVoucherImportResponse(xmlString: string): VoucherImportResu
   const parsed = xmlParser.parse(xmlString);
   const resp = parsed?.RESPONSE || parsed?.ENVELOPE?.BODY?.DATA?.IMPORTRESULT;
 
-  const created = parseInt(String(resp?.CREATED || '0'), 10) || 0;
-  const altered = parseInt(String(resp?.ALTERED || '0'), 10) || 0;
-  const errors = parseInt(String(resp?.ERRORS || '0'), 10) || 0;
+  const created = parseInt(extractXmlText(resp?.CREATED) || '0', 10) || 0;
+  const altered = parseInt(extractXmlText(resp?.ALTERED) || '0', 10) || 0;
+  const errors = parseInt(extractXmlText(resp?.ERRORS) || '0', 10) || 0;
 
   // Check for error lines
-  const lineErrors = resp?.LINEERROR ? toArray(resp.LINEERROR).join('; ') : undefined;
+  const lineErrors = resp?.LINEERROR ? toArray(resp.LINEERROR).map(extractXmlText).join('; ') : undefined;
 
   return {
     success: errors === 0 && (created > 0 || altered > 0),

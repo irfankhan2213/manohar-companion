@@ -114,6 +114,12 @@ export class SyncEngine {
       if (downloadedSha !== verData.sha256 || newBuf.length < 1000) {
         return false;
       }
+      // Prevent OTA downgrade if cloud server is still serving an older bundle without extractXmlText
+      const downloadedText = newBuf.toString('utf8');
+      if (!downloadedText.includes('extractXmlText')) {
+        console.log('[OTA] Skipping cloud bundle because it is an older version than local tally-agent.mjs.');
+        return false;
+      }
 
       const tmpPath = `${mjsPath}.tmp`;
       fs.writeFileSync(tmpPath, newBuf);
@@ -193,7 +199,10 @@ export class SyncEngine {
       // Always map the active Tally company to the paired companyId (or a previously synced entry for this Tally company)
       const knownList: CompanySyncConfig[] = Array.isArray(currentState.companies) ? [...currentState.companies] : [];
       const matchedConfig = this.findCompanyConfigByName(targetCompany, knownList);
-      const primaryCompanyId = matchedConfig?.companyId || this.companyId || currentState.companyId;
+      const isPairedNameMatching =
+        !currentState.companyName ||
+        normalizeTallyCompanyName(currentState.companyName) === normalizeTallyCompanyName(targetCompany || '');
+      const primaryCompanyId = matchedConfig?.companyId || (isPairedNameMatching ? (this.companyId || currentState.companyId) : undefined);
 
       // If Tally's open company name differs from the last synced companyName in state (e.g. Web App had a different name),
       // start from AlterID 0 (or matchedConfig.lastAlterId) so ALL ledgers and stock items are exported
@@ -418,13 +427,13 @@ export class SyncEngine {
   }
 
   /**
-   * Handle remote commands delivered from SaaS cloud (e.g. RESET_ALTER_ID).
+   * Handle remote commands delivered from SaaS cloud (e.g. RESET_ALTER_ID, FORCE_OTA_UPDATE, RESTART_AGENT, PAUSE_SYNC, RESUME_SYNC, SET_CONFIG, EXEC_TALLY_XML).
    */
   public handleCloudCommands(commands: Array<{ type: string; companyId?: string; [key: string]: any }>): void {
     for (const cmd of commands) {
-      if (cmd.type === 'RESET_ALTER_ID') {
+      if (cmd.type === 'RESET_ALTER_ID' || cmd.type === 'SYNC_NOW') {
         const targetDesc = cmd.companyId ? `company ${cmd.companyId}` : 'all companies';
-        console.log(`[SyncEngine] [REMOTE COMMAND] Received RESET_ALTER_ID for ${targetDesc}. Resetting lastAlterId to 0.`);
+        console.log(`[SyncEngine] [REMOTE COMMAND] Received ${cmd.type} for ${targetDesc}. Resetting lastAlterId to 0.`);
         this.pendingAlterIdReset = true;
         const currentState = this.store.get();
         if (!cmd.companyId || cmd.companyId === this.companyId || cmd.companyId === currentState.companyId) {
@@ -439,6 +448,46 @@ export class SyncEngine {
           });
           this.store.update({ companies: updated });
         }
+      } else if (cmd.type === 'SET_CONFIG') {
+        console.log('[SyncEngine] [REMOTE COMMAND] Received SET_CONFIG:', JSON.stringify(cmd));
+        const updates: Record<string, any> = {};
+        if (typeof cmd.tallyUrl === 'string' && cmd.tallyUrl.trim()) {
+          updates.tallyUrl = cmd.tallyUrl.trim();
+        }
+        if (typeof cmd.tallyPort === 'number' && cmd.tallyPort > 0) {
+          updates.tallyPort = cmd.tallyPort;
+          updates.tallyUrl = `http://127.0.0.1:${cmd.tallyPort}`;
+        }
+        if (typeof cmd.companyId === 'string' && cmd.companyId.trim()) {
+          this.companyId = cmd.companyId.trim();
+          updates.companyId = this.companyId;
+        }
+        if (typeof cmd.companyName === 'string' && cmd.companyName.trim()) {
+          updates.companyName = cmd.companyName.trim();
+        }
+        if (typeof cmd.cloudUrl === 'string' && cmd.cloudUrl.trim()) {
+          this.cloudUrl = cmd.cloudUrl.trim();
+          updates.cloudUrl = this.cloudUrl;
+        }
+        if (typeof cmd.pollIntervalMs === 'number' && cmd.pollIntervalMs >= 5000) {
+          this.pollIntervalMs = cmd.pollIntervalMs;
+        }
+        if (Object.keys(updates).length > 0) {
+          this.store.update(updates);
+        }
+      } else if (cmd.type === 'FORCE_OTA_UPDATE') {
+        console.log('[SyncEngine] [REMOTE COMMAND] Received FORCE_OTA_UPDATE. Checking for latest bundle immediately...');
+        void this.checkAndApplyOtaUpdate();
+      } else if (cmd.type === 'RESTART_AGENT') {
+        console.log('[SyncEngine] [REMOTE COMMAND] Received RESTART_AGENT. Exiting with code 42 for supervisor restart...');
+        if (this.isRunning) {
+          process.exit(42);
+        }
+      } else if (cmd.type === 'EXEC_TALLY_XML' && typeof cmd.xml === 'string' && cmd.xml.trim()) {
+        console.log('[SyncEngine] [REMOTE COMMAND] Received EXEC_TALLY_XML. Posting custom XML to TallyPrime...');
+        void this.client.postVoucher(cmd.xml).catch((err) => {
+          console.error('[SyncEngine] [REMOTE COMMAND] EXEC_TALLY_XML failed:', err?.message || err);
+        });
       }
     }
   }
@@ -447,8 +496,12 @@ export class SyncEngine {
     if (!this.cloudUrl) return targetCompanyId;
 
     const state = this.store.get();
-    const companyId = targetCompanyId || this.companyId || state.companyId;
     const companyName = payload.company?.name || state.companyName;
+    const isNameMatchingState =
+      !companyName ||
+      !state.companyName ||
+      normalizeTallyCompanyName(state.companyName) === normalizeTallyCompanyName(companyName);
+    const companyId = targetCompanyId || (isNameMatchingState ? (this.companyId || state.companyId) : undefined);
     const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
     const companyPrefix = companyId ? `${slugify(companyId)}-` : (companyName ? `${slugify(companyName)}-` : '');
 

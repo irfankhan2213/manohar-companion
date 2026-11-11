@@ -167,15 +167,15 @@ export function createApp(dbPath?: string): express.Express {
     );
     if (fuzzyMatch) return fuzzyMatch;
 
-    // 3. If the agent explicitly provided its paired companyId (byId), ALWAYS accept and sync into byId
-    // regardless of whether the Web App's initial company name differed from Tally's company name!
-    if (byId) {
+    // 3. If byId was provided, check if byId's name actually matches cleanName
+    const byIdMatches = byId && (namesMatchFuzzy(byId.name, cleanName) || namesMatchFuzzy(byId.tallyName, cleanName));
+    if (byId && byIdMatches) {
       return byId;
     }
 
-    // 4. If no companyId was provided (e.g. a 2nd/3rd simultaneously open Tally company) and autoCreate is enabled,
-    // auto-provision a new company record for this tenant
-    if (autoCreate && effectiveTenantId) {
+    // 4. If cleanName is a distinct new company (e.g. Chinese Parts vs Manohar Traders) and autoCreate is enabled,
+    // auto-provision a new company record for this tenant so multiple companies sync to their own distinct profiles!
+    if (autoCreate && effectiveTenantId && cleanName) {
       const slug =
         normalizeTallyName(cleanName)
           .replace(/[^a-z0-9]+/g, '-')
@@ -196,6 +196,11 @@ export function createApp(dbPath?: string): express.Express {
         const created = db.prepare('SELECT * FROM companies WHERE id = ?').get(newCompId) as any;
         if (created) return created;
       } catch {}
+    }
+
+    // Fallback: If not auto-creating, return byId
+    if (byId) {
+      return byId;
     }
 
     if (effectiveTenantId) {
@@ -4142,30 +4147,54 @@ export function createApp(dbPath?: string): express.Express {
     }
 
     if (Array.isArray(stockItems)) {
+      const cleanSyncStr = (val: any, fallback: string | null = null): string | null => {
+        if (val === undefined || val === null) return fallback;
+        if (typeof val === 'object') {
+          const inner = val['#text'] ?? val._ ?? '';
+          const s = String(inner).trim();
+          return s && !s.includes('[object Object]') ? s : fallback;
+        }
+        const s = String(val).trim();
+        if (!s || s.includes('[object Object]')) return fallback;
+        return s;
+      };
+      // Clean any historical [object Object] values in stock_items for this company
+      try {
+        db.prepare("UPDATE stock_items SET unit = 'pcs' WHERE companyId = ? AND unit LIKE '%[object Object]%'").run(resolvedCompanyId);
+        db.prepare("UPDATE stock_items SET itemGroup = 'General' WHERE companyId = ? AND itemGroup LIKE '%[object Object]%'").run(resolvedCompanyId);
+        db.prepare("UPDATE stock_items SET partNo = NULL WHERE companyId = ? AND partNo LIKE '%[object Object]%'").run(resolvedCompanyId);
+      } catch {}
+
       const stmt = db.prepare(`
         INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           companyId = excluded.companyId,
           name = excluded.name,
-          partNo = COALESCE(excluded.partNo, stock_items.partNo),
-          unit = COALESCE(excluded.unit, stock_items.unit),
-          itemGroup = COALESCE(excluded.itemGroup, stock_items.itemGroup),
+          partNo = CASE WHEN stock_items.partNo LIKE '%[object Object]%' THEN excluded.partNo ELSE COALESCE(excluded.partNo, stock_items.partNo) END,
+          unit = CASE WHEN excluded.unit IS NOT NULL AND excluded.unit NOT LIKE '%[object Object]%' THEN excluded.unit WHEN stock_items.unit LIKE '%[object Object]%' THEN 'pcs' ELSE stock_items.unit END,
+          itemGroup = CASE WHEN excluded.itemGroup IS NOT NULL AND excluded.itemGroup NOT LIKE '%[object Object]%' THEN excluded.itemGroup WHEN stock_items.itemGroup LIKE '%[object Object]%' THEN 'General' ELSE stock_items.itemGroup END,
           rate = CASE WHEN excluded.rate > 0 THEN excluded.rate ELSE stock_items.rate END,
           reorderLevel = CASE WHEN excluded.reorderLevel > 0 THEN excluded.reorderLevel ELSE stock_items.reorderLevel END,
           alias = COALESCE(excluded.alias, stock_items.alias)
       `);
       for (const s of stockItems) {
-        const existingByName = s.name
-          ? (db.prepare('SELECT id, companyId FROM stock_items WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(s.name).trim()) as any)
-          : null;
+        const cleanName = cleanSyncStr(s.name, '');
+        if (!cleanName) continue;
+        const existingByName = db
+          .prepare('SELECT id, companyId FROM stock_items WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1')
+          .get(resolvedCompanyId, cleanName) as any;
         const existingItem = existingByName || (db.prepare('SELECT companyId FROM stock_items WHERE id = ?').get(s.id) as any);
         const safeItemId = existingByName
           ? existingByName.id
           : existingItem && existingItem.companyId && existingItem.companyId !== resolvedCompanyId
             ? `${resolvedCompanyId}_${s.id}`
             : s.id;
-        stmt.run(safeItemId, resolvedCompanyId, s.name, s.partNo || null, s.unit || 'pcs', s.group || 'General', s.rate || 0, s.reorderLevel || 0, s.alias || null);
+        const cleanPartNo = cleanSyncStr(s.partNo, null);
+        const cleanUnit = cleanSyncStr(s.unit, 'pcs') || 'pcs';
+        const cleanGroup = cleanSyncStr(s.group, 'General') || 'General';
+        const cleanAlias = cleanSyncStr(s.alias, null);
+        stmt.run(safeItemId, resolvedCompanyId, cleanName, cleanPartNo, cleanUnit, cleanGroup, s.rate || 0, s.reorderLevel || 0, cleanAlias);
         if (s.closingQty !== undefined) {
           // Do not overwrite Web App stock balance with stale Tally quantity while an outbox adjustment for this item is still queued
           const hasPendingOutbox = db

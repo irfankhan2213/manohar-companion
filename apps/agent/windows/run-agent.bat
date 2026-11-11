@@ -125,18 +125,22 @@ echo =====================================================================
 echo                        CONFIGURATION SETUP
 echo =====================================================================
 echo Default Cloud: https://manohar.evolveexpert.com
-echo Default Tally: http://127.0.0.1:9000
+echo Default Tally: http://127.0.0.1:25853
 echo.
 set /p c_url="Enter Cloud URL [or press Enter to keep default]: "
 set /p c_comp="Enter Company ID: "
 set /p c_key="Enter Agent Secret Key [or press Enter for default]: "
-set /p c_tally="Enter Tally XML URL [or press Enter for http://127.0.0.1:9000]: "
+set /p c_tally="Enter Tally XML URL [or press Enter for http://127.0.0.1:25853]: "
 
 set CMD="%NODE_BIN%" tally-agent.mjs config
 if not "%c_url%"=="" set CMD=!CMD! --cloud=%c_url%
 if not "%c_comp%"=="" set CMD=!CMD! --company=%c_comp%
 if not "%c_key%"=="" set CMD=!CMD! --key=%c_key%
-if not "%c_tally%"=="" set CMD=!CMD! --tally=%c_tally%
+if not "%c_tally%"=="" (
+    set CMD=!CMD! --tally=%c_tally%
+) else (
+    set CMD=!CMD! --tally=http://127.0.0.1:25853
+)
 
 !CMD!
 echo.

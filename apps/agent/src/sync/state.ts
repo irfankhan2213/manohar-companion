@@ -28,8 +28,8 @@ export class StateStore {
     const bakPath = `${this.filePath}.bak`;
     try {
       if (fs.existsSync(this.filePath)) {
-        const raw = fs.readFileSync(this.filePath, 'utf-8');
-        if (raw.trim().length > 0) {
+        const raw = fs.readFileSync(this.filePath, 'utf-8').replace(/^\uFEFF/, '').trim();
+        if (raw.length > 0) {
           const parsed = JSON.parse(raw);
           // Keep a backup copy of known valid state
           try {
