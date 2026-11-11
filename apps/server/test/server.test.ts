@@ -752,4 +752,285 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(newStockRes.status).toBe(200);
     expect(newStockRes.body.some((s: any) => s.item.name === 'Sunrise Heavy Loom X1' && s.totalQty === 7)).toBe(true);
   });
+
+  it('preserves local party customPhones across incoming Tally sync and supports debtor/creditor differentiation (R1)', async () => {
+    // 1. Initial Tally push with party phones
+    await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: 'c1',
+        parties: [
+          {
+            id: 'p-sync-contact-1',
+            name: 'Contact Test Customer',
+            city: 'Ludhiana',
+            phones: ['+91 98000 11111'],
+            parentGroup: 'Sundry Debtors',
+            partyType: 'debtor',
+            closingBalance: 500000,
+          },
+          {
+            id: 'p-sync-supplier-1',
+            name: 'Contact Test Supplier',
+            city: 'Jalandhar',
+            phones: ['+91 98000 22222'],
+            parentGroup: 'Sundry Creditors',
+            partyType: 'creditor',
+            closingBalance: -300000,
+          },
+        ],
+        bills: [],
+        stockItems: [],
+      });
+
+    // 2. Add local custom contact numbers via PATCH /api/parties/:id
+    const patchRes = await request(app)
+      .patch('/api/parties/p-sync-contact-1')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        customPhones: ['+91 98765 43210', '+91 98111 22222'],
+      });
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.body.customPhones).toEqual(['+91 98765 43210', '+91 98111 22222']);
+
+    // 3. Incoming subsequent Tally sync with updated Tally master phone and empty customPhones
+    const reSyncRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: 'c1',
+        parties: [
+          {
+            id: 'p-sync-contact-1',
+            name: 'Contact Test Customer',
+            city: 'Ludhiana',
+            phones: ['+91 98000 99999'], // updated Tally master number
+            customPhones: [], // Tally agent sends empty customPhones
+            parentGroup: 'Sundry Debtors',
+            partyType: 'debtor',
+            closingBalance: 550000,
+          },
+        ],
+        bills: [],
+        stockItems: [],
+      });
+    expect(reSyncRes.status).toBe(200);
+
+    // 4. Verify local custom phones were PRESERVED and not wiped out by incoming sync
+    const partyRes = await request(app)
+      .get('/api/parties/p-sync-contact-1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(partyRes.status).toBe(200);
+    expect(partyRes.body.phones).toEqual(['+91 98000 99999']);
+    expect(partyRes.body.customPhones).toEqual(['+91 98765 43210', '+91 98111 22222']);
+    expect(partyRes.body.partyType).toBe('debtor');
+
+    // 5. Test debtor vs creditor filtering via GET /api/parties?type=debtor|creditor
+    const debtorsRes = await request(app)
+      .get('/api/parties?companyId=c1&type=debtor')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(debtorsRes.status).toBe(200);
+    expect(debtorsRes.body.some((p: any) => p.id === 'p-sync-contact-1')).toBe(true);
+    expect(debtorsRes.body.some((p: any) => p.id === 'p-sync-supplier-1')).toBe(false);
+
+    const creditorsRes = await request(app)
+      .get('/api/parties?companyId=c1&type=creditor')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(creditorsRes.status).toBe(200);
+    expect(creditorsRes.body.some((p: any) => p.id === 'p-sync-supplier-1')).toBe(true);
+    expect(creditorsRes.body.some((p: any) => p.id === 'p-sync-contact-1')).toBe(false);
+  });
+
+  it('accurately reconciles unadjusted advances and credit notes via FIFO and excludes creditors in home receivables (R2)', async () => {
+    // Set up dedicated test company for isolated receivables verification
+    const testCompId = 'comp-receivables-test';
+    const pushRes = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyName: 'Receivables Test Corporation',
+        parties: [
+          {
+            id: 'p-adv-cust',
+            name: 'Advance Reconcile Customer',
+            parentGroup: 'Sundry Debtors',
+            partyType: 'debtor',
+            // Total bills = 10,000 + 5,000 = 15,000 (1,500,000 paise).
+            // Tally ledger closing balance = 9,000 (900,000 paise), reflecting a 6,000 (600,000 paise) advance on account.
+            closingBalance: 900000,
+          },
+          {
+            id: 'p-adv-supplier',
+            name: 'Raw Materials Supplier Ltd',
+            parentGroup: 'Sundry Creditors',
+            partyType: 'creditor',
+            // Creditor payable should NEVER be lumped into customer receivables
+            closingBalance: -400000,
+          },
+        ],
+        bills: [
+          {
+            id: 'b-adv-inv-1',
+            partyId: 'p-adv-cust',
+            billNo: 'INV/ADV/01',
+            date: '2026-08-01',
+            dueDate: '2026-08-31', // overdue
+            amount: 1000000, // ₹10,000
+            pending: 1000000,
+          },
+          {
+            id: 'b-adv-inv-2',
+            partyId: 'p-adv-cust',
+            billNo: 'INV/ADV/02',
+            date: '2026-09-01',
+            dueDate: '2026-09-30', // overdue
+            amount: 500000, // ₹5,000
+            pending: 500000,
+          },
+        ],
+        stockItems: [],
+      });
+    expect(pushRes.status).toBe(200);
+    const resolvedCompanyId = pushRes.body.companyId;
+
+    // Fetch dashboard stats for the company
+    const statsRes = await request(app)
+      .get(`/api/dashboard/stats?companyId=${resolvedCompanyId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(statsRes.status).toBe(200);
+
+    // 1. Authoritative net receivables: 900,000 paise (₹9,000), NOT 1,500,000, and NOT contaminated by creditor (-400,000)
+    expect(statsRes.body.totalReceivables).toBe(900000);
+
+    // 2. FIFO Advance Reconciliation:
+    // Advance = 15,000 - 9,000 = 6,000.
+    // Applied to oldest bill (INV/ADV/01: 10,000 - 6,000 = 4,000 pending).
+    // Second bill (INV/ADV/02: 5,000 pending).
+    // Both are overdue, so totalOverdue = 4,000 + 5,000 = 9,000 (900,000 paise).
+    expect(statsRes.body.totalOverdue).toBe(900000);
+
+    // 3. Creditor must not appear in mostOverdue
+    expect(statsRes.body.mostOverdue.some((o: any) => o.party.id === 'p-adv-supplier')).toBe(false);
+  });
+
+  it('creates purchase challan with roundOff & itemDescription, and allows editing via PUT /api/challans/:id (R3)', async () => {
+    // 1. Create a purchase challan with roundOff and line itemDescription
+    const createRes = await request(app)
+      .post('/api/challans')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: 'c1',
+        type: 'purchase',
+        partyId: 'p-sample',
+        date: '2026-10-20',
+        roundOff: 35, // +35 paise
+        narration: 'Initial purchase challan from supplier',
+        vehicleNo: 'PB-10-XY-9999',
+        lines: [
+          {
+            itemId: 's1',
+            description: 'TAI MACHINE',
+            itemDescription: 'Direct delivery with heavy-duty stand',
+            qty: 2,
+            unit: 'set',
+            rate: 150000,
+            amount: 300000,
+            hsnCode: '8452',
+            gstRate: 18,
+          },
+        ],
+      });
+
+    expect(createRes.status).toBe(201);
+    const createdId = createRes.body.id;
+    expect(createRes.body.roundOff).toBe(35);
+    expect(createRes.body.lines[0].itemDescription).toBe('Direct delivery with heavy-duty stand');
+
+    // 2. Edit challan via PUT /api/challans/:id
+    const putRes = await request(app)
+      .put(`/api/challans/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        roundOff: -45, // updated roundOff (-45 paise)
+        narration: 'Revised purchase challan notes',
+        vehicleNo: 'PB-10-ZZ-1234',
+        lines: [
+          {
+            itemId: 's1',
+            description: 'TAI MACHINE',
+            itemDescription: 'Updated line description: includes spare needle pack',
+            qty: 3,
+            unit: 'set',
+            rate: 150000,
+            amount: 450000,
+            hsnCode: '8452',
+            gstRate: 18,
+          },
+        ],
+      });
+
+    expect(putRes.status).toBe(200);
+    expect(putRes.body.roundOff).toBe(-45);
+    expect(putRes.body.narration).toBe('Revised purchase challan notes');
+    expect(putRes.body.vehicleNo).toBe('PB-10-ZZ-1234');
+    expect(putRes.body.lines[0].qty).toBe(3);
+    expect(putRes.body.lines[0].itemDescription).toBe('Updated line description: includes spare needle pack');
+
+    // 3. Confirm persistence via GET /api/challans/:id
+    const getRes = await request(app)
+      .get(`/api/challans/${createdId}`)
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(getRes.status).toBe(200);
+    expect(getRes.body.roundOff).toBe(-45);
+    expect(getRes.body.lines[0].itemDescription).toBe('Updated line description: includes spare needle pack');
+  });
+
+  it('filters past bills and challans by party, date range, and partyName in history query (R4)', async () => {
+    // 1. History filtering for bills
+    const billsAllRes = await request(app)
+      .get('/api/bills?companyId=c1')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(billsAllRes.status).toBe(200);
+    expect(Array.isArray(billsAllRes.body)).toBe(true);
+    expect(billsAllRes.body.length).toBeGreaterThan(0);
+    // Verify partyName is attached to bills
+    expect(billsAllRes.body[0].partyName).toBeDefined();
+
+    // Filter by partyId
+    const billsByPartyRes = await request(app)
+      .get('/api/bills?companyId=c1&partyId=p-sample')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(billsByPartyRes.status).toBe(200);
+    expect(billsByPartyRes.body.every((b: any) => b.partyId === 'p-sample')).toBe(true);
+
+    // Filter by partyName
+    const billsByNameRes = await request(app)
+      .get('/api/bills?companyId=c1&partyName=Sample')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(billsByNameRes.status).toBe(200);
+    expect(billsByNameRes.body.every((b: any) => b.partyName?.toLowerCase().includes('sample'))).toBe(true);
+
+    // Filter by date range
+    const billsByDateRes = await request(app)
+      .get('/api/bills?companyId=c1&startDate=2026-08-01&endDate=2026-09-01')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(billsByDateRes.status).toBe(200);
+    expect(billsByDateRes.body.every((b: any) => b.date >= '2026-08-01' && b.date <= '2026-09-01')).toBe(true);
+
+    // 2. History filtering for challans
+    // Filter challans by partyId
+    const challansByPartyRes = await request(app)
+      .get('/api/challans?companyId=c1&partyId=p-sample')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(challansByPartyRes.status).toBe(200);
+    expect(challansByPartyRes.body.every((c: any) => c.partyId === 'p-sample')).toBe(true);
+
+    // Filter challans by date range
+    const challansByDateRes = await request(app)
+      .get('/api/challans?companyId=c1&startDate=2026-10-01&endDate=2026-10-31')
+      .set('Authorization', `Bearer ${authToken}`);
+    expect(challansByDateRes.status).toBe(200);
+    expect(challansByDateRes.body.every((c: any) => c.date >= '2026-10-01' && c.date <= '2026-10-31')).toBe(true);
+  });
 });

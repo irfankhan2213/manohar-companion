@@ -1,7 +1,6 @@
 import {
   calculateAgingSummary,
   Challan,
-  getAgingBucket,
   getDaysOverdue,
   Id,
   Notebook,
@@ -191,49 +190,106 @@ export const mockApiClient: ApiClient = {
   },
   home: {
     summary: async (companyId: Id | 'all'): Promise<HomeSummary> => {
-      const filteredBills =
+      const parties =
         companyId === 'all'
-          ? db.bills
-          : db.bills.filter((b) => b.companyId === companyId);
+          ? db.parties
+          : db.parties.filter((p) => p.companyId === companyId);
 
-      const aging = calculateAgingSummary(filteredBills, FIXED_TODAY);
+      // Strictly filter to debtor parties (exclude Sundry Creditors)
+      const debtorParties = parties.filter((p) => {
+        const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
+        return type === 'debtor';
+      });
+      const debtorPartyIds = new Set(debtorParties.map((p) => p.id));
+      const debtorPartyMap = new Map<string, Party>(debtorParties.map((p) => [p.id, p]));
 
-      const notDuePct =
-        aging.total > 0 ? Math.round((aging.notDue / aging.total) * 100) : 100;
-      const latePct =
-        aging.total > 0 ? Math.round((aging.late1to30 / aging.total) * 100) : 0;
-      const over30Pct =
-        aging.total > 0 ? Math.max(0, 100 - notDuePct - latePct) : 0;
+      const filteredBills = (companyId === 'all'
+        ? db.bills
+        : db.bills.filter((b) => b.companyId === companyId)
+      ).filter((b) => debtorPartyIds.has(b.partyId));
 
-      // Group bills by party to compute most overdue
-      const partyMap = new Map<string, Party>();
-      for (const p of db.parties) {
-        partyMap.set(p.id, p);
+      const billsByParty = new Map<string, typeof db.bills>();
+      for (const b of filteredBills) {
+        const list = billsByParty.get(b.partyId) || [];
+        list.push(b);
+        billsByParty.set(b.partyId, list);
       }
+
+      let totalReceivables = 0;
+      let totalOverdue = 0;
+      let notDue = 0;
+      let late1_30 = 0;
+      let late30Plus = 0;
 
       const partyTotals = new Map<
         string,
         { party: Party; amount: number; maxDaysLate: number; invoiceRef?: string }
       >();
 
-      for (const b of filteredBills) {
-        const bucket = getAgingBucket(b.dueDate, FIXED_TODAY);
-        if (bucket !== 'not_due') {
-          const daysLate = getDaysOverdue(b.dueDate, FIXED_TODAY);
-          const current = partyTotals.get(b.partyId) ?? {
-            party: partyMap.get(b.partyId)!,
-            amount: 0,
-            maxDaysLate: 0,
-            invoiceRef: b.billNo,
-          };
-          current.amount += b.pending;
-          if (daysLate > current.maxDaysLate) {
-            current.maxDaysLate = daysLate;
-            current.invoiceRef = b.billNo;
+      for (const p of debtorParties) {
+        const pBills = billsByParty.get(p.id) || [];
+        const positiveBills = pBills.filter((b) => b.pending > 0);
+        const negativeBills = pBills.filter((b) => b.pending < 0);
+        const sumPositive = positiveBills.reduce((acc, b) => acc + b.pending, 0);
+        const sumNegative = negativeBills.reduce((acc, b) => acc + b.pending, 0);
+        const billSum = sumPositive + sumNegative;
+        const closingBal = p.closingBalance ?? 0;
+
+        const customerReceivable = closingBal !== 0 ? closingBal : billSum;
+
+        if (customerReceivable > 0) {
+          totalReceivables += customerReceivable;
+
+          if (positiveBills.length > 0) {
+            let reductionPool = Math.max(0, sumPositive - customerReceivable);
+            const sortedPositiveBills = [...positiveBills].sort(
+              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            );
+
+            for (const b of sortedPositiveBills) {
+              let effPending = b.pending;
+              if (reductionPool > 0) {
+                if (reductionPool >= effPending) {
+                  reductionPool -= effPending;
+                  effPending = 0;
+                } else {
+                  effPending -= reductionPool;
+                  reductionPool = 0;
+                }
+              }
+              if (effPending <= 0) continue;
+
+              const daysLate = getDaysOverdue(b.dueDate, FIXED_TODAY);
+              if (daysLate > 0) {
+                totalOverdue += effPending;
+                if (daysLate <= 30) late1_30 += effPending;
+                else late30Plus += effPending;
+
+                const current = partyTotals.get(p.id) ?? {
+                  party: debtorPartyMap.get(p.id) || p,
+                  amount: 0,
+                  maxDaysLate: 0,
+                  invoiceRef: b.billNo,
+                };
+                current.amount += effPending;
+                if (daysLate > current.maxDaysLate) {
+                  current.maxDaysLate = daysLate;
+                  current.invoiceRef = b.billNo;
+                }
+                partyTotals.set(p.id, current);
+              } else {
+                notDue += effPending;
+              }
+            }
+          } else {
+            notDue += customerReceivable;
           }
-          partyTotals.set(b.partyId, current);
         }
       }
+
+      const notDuePct = totalReceivables > 0 ? Math.round((notDue / totalReceivables) * 100) : 100;
+      const latePct = totalReceivables > 0 ? Math.round((late1_30 / totalReceivables) * 100) : 0;
+      const over30Pct = totalReceivables > 0 ? Math.max(0, 100 - notDuePct - latePct) : 0;
 
       const sortedMostOverdue = Array.from(partyTotals.values())
         .filter((item) => item.party !== undefined)
@@ -249,7 +305,7 @@ export const mockApiClient: ApiClient = {
       // Needs attention items
       const needsAttention: HomeSummary['needsAttention'] = [];
       const veryLateCount = filteredBills.filter(
-        (b) => getDaysOverdue(b.dueDate, FIXED_TODAY) >= 30
+        (b) => b.pending > 0 && getDaysOverdue(b.dueDate, FIXED_TODAY) >= 30
       ).length;
 
       if (veryLateCount > 0) {
@@ -279,19 +335,21 @@ export const mockApiClient: ApiClient = {
       let companyBreakdown: HomeSummary['companyBreakdown'];
       if (companyId === 'all') {
         companyBreakdown = db.companies.map((comp) => {
-          const cBills = db.bills.filter((b) => b.companyId === comp.id);
+          const cBills = db.bills.filter((b) => b.companyId === comp.id && debtorPartyIds.has(b.partyId));
           const cAging = calculateAgingSummary(cBills, FIXED_TODAY);
+          const cParties = debtorParties.filter((p) => p.companyId === comp.id && !billsByParty.has(p.id));
+          const nonBillClosing = cParties.reduce((sum, p) => sum + (p.closingBalance || 0), 0);
           return {
             company: comp,
-            totalAmount: cAging.total,
+            totalAmount: cAging.total + nonBillClosing,
             overdueAmount: cAging.overdue,
           };
         });
       }
 
       return {
-        totalReceivables: aging.total,
-        totalOverdue: aging.overdue,
+        totalReceivables,
+        totalOverdue,
         notDuePercentage: notDuePct,
         latePercentage: latePct,
         over30Percentage: over30Pct,
@@ -303,11 +361,14 @@ export const mockApiClient: ApiClient = {
     },
   },
   parties: {
-    list: async (companyId, query) => {
+    list: async (companyId, query, type) => {
       let list =
         companyId === 'all'
           ? db.parties
           : db.parties.filter((p) => p.companyId === companyId);
+      if (type && (type === 'debtor' || type === 'creditor')) {
+        list = list.filter((p) => (p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor')) === type);
+      }
       if (query && query.trim() !== '') {
         const q = query.toLowerCase();
         list = list.filter(
@@ -327,12 +388,16 @@ export const mockApiClient: ApiClient = {
         name: data.name || '',
         city: data.city || 'Ludhiana',
         phones: data.phones || [],
+        customPhones: data.customPhones || [],
+        parentGroup: data.parentGroup || (data.partyType === 'creditor' ? 'Sundry Creditors' : 'Sundry Debtors'),
+        partyType: data.partyType || (data.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor'),
         gstin: data.gstin || '',
         creditDays: data.creditDays || 30,
         collectorId: data.collectorId || 'u1',
         remindersPaused: Boolean(data.remindersPaused),
         notes: data.notes || '',
         promiseToPay: data.promiseToPay,
+        closingBalance: typeof data.closingBalance === 'number' ? data.closingBalance : 0,
       };
       db.parties.unshift(p);
       saveDB();
@@ -347,15 +412,47 @@ export const mockApiClient: ApiClient = {
     },
   },
   bills: {
-    list: async (companyId, partyId) => {
+    list: async (companyId, partyIdOrOptions, options) => {
       let list =
         companyId === 'all'
           ? db.bills
           : db.bills.filter((b) => b.companyId === companyId);
-      if (partyId) {
-        list = list.filter((b) => b.partyId === partyId);
+
+      const opts = typeof partyIdOrOptions === 'object' && partyIdOrOptions !== null
+        ? partyIdOrOptions
+        : { partyId: partyIdOrOptions, ...options };
+
+      if (opts.partyId) {
+        list = list.filter((b) => b.partyId === opts.partyId);
       }
-      return list;
+      if (opts.partyName) {
+        const pName = opts.partyName.toLowerCase();
+        const partyMap = new Map(db.parties.map((p) => [p.id, p]));
+        list = list.filter((b) => {
+          const p = partyMap.get(b.partyId);
+          return p?.name.toLowerCase().includes(pName) || (b.partyName?.toLowerCase().includes(pName) ?? false);
+        });
+      }
+      if (opts.startDate) {
+        list = list.filter((b) => b.date >= opts.startDate!);
+      }
+      if (opts.endDate) {
+        list = list.filter((b) => b.date <= opts.endDate!);
+      }
+      if (opts.q) {
+        const q = opts.q.toLowerCase();
+        const partyMap = new Map(db.parties.map((p) => [p.id, p]));
+        list = list.filter((b) => {
+          const p = partyMap.get(b.partyId);
+          return b.billNo.toLowerCase().includes(q) || (p?.name.toLowerCase().includes(q) ?? false);
+        });
+      }
+      const partyMap = new Map(db.parties.map((p) => [p.id, p]));
+      list = list.map((b) => ({
+        ...b,
+        partyName: b.partyName || partyMap.get(b.partyId)?.name,
+      }));
+      return [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     },
   },
   ledger: {
@@ -553,7 +650,7 @@ export const mockApiClient: ApiClient = {
         : db.outbox.filter((o) => o.companyId === companyId),
   },
   challans: {
-    list: async (companyId, query, type, itemIds) => {
+    list: async (companyId, query, type, itemIds, options) => {
       let list =
         companyId === 'all'
           ? db.challans
@@ -569,6 +666,27 @@ export const mockApiClient: ApiClient = {
         );
       }
 
+      if (options?.partyId) {
+        list = list.filter((c) => c.partyId === options.partyId);
+      }
+
+      if (options?.partyName) {
+        const pName = options.partyName.toLowerCase();
+        const partyMap = new Map(db.parties.map((p) => [p.id, p]));
+        list = list.filter((c) => {
+          const party = partyMap.get(c.partyId);
+          return party?.name.toLowerCase().includes(pName) ?? false;
+        });
+      }
+
+      if (options?.startDate) {
+        list = list.filter((c) => c.date >= options.startDate!);
+      }
+
+      if (options?.endDate) {
+        list = list.filter((c) => c.date <= options.endDate!);
+      }
+
       if (query && query.trim() !== '') {
         const q = query.toLowerCase();
         const partyMap = new Map(db.parties.map((p) => [p.id, p]));
@@ -579,14 +697,46 @@ export const mockApiClient: ApiClient = {
             (party?.name.toLowerCase().includes(q) ?? false) ||
             (c.vehicleNo?.toLowerCase().includes(q) ?? false) ||
             (c.lrNo?.toLowerCase().includes(q) ?? false) ||
-            c.lines.some((l) => l.description.toLowerCase().includes(q))
+            c.lines.some((l) => l.description.toLowerCase().includes(q) || (l.itemDescription?.toLowerCase().includes(q) ?? false))
           );
         });
       }
 
-      return list;
+      return [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     },
     get: async (id) => db.challans.find((c) => c.id === id) ?? null,
+    update: async (id, updates) => {
+      const idx = db.challans.findIndex((c) => c.id === id);
+      if (idx === -1) throw new Error('Challan not found');
+      const existing = db.challans[idx]!;
+
+      // Handle stock adjustments if changing status or lines for sales challan
+      const newStatus = updates.status ?? existing.status;
+      const newType = updates.type ?? existing.type;
+      const godownId = updates.godownId ?? existing.godownId;
+
+      if (existing.type === 'sales' && existing.status !== 'draft' && existing.godownId) {
+        for (const line of existing.lines) {
+          const bIdx = db.balances.findIndex((b) => b.itemId === line.itemId && b.godownId === existing.godownId);
+          if (bIdx >= 0 && db.balances[bIdx]) db.balances[bIdx]!.qty += line.qty;
+        }
+      }
+      if (newType === 'sales' && newStatus !== 'draft' && godownId) {
+        const linesToDeduct = updates.lines ?? existing.lines;
+        for (const line of linesToDeduct) {
+          const bIdx = db.balances.findIndex((b) => b.itemId === line.itemId && b.godownId === godownId);
+          if (bIdx >= 0 && db.balances[bIdx]) db.balances[bIdx]!.qty -= line.qty;
+        }
+      }
+
+      db.challans[idx] = {
+        ...existing,
+        ...updates,
+        roundOff: typeof updates.roundOff === 'number' ? updates.roundOff : (existing.roundOff ?? 0),
+      };
+      saveDB();
+      return db.challans[idx]!;
+    },
     create: async (data) => {
       const newId = `ch-${Date.now()}`;
       const prefix = data.type === 'sales' ? 'SC' : data.type === 'purchase' ? 'PC' : 'DC';
@@ -609,6 +759,7 @@ export const mockApiClient: ApiClient = {
         godownId: resolvedGodownId,
         id: newId,
         number: data.number || formattedNum,
+        roundOff: typeof data.roundOff === 'number' ? data.roundOff : 0,
       };
 
       db.challans.unshift(newChallan);

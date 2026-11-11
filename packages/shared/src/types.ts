@@ -66,6 +66,9 @@ export const PartySchema = z.object({
   name: z.string(),
   city: z.string(),
   phones: z.array(z.string()),
+  customPhones: z.array(z.string()).optional().default([]),
+  parentGroup: z.string().optional().default('Sundry Debtors'),
+  partyType: z.enum(['debtor', 'creditor']).optional().default('debtor'),
   gstin: z.string().optional(),
   creditDays: z.number().int().nonnegative(),
   collectorId: z.string().optional(),
@@ -74,12 +77,13 @@ export const PartySchema = z.object({
   promiseToPay: z.string().optional(),
   closingBalance: z.number().int().optional(),
 });
-export type Party = z.infer<typeof PartySchema>;
+export type Party = z.input<typeof PartySchema>;
 
 export const BillSchema = z.object({
   id: z.string(),
   companyId: z.string(),
   partyId: z.string(),
+  partyName: z.string().optional(),
   billNo: z.string(),
   date: z.string(),
   dueDate: z.string(),
@@ -139,6 +143,7 @@ export type ChallanStatus = QueueStatus;
 export const ChallanLineSchema = z.object({
   itemId: z.string(),
   description: z.string(),
+  itemDescription: z.string().optional(),
   qty: z.number(),
   unit: z.string(),
   rate: z.number().int(),
@@ -157,6 +162,7 @@ export const ChallanSchema = z.object({
   partyId: z.string(),
   godownId: z.string().optional(),
   lines: z.array(ChallanLineSchema),
+  roundOff: z.number().int().optional().default(0),
   vehicleNo: z.string().optional(),
   lrNo: z.string().optional(),
   transporter: z.string().optional(),
@@ -165,7 +171,7 @@ export const ChallanSchema = z.object({
   failureReason: z.string().optional(),
   createdBy: z.string(),
 });
-export type Challan = z.infer<typeof ChallanSchema>;
+export type Challan = z.input<typeof ChallanSchema>;
 
 export const ColumnTypeSchema = z.enum([
   'text',

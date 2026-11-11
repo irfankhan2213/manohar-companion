@@ -31,8 +31,10 @@ exit /b 1
 
 :CHECK_ARGS
 if not "%~1"=="" (
+    if /i "%~1"=="start" goto START
+    if /i "%~1"=="sync" goto SYNC
     "%NODE_BIN%" tally-agent.mjs %*
-    exit /b %errorlevel%
+    exit /b !errorlevel!
 )
 goto MENU
 
@@ -77,7 +79,7 @@ echo Running two-way sync with Tally and Cloud...
 echo.
 :SYNC_LOOP
 "%NODE_BIN%" tally-agent.mjs sync
-if %errorlevel% equ 42 (
+if !errorlevel! equ 42 (
     echo.
     echo =====================================================================
     echo  [OTA UPDATE] Agent bundle was updated! Running sync with new version...
@@ -95,7 +97,7 @@ echo Starting Tally Sync Daemon... Press Ctrl+C to stop.
 echo.
 :DAEMON_LOOP
 "%NODE_BIN%" tally-agent.mjs start
-if %errorlevel% equ 42 (
+if !errorlevel! equ 42 (
     echo.
     echo =====================================================================
     echo  [OTA UPDATE] Agent bundle was updated! Restarting sync daemon...

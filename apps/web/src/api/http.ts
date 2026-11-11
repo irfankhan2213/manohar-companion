@@ -90,9 +90,10 @@ export const httpApiClient: ApiClient = {
     summary: (companyId: Id | 'all') => fetchJSON<HomeSummary>(`/home/summary?companyId=${companyId}`),
   },
   parties: {
-    list: (companyId: Id | 'all', query?: string) => {
+    list: (companyId: Id | 'all', query?: string, type?: 'debtor' | 'creditor') => {
       const q = query ? `&q=${encodeURIComponent(query)}` : '';
-      return fetchJSON<Party[]>(`/parties?companyId=${companyId}${q}`);
+      const t = type ? `&type=${encodeURIComponent(type)}` : '';
+      return fetchJSON<Party[]>(`/parties?companyId=${companyId}${q}${t}`);
     },
     get: async (id: Id) => {
       try {
@@ -107,9 +108,26 @@ export const httpApiClient: ApiClient = {
       fetchJSON<Party>(`/parties/${id}`, { method: 'PATCH', body: JSON.stringify(updates) }),
   },
   bills: {
-    list: (companyId: Id | 'all', partyId?: Id) => {
-      const p = partyId ? `&partyId=${partyId}` : '';
-      return fetchJSON<Bill[]>(`/bills?companyId=${companyId}${p}`);
+    list: (
+      companyId: Id | 'all',
+      partyIdOrOptions?: Id | { partyId?: Id; partyName?: string; startDate?: string; endDate?: string; q?: string },
+      options?: { partyId?: Id; partyName?: string; startDate?: string; endDate?: string; q?: string }
+    ) => {
+      const params = new URLSearchParams();
+      if (companyId && companyId !== 'all') params.append('companyId', companyId);
+
+      const opts = typeof partyIdOrOptions === 'object' && partyIdOrOptions !== null
+        ? partyIdOrOptions
+        : { partyId: partyIdOrOptions, ...options };
+
+      if (opts.partyId) params.append('partyId', opts.partyId);
+      if (opts.partyName) params.append('partyName', opts.partyName);
+      if (opts.startDate) params.append('startDate', opts.startDate);
+      if (opts.endDate) params.append('endDate', opts.endDate);
+      if (opts.q) params.append('q', opts.q);
+
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return fetchJSON<Bill[]>(`/bills${qs}`);
     },
   },
   ledger: {
@@ -178,17 +196,30 @@ export const httpApiClient: ApiClient = {
       }),
   },
   challans: {
-    list: (companyId: Id | 'all', query?: string, type?: 'sales' | 'purchase' | 'delivery' | 'all', itemIds?: string[]) => {
+    list: (
+      companyId: Id | 'all',
+      query?: string,
+      type?: 'sales' | 'purchase' | 'delivery' | 'all',
+      itemIds?: string[],
+      options?: { partyId?: string; partyName?: string; startDate?: string; endDate?: string }
+    ) => {
       const params = new URLSearchParams();
       if (companyId && companyId !== 'all') params.append('companyId', companyId);
       if (query && query.trim()) params.append('q', query.trim());
       if (type && type !== 'all') params.append('type', type);
       if (itemIds && itemIds.length > 0) params.append('itemIds', itemIds.join(','));
-      return fetchJSON<Challan[]>(`/challans?${params.toString()}`);
+      if (options?.partyId) params.append('partyId', options.partyId);
+      if (options?.partyName) params.append('partyName', options.partyName);
+      if (options?.startDate) params.append('startDate', options.startDate);
+      if (options?.endDate) params.append('endDate', options.endDate);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return fetchJSON<Challan[]>(`/challans${qs}`);
     },
     get: (id: Id) => fetchJSON<Challan>(`/challans/${id}`),
     create: (data: Omit<Challan, 'id'>) =>
       fetchJSON<Challan>('/challans', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: Id, updates: Partial<Challan>) =>
+      fetchJSON<Challan>(`/challans/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
     retry: (id: Id) => fetchJSON<Challan>(`/challans/${id}/retry`, { method: 'POST' }),
     updateStatus: (id: Id, status: Challan['status'], failureReason?: string) =>
       fetchJSON<Challan>(`/challans/${id}/status`, {

@@ -178,6 +178,9 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       name TEXT,
       city TEXT,
       phones TEXT,
+      customPhones TEXT DEFAULT '[]',
+      parentGroup TEXT DEFAULT 'Sundry Debtors',
+      partyType TEXT DEFAULT 'debtor',
       gstin TEXT,
       creditDays INTEGER,
       collectorId TEXT,
@@ -251,6 +254,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       partyId TEXT,
       godownId TEXT,
       lines TEXT,
+      roundOff INTEGER DEFAULT 0,
       vehicleNo TEXT,
       lrNo TEXT,
       transporter TEXT,
@@ -446,11 +450,24 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
   try {
     db.prepare('ALTER TABLE parties ADD COLUMN closingBalance INTEGER DEFAULT 0').run();
   } catch {}
+  try {
+    db.prepare("ALTER TABLE parties ADD COLUMN customPhones TEXT DEFAULT '[]'").run();
+  } catch {}
+  try {
+    db.prepare("ALTER TABLE parties ADD COLUMN parentGroup TEXT DEFAULT 'Sundry Debtors'").run();
+  } catch {}
+  try {
+    db.prepare("ALTER TABLE parties ADD COLUMN partyType TEXT DEFAULT 'debtor'").run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE challans ADD COLUMN roundOff INTEGER DEFAULT 0').run();
+  } catch {}
 
   // 2. Create Indexes safely after column migrations
   try {
     db.exec(`
       CREATE INDEX IF NOT EXISTS idx_bills_company ON bills (companyId);
+      CREATE INDEX IF NOT EXISTS idx_bills_date ON bills (date);
       CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
       CREATE INDEX IF NOT EXISTS idx_bills_comp_party_bill ON bills (companyId, partyId, billNo);
       CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
@@ -458,6 +475,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
       CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);
       CREATE INDEX IF NOT EXISTS idx_challans_company ON challans (companyId);
+      CREATE INDEX IF NOT EXISTS idx_challans_date ON challans (date);
+      CREATE INDEX IF NOT EXISTS idx_challans_party ON challans (partyId);
       CREATE INDEX IF NOT EXISTS idx_tasks_company ON tasks (companyId);
       CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications (userId);
       CREATE INDEX IF NOT EXISTS idx_users_phone ON users (phone);
@@ -557,8 +576,8 @@ export function seedDatabase(db: any) {
 
   // Parties
   const insertParty = db.prepare(`
-    INSERT OR IGNORE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const p of INITIAL_PARTIES) {
     insertParty.run(
@@ -568,6 +587,9 @@ export function seedDatabase(db: any) {
       p.name,
       p.city,
       JSON.stringify(p.phones),
+      JSON.stringify(p.customPhones || []),
+      p.parentGroup || 'Sundry Debtors',
+      p.partyType || 'debtor',
       p.gstin || null,
       p.creditDays,
       p.collectorId || null,
@@ -649,8 +671,8 @@ export function seedDatabase(db: any) {
 
   // Challans
   const insertChallan = db.prepare(`
-    INSERT OR IGNORE INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const ch of INITIAL_CHALLANS) {
     insertChallan.run(
@@ -662,6 +684,7 @@ export function seedDatabase(db: any) {
       ch.partyId,
       ch.godownId || null,
       JSON.stringify(ch.lines),
+      ch.roundOff || 0,
       ch.vehicleNo || null,
       ch.lrNo || null,
       ch.transporter || null,

@@ -901,17 +901,23 @@ export function createApp(dbPath?: string): express.Express {
         params.push(...user.companyIds);
       }
     }
+    if (req.query.type && (req.query.type === 'debtor' || req.query.type === 'creditor')) {
+      query += ' AND partyType = ?';
+      params.push(req.query.type);
+    }
     const rows = db.prepare(query).all(...params) as any[];
     let parties: Party[] = rows.map(p => {
       const notesStr = String(p.notes || '');
-      const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
-      const rawClosing = p.closingBalance ?? 0;
-      const closing = isDebtor && rawClosing < 0 && !notesStr.toLowerCase().includes('advance')
-        ? Math.abs(rawClosing)
-        : rawClosing;
+      const isDebtor = p.partyType ? p.partyType === 'debtor' : (notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor'));
+      const parentGroup = p.parentGroup || (isDebtor ? 'Sundry Debtors' : 'Sundry Creditors');
+      const partyType = p.partyType || (isDebtor ? 'debtor' : 'creditor');
+      const closing = p.closingBalance ?? 0;
       return {
         ...p,
         phones: JSON.parse(p.phones || '[]'),
+        customPhones: JSON.parse(p.customPhones || '[]'),
+        parentGroup,
+        partyType,
         remindersPaused: Boolean(p.remindersPaused),
         closingBalance: closing,
       };
@@ -947,14 +953,16 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Access denied to company branch' });
     }
     const notesStr = String(p.notes || '');
-    const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
-    const rawClosing = p.closingBalance ?? 0;
-    const closing = isDebtor && rawClosing < 0 && !notesStr.toLowerCase().includes('advance')
-      ? Math.abs(rawClosing)
-      : rawClosing;
+    const isDebtor = p.partyType ? p.partyType === 'debtor' : (notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor'));
+    const parentGroup = p.parentGroup || (isDebtor ? 'Sundry Debtors' : 'Sundry Creditors');
+    const partyType = p.partyType || (isDebtor ? 'debtor' : 'creditor');
+    const closing = p.closingBalance ?? 0;
     res.json({
       ...p,
       phones: JSON.parse(p.phones || '[]'),
+      customPhones: JSON.parse(p.customPhones || '[]'),
+      parentGroup,
+      partyType,
       remindersPaused: Boolean(p.remindersPaused),
       closingBalance: closing,
     });
@@ -981,9 +989,11 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(409).json({ error: 'Party ID collision with another organization' });
     }
 
+    const partyType = body.partyType || (body.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
+    const parentGroup = body.parentGroup || (partyType === 'creditor' ? 'Sundry Creditors' : 'Sundry Debtors');
     db.prepare(`
-      INSERT INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       tenantId,
@@ -991,6 +1001,9 @@ export function createApp(dbPath?: string): express.Express {
       body.name.trim(),
       body.city || '',
       JSON.stringify(body.phones || []),
+      JSON.stringify(body.customPhones || []),
+      parentGroup,
+      partyType,
       body.gstin ?? null,
       body.creditDays || 30,
       body.collectorId ?? null,
@@ -1003,6 +1016,9 @@ export function createApp(dbPath?: string): express.Express {
     res.status(201).json({
       ...created,
       phones: JSON.parse(created.phones || '[]'),
+      customPhones: JSON.parse(created.customPhones || '[]'),
+      parentGroup: created.parentGroup || parentGroup,
+      partyType: created.partyType || partyType,
       remindersPaused: Boolean(created.remindersPaused),
       closingBalance: created.closingBalance ?? 0,
     });
@@ -1033,6 +1049,9 @@ export function createApp(dbPath?: string): express.Express {
           remindersPaused = COALESCE(?, remindersPaused),
           collectorId = COALESCE(?, collectorId),
           phones = COALESCE(?, phones),
+          customPhones = COALESCE(?, customPhones),
+          parentGroup = COALESCE(?, parentGroup),
+          partyType = COALESCE(?, partyType),
           closingBalance = COALESCE(?, closingBalance)
       WHERE id = ?
     `).run(
@@ -1045,6 +1064,9 @@ export function createApp(dbPath?: string): express.Express {
       body.remindersPaused !== undefined ? (body.remindersPaused ? 1 : 0) : null,
       body.collectorId ?? null,
       body.phones ? JSON.stringify(body.phones) : null,
+      body.customPhones !== undefined ? JSON.stringify(body.customPhones) : null,
+      body.parentGroup ?? null,
+      body.partyType ?? null,
       typeof body.closingBalance === 'number' ? body.closingBalance : null,
       req.params.id
     );
@@ -1052,6 +1074,9 @@ export function createApp(dbPath?: string): express.Express {
     res.json({
       ...updated,
       phones: JSON.parse(updated.phones || '[]'),
+      customPhones: JSON.parse(updated.customPhones || '[]'),
+      parentGroup: updated.parentGroup || 'Sundry Debtors',
+      partyType: updated.partyType || 'debtor',
       remindersPaused: Boolean(updated.remindersPaused),
       closingBalance: updated.closingBalance ?? 0,
     });
@@ -1063,24 +1088,48 @@ export function createApp(dbPath?: string): express.Express {
     if (!hasPermission(user, 'ledgers.view')) {
       return res.status(403).json({ error: 'Forbidden: Missing ledgers.view permission' });
     }
-    let query = 'SELECT * FROM bills WHERE 1=1';
+    let query = `
+      SELECT b.*, p.name as partyName 
+      FROM bills b 
+      LEFT JOIN parties p ON b.partyId = p.id 
+      WHERE 1=1
+    `;
     const params: any[] = [];
     if (req.query.companyId && req.query.companyId !== 'all') {
-      query += ' AND companyId = ?';
+      query += ' AND b.companyId = ?';
       params.push(req.query.companyId);
     } else if (isTenantScoped(user)) {
-      query += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      query += ' AND b.companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
       params.push(user.tenantId);
       if (user.role !== 'dev' && Array.isArray(user.companyIds) && user.companyIds.length > 0) {
         const placeholders = user.companyIds.map(() => '?').join(',');
-        query += ` AND companyId IN (${placeholders})`;
+        query += ` AND b.companyId IN (${placeholders})`;
         params.push(...user.companyIds);
       }
     }
     if (req.query.partyId) {
-      query += ' AND partyId = ?';
+      query += ' AND b.partyId = ?';
       params.push(req.query.partyId);
     }
+    if (req.query.partyName) {
+      const pName = String(req.query.partyName).toLowerCase().trim();
+      query += ' AND LOWER(p.name) LIKE ?';
+      params.push(`%${pName}%`);
+    }
+    if (req.query.startDate) {
+      query += ' AND b.date >= ?';
+      params.push(req.query.startDate);
+    }
+    if (req.query.endDate) {
+      query += ' AND b.date <= ?';
+      params.push(req.query.endDate);
+    }
+    if (req.query.q) {
+      const q = String(req.query.q).toLowerCase().trim();
+      query += ' AND (LOWER(b.billNo) LIKE ? OR LOWER(p.name) LIKE ?)';
+      params.push(`%${q}%`, `%${q}%`);
+    }
+    query += ' ORDER BY b.date DESC';
     const rows = db.prepare(query).all(...params);
     res.json(rows);
   });
@@ -1782,7 +1831,23 @@ export function createApp(dbPath?: string): express.Express {
 
     const bills = db.prepare(billsQuery).all(...billsParams) as any[];
     const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
-    const partyMap = new Map(parties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
+
+    // Strictly filter parties to Sundry Debtors (exclude Sundry Creditors)
+    const debtorParties = parties.filter(p => {
+      const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
+      return type === 'debtor';
+    });
+    const debtorPartyIds = new Set(debtorParties.map(p => p.id));
+    const debtorPartyMap = new Map(debtorParties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
+
+    // Map debtor bills by party
+    const billsByParty = new Map<string, typeof bills>();
+    for (const b of bills) {
+      if (!debtorPartyIds.has(b.partyId)) continue;
+      const list = billsByParty.get(b.partyId) || [];
+      list.push(b);
+      billsByParty.set(b.partyId, list);
+    }
 
     const hasDemoSeedBills = bills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
     const today = hasDemoSeedBills ? '2026-10-17' : getTodayIST();
@@ -1794,46 +1859,72 @@ export function createApp(dbPath?: string): express.Express {
 
     const partyOverdueMap = new Map<string, { party: any; amount: number; daysLate: number; invoiceRef?: string }>();
 
-    const partyIdsWithBills = new Set(bills.filter(b => b.pending !== 0).map(b => b.partyId));
+    for (const p of debtorParties) {
+      const pBills = billsByParty.get(p.id) || [];
+      const positiveBills = pBills.filter(b => b.pending > 0);
+      const negativeBills = pBills.filter(b => b.pending < 0);
+      const sumPositive = positiveBills.reduce((acc, b) => acc + b.pending, 0);
+      const sumNegative = negativeBills.reduce((acc, b) => acc + b.pending, 0); // signed negative (credit notes)
+      const billSum = sumPositive + sumNegative;
+      const closingBal = p.closingBalance ?? 0;
 
-    for (const b of bills) {
-      if (b.pending === 0) continue;
-      // Deduct credit notes from total receivables (signed addition: negative amounts subtract)
-      totalReceivables += b.pending;
-      if (b.pending > 0) {
-        const days = getDaysOverdue(b.dueDate, today);
-        if (days > 0) {
-          totalOverdue += b.pending;
-          const p = partyMap.get(b.partyId);
-          if (p) {
-            const existing = partyOverdueMap.get(b.partyId);
-            if (existing) {
-              existing.amount += b.pending;
-              if (days > existing.daysLate) {
-                existing.daysLate = days;
-                existing.invoiceRef = b.billNo;
+      // Authoritative customer receivable:
+      // If closingBalance is provided and non-zero, it is authoritative from Tally ledger.
+      // Otherwise, fall back to billSum (e.g. seed data where closingBalance is 0/undefined).
+      const customerReceivable = closingBal !== 0 ? closingBal : billSum;
+
+      if (customerReceivable > 0) {
+        totalReceivables += customerReceivable;
+
+        if (positiveBills.length > 0) {
+          // Reconcile unadjusted advances and credit notes against open bills in FIFO order (oldest first)
+          let reductionPool = Math.max(0, sumPositive - customerReceivable);
+          const sortedPositiveBills = [...positiveBills].sort(
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+          );
+
+          for (const b of sortedPositiveBills) {
+            let effPending = b.pending;
+            if (reductionPool > 0) {
+              if (reductionPool >= effPending) {
+                reductionPool -= effPending;
+                effPending = 0;
+              } else {
+                effPending -= reductionPool;
+                reductionPool = 0;
+              }
+            }
+            if (effPending <= 0) continue;
+
+            const days = getDaysOverdue(b.dueDate, today);
+            if (days > 0) {
+              totalOverdue += effPending;
+              if (days <= 30) late1_30 += effPending;
+              else late30Plus += effPending;
+
+              const existing = partyOverdueMap.get(p.id);
+              if (existing) {
+                existing.amount += effPending;
+                if (days > existing.daysLate) {
+                  existing.daysLate = days;
+                  existing.invoiceRef = b.billNo;
+                }
+              } else {
+                partyOverdueMap.set(p.id, {
+                  party: debtorPartyMap.get(p.id) || p,
+                  amount: effPending,
+                  daysLate: days,
+                  invoiceRef: b.billNo,
+                });
               }
             } else {
-              partyOverdueMap.set(b.partyId, {
-                party: p,
-                amount: b.pending,
-                daysLate: days,
-                invoiceRef: b.billNo,
-              });
+              notDue += effPending;
             }
           }
-          if (days <= 30) late1_30 += b.pending;
-          else late30Plus += b.pending;
         } else {
-          notDue += b.pending;
+          // Debtor with positive closing balance without individual positive bills
+          notDue += customerReceivable;
         }
-      }
-    }
-
-    // Include closingBalance of parties without bill-by-bill tracking in total receivables
-    for (const p of parties) {
-      if (!partyIdsWithBills.has(p.id) && p.closingBalance) {
-        totalReceivables += p.closingBalance;
       }
     }
 
@@ -1905,9 +1996,9 @@ export function createApp(dbPath?: string): express.Express {
         comps = comps.filter(c => user.companyIds.includes(c.id));
       }
       companyBreakdown = comps.map(comp => {
-        const cBills = bills.filter(b => b.companyId === comp.id && b.pending !== 0);
+        const cBills = bills.filter(b => b.companyId === comp.id && b.pending !== 0 && debtorPartyIds.has(b.partyId));
         const cAging = calculateAgingSummary(cBills, today);
-        const cParties = parties.filter(p => p.companyId === comp.id && !partyIdsWithBills.has(p.id));
+        const cParties = debtorParties.filter(p => p.companyId === comp.id && !billsByParty.has(p.id));
         const nonBillClosing = cParties.reduce((sum, p) => sum + (p.closingBalance || 0), 0);
         return {
           company: comp,
@@ -2721,11 +2812,29 @@ export function createApp(dbPath?: string): express.Express {
       query += ' AND type = ?';
       params.push(req.query.type);
     }
+    if (req.query.partyId) {
+      query += ' AND partyId = ?';
+      params.push(req.query.partyId);
+    }
+    if (req.query.partyName) {
+      const pName = String(req.query.partyName).toLowerCase().trim();
+      query += ' AND partyId IN (SELECT id FROM parties WHERE LOWER(name) LIKE ?)';
+      params.push(`%${pName}%`);
+    }
+    if (req.query.startDate) {
+      query += ' AND date >= ?';
+      params.push(req.query.startDate);
+    }
+    if (req.query.endDate) {
+      query += ' AND date <= ?';
+      params.push(req.query.endDate);
+    }
     query += ' ORDER BY date DESC';
     const rows = db.prepare(query).all(...params) as any[];
     let challans: Challan[] = rows.map(r => ({
       ...r,
       lines: JSON.parse(r.lines || '[]'),
+      roundOff: r.roundOff ?? 0,
     }));
 
     if (req.query.q && typeof req.query.q === 'string' && req.query.q.trim()) {
@@ -2739,7 +2848,7 @@ export function createApp(dbPath?: string): express.Express {
           pName.includes(q) ||
           (c.vehicleNo?.toLowerCase().includes(q) ?? false) ||
           (c.lrNo?.toLowerCase().includes(q) ?? false) ||
-          c.lines.some(l => l.description.toLowerCase().includes(q))
+          c.lines.some(l => l.description.toLowerCase().includes(q) || (l.itemDescription?.toLowerCase().includes(q) ?? false))
         );
       });
     }
@@ -2778,6 +2887,7 @@ export function createApp(dbPath?: string): express.Express {
     const challan: Challan = {
       ...r,
       lines: JSON.parse(r.lines || '[]'),
+      roundOff: r.roundOff ?? 0,
     };
     res.json(challan);
   });
@@ -2811,7 +2921,17 @@ export function createApp(dbPath?: string): express.Express {
         return res.status(403).json({ error: 'Forbidden: Godown belongs to another organization or unassigned branch' });
       }
     }
-    const parsedLines = Array.isArray(body.lines) ? body.lines : [];
+    const parsedLines = Array.isArray(body.lines) ? body.lines.map((l: any) => ({
+      itemId: String(l.itemId || ''),
+      description: String(l.description || ''),
+      itemDescription: l.itemDescription !== undefined ? String(l.itemDescription) : undefined,
+      qty: Number(l.qty || 0),
+      unit: String(l.unit || 'pcs'),
+      rate: Math.round(Number(l.rate || 0)),
+      amount: Math.round(Number(l.amount || 0)),
+      hsnCode: l.hsnCode !== undefined ? String(l.hsnCode) : undefined,
+      gstRate: typeof l.gstRate === 'number' ? l.gstRate : undefined,
+    })) : [];
     for (const line of parsedLines) {
       if (line.itemId) {
         const itemRow = db.prepare('SELECT id, companyId FROM stock_items WHERE id = ?').get(line.itemId) as any;
@@ -2846,9 +2966,11 @@ export function createApp(dbPath?: string): express.Express {
       (db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(companyId) as any)?.id ||
       `g-${companyId}-main`;
 
+    const roundOff = typeof body.roundOff === 'number' ? Math.round(body.roundOff) : 0;
+
     const insert = db.prepare(`
-      INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, vehicleNo, lrNo, transporter, narration, status, failureReason, createdBy)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     insert.run(
@@ -2860,6 +2982,7 @@ export function createApp(dbPath?: string): express.Express {
       body.partyId,
       resolvedGodownId,
       JSON.stringify(parsedLines),
+      roundOff,
       body.vehicleNo || null,
       body.lrNo || null,
       body.transporter || null,
@@ -2898,7 +3021,7 @@ export function createApp(dbPath?: string): express.Express {
     `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, companyId, actorId, 'challan_created', `${body.number || autoNumber}`, new Date().toISOString(), 'Desktop');
 
     const created = db.prepare('SELECT * FROM challans WHERE id = ?').get(id) as any;
-    res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]') });
+    res.status(201).json({ ...created, lines: JSON.parse(created.lines || '[]'), roundOff: created.roundOff ?? 0 });
   });
 
   app.patch('/api/challans/:id/status', (req, res) => {
@@ -2966,7 +3089,142 @@ export function createApp(dbPath?: string): express.Express {
     }
 
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
-    res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
+    res.json({ ...updated, lines: JSON.parse(updated.lines || '[]'), roundOff: updated.roundOff ?? 0 });
+  });
+
+  const handleUpdateChallan = (req: express.Request, res: express.Response) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'challan.create')) {
+      return res.status(403).json({ error: 'Forbidden: Missing challan.create permission' });
+    }
+    const existing = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
+    if (!existing) return res.status(404).json({ error: 'Challan not found' });
+    if (existing.companyId && !canAccessCompany(user, existing.companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+    const body = req.body;
+    const tenantId = user?.tenantId || 'platform';
+
+    if (body.partyId) {
+      const partyRow = db.prepare('SELECT id, tenantId, companyId FROM parties WHERE id = ?').get(body.partyId) as any;
+      if (partyRow && user && user.role !== 'dev') {
+        if (partyRow.tenantId && user.tenantId && partyRow.tenantId !== user.tenantId) {
+          return res.status(403).json({ error: 'Forbidden: Party belongs to another organization' });
+        }
+        if (partyRow.companyId && !canAccessCompany(user, partyRow.companyId)) {
+          return res.status(403).json({ error: 'Forbidden: Party belongs to an unassigned company branch' });
+        }
+      }
+    }
+
+    if (body.godownId) {
+      const gRow = db.prepare('SELECT id, companyId FROM godowns WHERE id = ?').get(body.godownId) as any;
+      if (gRow && gRow.companyId && !canAccessCompany(user, gRow.companyId)) {
+        return res.status(403).json({ error: 'Forbidden: Godown belongs to another organization or unassigned branch' });
+      }
+    }
+
+    const prevLines = JSON.parse(existing.lines || '[]');
+    let newLines = prevLines;
+    if (body.lines !== undefined) {
+      newLines = Array.isArray(body.lines) ? body.lines.map((l: any) => ({
+        itemId: String(l.itemId || ''),
+        description: String(l.description || ''),
+        itemDescription: l.itemDescription !== undefined ? String(l.itemDescription) : undefined,
+        qty: Number(l.qty || 0),
+        unit: String(l.unit || 'pcs'),
+        rate: Math.round(Number(l.rate || 0)),
+        amount: Math.round(Number(l.amount || 0)),
+        hsnCode: l.hsnCode !== undefined ? String(l.hsnCode) : undefined,
+        gstRate: typeof l.gstRate === 'number' ? l.gstRate : undefined,
+      })) : [];
+      for (const line of newLines) {
+        if (line.itemId) {
+          const itemRow = db.prepare('SELECT id, companyId FROM stock_items WHERE id = ?').get(line.itemId) as any;
+          if (itemRow && itemRow.companyId && !canAccessCompany(user, itemRow.companyId)) {
+            return res.status(403).json({ error: `Forbidden: Stock item ${line.itemId} belongs to another organization` });
+          }
+        }
+      }
+    }
+
+    const newStatus = body.status !== undefined ? body.status : existing.status;
+    const newType = body.type !== undefined ? body.type : existing.type;
+    const newGodownId = body.godownId !== undefined ? body.godownId : existing.godownId;
+
+    // Reconcile stock balances if sales challan lines/godown/status changed
+    if (existing.type === 'sales' && existing.status !== 'draft' && existing.status !== 'cancelled' && existing.godownId) {
+      for (const line of prevLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          db.prepare('UPDATE stock_balances SET qty = qty + ? WHERE itemId = ? AND godownId = ?').run(line.qty, line.itemId, existing.godownId);
+        }
+      }
+    }
+    if (newType === 'sales' && newStatus !== 'draft' && newStatus !== 'cancelled' && newGodownId) {
+      for (const line of newLines) {
+        if (line.itemId && typeof line.qty === 'number') {
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = qty - ?
+          `).run(line.itemId, newGodownId, -line.qty, line.qty);
+        }
+      }
+    }
+
+    const roundOff = typeof body.roundOff === 'number' ? Math.round(body.roundOff) : (body.roundOff === null ? 0 : null);
+
+    db.prepare(`
+      UPDATE challans
+      SET type = COALESCE(?, type),
+          number = COALESCE(?, number),
+          date = COALESCE(?, date),
+          partyId = COALESCE(?, partyId),
+          godownId = COALESCE(?, godownId),
+          lines = ?,
+          roundOff = COALESCE(?, roundOff),
+          vehicleNo = COALESCE(?, vehicleNo),
+          lrNo = COALESCE(?, lrNo),
+          transporter = COALESCE(?, transporter),
+          narration = COALESCE(?, narration),
+          status = COALESCE(?, status),
+          failureReason = COALESCE(?, failureReason)
+      WHERE id = ?
+    `).run(
+      body.type ?? null,
+      body.number !== undefined ? String(body.number).trim() : null,
+      body.date ?? null,
+      body.partyId ?? null,
+      body.godownId ?? null,
+      JSON.stringify(newLines),
+      roundOff,
+      body.vehicleNo !== undefined ? (body.vehicleNo || null) : null,
+      body.lrNo !== undefined ? (body.lrNo || null) : null,
+      body.transporter !== undefined ? (body.transporter || null) : null,
+      body.narration !== undefined ? (body.narration || null) : null,
+      body.status ?? null,
+      body.failureReason !== undefined ? (body.failureReason || null) : null,
+      req.params.id
+    );
+
+    const actorId = user?.id || 'staff';
+    db.prepare(`
+      INSERT INTO activities (id, tenantId, companyId, actorId, action, target, at, device)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, tenantId, existing.companyId, actorId, 'challan_updated', existing.number, new Date().toISOString(), 'Desktop');
+
+    const updatedChallan = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
+    res.json({
+      ...updatedChallan,
+      lines: JSON.parse(updatedChallan.lines || '[]'),
+      roundOff: updatedChallan.roundOff ?? 0,
+    });
+  };
+
+  app.put('/api/challans/:id', handleUpdateChallan);
+  app.patch('/api/challans/:id', (req, res, next) => {
+    if (req.path.endsWith('/status')) return next();
+    return handleUpdateChallan(req, res);
   });
 
   app.delete('/api/challans/:id', (req, res) => {
@@ -4150,14 +4408,14 @@ export function createApp(dbPath?: string): express.Express {
 
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
-        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
         const existingByName = p.name
           ? (db.prepare('SELECT * FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(p.name).trim()) as any)
           : null;
-        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance FROM parties WHERE id = ?').get(p.id) as any;
+        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
         const existing = existingByName || existingById;
         const safePartyId = existingByName
           ? existingByName.id
@@ -4166,11 +4424,10 @@ export function createApp(dbPath?: string): express.Express {
             : p.id;
         partyIdRemap.set(p.id, safePartyId);
         const notesStr = String(p.notes || existing?.notes || '');
-        const isDebtor = notesStr.toLowerCase().includes('debtor') || !notesStr.toLowerCase().includes('creditor');
-        let closing = p.closingBalance ?? existing?.closingBalance ?? 0;
-        if (isDebtor && closing < 0 && !notesStr.toLowerCase().includes('advance')) {
-          closing = Math.abs(closing);
-        }
+        const parentGroup = p.parentGroup || existing?.parentGroup || (notesStr.toLowerCase().includes('creditor') ? 'Sundry Creditors' : 'Sundry Debtors');
+        const isCreditor = p.partyType === 'creditor' || parentGroup.toLowerCase().includes('creditor') || notesStr.toLowerCase().includes('creditor');
+        const partyType = isCreditor ? 'creditor' : 'debtor';
+        const closing = p.closingBalance ?? existing?.closingBalance ?? 0;
         stmt.run(
           safePartyId,
           defaultTenantId,
@@ -4178,6 +4435,9 @@ export function createApp(dbPath?: string): express.Express {
           p.name,
           p.city || existing?.city || '',
           JSON.stringify(p.phones && p.phones.length > 0 ? p.phones : (existing?.phones ? JSON.parse(existing.phones) : [])),
+          existing?.customPhones || '[]',
+          parentGroup,
+          partyType,
           p.gstin || existing?.gstin || null,
           p.creditDays || existing?.creditDays || 30,
           existing?.collectorId ?? null,

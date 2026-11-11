@@ -54,7 +54,7 @@ export const UserAuthMenu: React.FC = () => {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Staff account menu"
-        className="flex items-center gap-1.5 h-9 px-2 rounded-xl bg-surface/80 border border-separator/40 shadow-sm active:scale-95 transition-all text-left"
+        className="flex items-center gap-1.5 h-9 px-2 rounded-xl bg-surface/80 border border-separator/40 shadow-sm active:scale-95 transition-all text-left shrink-0"
       >
         <div className="w-6 h-6 rounded-full bg-accent-soft text-accent flex items-center justify-center font-bold text-caption shrink-0">
           {currentUser.name.charAt(0)}

@@ -102,3 +102,28 @@ export function numberToIndianWords(paise: Paise): string {
   return words.trim();
 }
 
+export interface RoundOffResult {
+  subtotalWithTaxPaise: number;
+  roundOffPaise: number;
+  grandTotalPaise: number;
+}
+
+/**
+ * Given subtotal and tax in paise, rounds to the nearest ₹1 (100 paise)
+ * and calculates the round-off adjustment paise (+/-).
+ */
+export function calculateRoundOff(
+  subtotalPaise: number,
+  taxPaise: number = 0
+): RoundOffResult {
+  const rawTotalPaise = Math.round(subtotalPaise + taxPaise);
+  const grandTotalPaise = Math.round(rawTotalPaise / 100) * 100;
+  const roundOffPaise = grandTotalPaise - rawTotalPaise;
+  return {
+    subtotalWithTaxPaise: rawTotalPaise,
+    roundOffPaise,
+    grandTotalPaise,
+  };
+}
+
+

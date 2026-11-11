@@ -39,18 +39,18 @@ export const CompanyMenu: React.FC = () => {
         <button
           type="button"
           aria-label="Select company"
-          className="flex items-center gap-2 h-10 px-2.5 -ml-1.5 rounded-xl text-left bg-surface/80 border border-separator/40 shadow-sm active:scale-[0.98] transition-all"
+          className="flex items-center gap-1.5 sm:gap-2 h-10 px-2 sm:px-2.5 -ml-1 sm:-ml-1.5 rounded-xl text-left bg-surface/80 border border-separator/40 shadow-sm active:scale-[0.98] transition-all min-w-0 max-w-full"
         >
-          <div className="flex flex-col">
-            <div className="flex items-center gap-1">
-              <span className="text-headline text-label font-semibold leading-tight tracking-tight max-w-[170px] truncate">
+          <div className="flex flex-col min-w-0">
+            <div className="flex items-center gap-1 min-w-0">
+              <span className="text-subhead sm:text-headline text-label font-semibold leading-tight tracking-tight truncate min-w-0 max-w-[115px] sm:max-w-[200px]">
                 {currentCompany.name}
               </span>
               <ChevronDown className="w-4 h-4 text-label-2 shrink-0" />
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`} />
-              <span className="text-caption text-label-2 font-medium">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotColor}`} />
+              <span className="text-caption text-label-2 font-medium truncate">
                 {syncLabel}
               </span>
             </div>
@@ -62,7 +62,8 @@ export const CompanyMenu: React.FC = () => {
         <DropdownMenu.Content
           align="start"
           sideOffset={8}
-          className="z-50 min-w-[220px] bg-surface rounded-ios-card p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.12)] border border-separator/50 divide-y divide-separator/30 animate-in fade-in-50 zoom-in-95"
+          collisionPadding={12}
+          className="z-50 min-w-[200px] sm:min-w-[220px] max-w-[calc(100vw-24px)] bg-surface rounded-ios-card p-1.5 shadow-[0_12px_36px_rgba(0,0,0,0.12)] border border-separator/50 divide-y divide-separator/30 animate-in fade-in-50 zoom-in-95"
         >
           <div className="py-1">
             {companies.map((company) => {

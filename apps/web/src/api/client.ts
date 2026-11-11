@@ -72,13 +72,17 @@ export interface ApiClient {
     summary: (companyId: Id | 'all') => Promise<HomeSummary>;
   };
   parties: {
-    list: (companyId: Id | 'all', query?: string) => Promise<Party[]>;
+    list: (companyId: Id | 'all', query?: string, type?: 'debtor' | 'creditor') => Promise<Party[]>;
     get: (id: Id) => Promise<Party | null>;
     create: (data: Partial<Party>) => Promise<Party>;
     update: (id: Id, updates: Partial<Party>) => Promise<Party>;
   };
   bills: {
-    list: (companyId: Id | 'all', partyId?: Id) => Promise<Bill[]>;
+    list: (
+      companyId: Id | 'all',
+      partyIdOrOptions?: Id | { partyId?: Id; partyName?: string; startDate?: string; endDate?: string; q?: string },
+      options?: { partyId?: Id; partyName?: string; startDate?: string; endDate?: string; q?: string }
+    ) => Promise<Bill[]>;
   };
   ledger: {
     get: (partyId: Id) => Promise<LedgerLine[]>;
@@ -112,10 +116,12 @@ export interface ApiClient {
       companyId: Id | 'all',
       query?: string,
       type?: 'sales' | 'purchase' | 'delivery' | 'all',
-      itemIds?: string[]
+      itemIds?: string[],
+      options?: { partyId?: string; partyName?: string; startDate?: string; endDate?: string }
     ) => Promise<Challan[]>;
     get: (id: Id) => Promise<Challan | null>;
     create: (data: Omit<Challan, 'id'>) => Promise<Challan>;
+    update?: (id: Id, updates: Partial<Challan>) => Promise<Challan>;
     retry: (id: Id) => Promise<Challan>;
     updateStatus?: (id: Id, status: Challan['status'], failureReason?: string) => Promise<Challan>;
     delete?: (id: Id) => Promise<{ success: boolean; id: string }>;

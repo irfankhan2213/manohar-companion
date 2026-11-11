@@ -41,23 +41,23 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
     <div className={clsx('flex flex-col w-full min-h-screen bg-bg', className)}>
       {/* Top Floating App Bar */}
       <header className="sticky top-0 z-40 w-full ios-nav-blur pt-safe">
-        <div className="h-14 px-5 flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
+        <div className="h-14 px-3 sm:px-5 flex items-center justify-between gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
             {showBack && (
               <button
                 type="button"
                 onClick={handleBack}
                 aria-label="Back"
-                className="flex items-center gap-1 text-accent font-semibold text-headline -ml-2.5 px-2 py-1 rounded-lg active:opacity-60 transition-opacity"
+                className="flex items-center gap-1 text-accent font-semibold text-headline -ml-1 sm:-ml-2.5 px-1.5 sm:px-2 py-1 rounded-lg active:opacity-60 transition-opacity shrink-0"
               >
-                <ChevronLeft className="w-6 h-6 stroke-[2.2]" />
+                <ChevronLeft className="w-6 h-6 stroke-[2.2] shrink-0" />
                 <span className="hidden sm:inline">Back</span>
               </button>
             )}
             <CompanyMenu />
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
             <NotificationBell />
             <UserAuthMenu />
             {headerAction}

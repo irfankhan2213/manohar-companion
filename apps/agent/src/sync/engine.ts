@@ -127,7 +127,13 @@ export class SyncEngine {
       // Create backup copy of currently working bundle before replacing
       try {
         if (fs.existsSync(mjsPath)) {
-          fs.copyFileSync(mjsPath, `${mjsPath}.bak`);
+          const bakPath = `${mjsPath}.bak`;
+          try {
+            if (fs.existsSync(bakPath)) {
+              fs.unlinkSync(bakPath);
+            }
+          } catch {}
+          fs.copyFileSync(mjsPath, bakPath);
         }
       } catch (backupErr: any) {
         console.warn(`[OTA] Failed to create tally-agent.mjs.bak backup: ${backupErr.message}`);
@@ -517,16 +523,22 @@ export class SyncEngine {
 
     const parties = payload.ledgers
       .filter((l) => l.isSundryDebtor || l.isSundryCreditor || l.parent.toLowerCase().includes('debtor') || l.parent.toLowerCase().includes('creditor'))
-      .map((l) => ({
-        id: `p-${companyPrefix}${slugify(l.name)}`,
-        name: l.name,
-        city: '',
-        phones: l.phone ? [l.phone] : [],
-        gstin: l.gstin || null,
-        creditDays: l.creditDays || 30,
-        notes: `Imported from Tally (${l.parent})`,
-        closingBalance: l.closingBalance || 0,
-      }));
+      .map((l) => {
+        const isCreditor = l.isSundryCreditor || l.parent.toLowerCase().includes('creditor') || l.parent.toLowerCase().includes('supplier');
+        return {
+          id: `p-${companyPrefix}${slugify(l.name)}`,
+          name: l.name,
+          city: '',
+          phones: l.phone ? [l.phone] : [],
+          customPhones: [], // Ensure local custom numbers are NEVER pushed back to Tally
+          parentGroup: l.parent || (isCreditor ? 'Sundry Creditors' : 'Sundry Debtors'),
+          partyType: (isCreditor ? 'creditor' : 'debtor') as 'debtor' | 'creditor',
+          gstin: l.gstin || null,
+          creditDays: l.creditDays || 30,
+          notes: `Imported from Tally (${l.parent})`,
+          closingBalance: l.closingBalance || 0,
+        };
+      });
 
     // Map bills to Bills with company-scoped IDs and preserved opening invoice amounts,
     // excluding supplier payables (Sundry Creditors) so they are not lumped into customer receivables
