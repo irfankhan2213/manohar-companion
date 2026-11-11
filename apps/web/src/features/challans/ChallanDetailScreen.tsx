@@ -61,8 +61,15 @@ export const ChallanDetailScreen: React.FC = () => {
 
   const { data: party } = useQuery({
     queryKey: ['party', challan?.partyId],
-    queryFn: () => (challan ? api.parties.get(challan.partyId) : null),
-    enabled: !!challan,
+    queryFn: async () => {
+      if (!challan?.partyId) return null;
+      try {
+        return await api.parties.get(challan.partyId);
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!challan?.partyId,
   });
 
   const { data: godowns = [] } = useQuery({
@@ -282,25 +289,27 @@ export const ChallanDetailScreen: React.FC = () => {
     },
   });
 
-  const getLineGstRate = (line: typeof challan.lines[0]) =>
-    line.gstRate ?? stockMap.get(line.itemId)?.gstRate ?? 18;
-  const getLineHsn = (line: typeof challan.lines[0]) =>
-    line.hsnCode || stockMap.get(line.itemId)?.hsnCode || '8452';
-  const getLineAmount = (line: typeof challan.lines[0]) =>
-    Number(line.amount) > 0 ? Number(line.amount) : Math.round((Number(line.qty) || 0) * (Number(line.rate) || 0));
+  const lines = Array.isArray(challan.lines) ? challan.lines : [];
 
-  const subtotalPaise = challan.lines.reduce((acc, l) => acc + getLineAmount(l), 0);
-  const gstPaise = challan.lines.reduce(
+  const getLineGstRate = (line: (typeof lines)[0]) =>
+    line?.gstRate ?? stockMap.get(line?.itemId)?.gstRate ?? 18;
+  const getLineHsn = (line: (typeof lines)[0]) =>
+    line?.hsnCode || stockMap.get(line?.itemId)?.hsnCode || '8452';
+  const getLineAmount = (line: (typeof lines)[0]) =>
+    Number(line?.amount) > 0 ? Number(line?.amount) : Math.round((Number(line?.qty) || 0) * (Number(line?.rate) || 0));
+
+  const subtotalPaise = lines.reduce((acc, l) => acc + getLineAmount(l), 0);
+  const gstPaise = lines.reduce(
     (acc, l) => acc + Math.round(getLineAmount(l) * (getLineGstRate(l) / 100)),
     0
   );
   const grandTotalPaise = subtotalPaise + gstPaise;
-  const godownName = godowns.find((g) => g.id === challan.godownId)?.name ?? 'Main Godown (Ludhiana)';
+  const godownName = (Array.isArray(godowns) ? godowns : []).find((g) => g.id === challan.godownId)?.name ?? 'Main Godown (Ludhiana)';
 
   const handleShareWhatsApp = () => {
-    const rawPhone = party?.phones[0]?.replace(/\D/g, '') || '';
+    const rawPhone = party?.phones?.[0]?.replace(/\D/g, '') || '';
     const phone = rawPhone.length === 10 ? `91${rawPhone}` : rawPhone;
-    const itemSummary = challan.lines.map((l) => `${l.qty}x ${l.description}`).join(', ');
+    const itemSummary = lines.map((l) => `${l.qty}x ${l.description}`).join(', ');
     const text = encodeURIComponent(
       `Hello ${party?.name ?? 'Customer'}, your ${challan.type.toUpperCase()} CHALLAN ${challan.number} dated ${challan.date} for ${formatINR(grandTotalPaise)} has been generated.` +
       ` Items: ${itemSummary}.` +
@@ -479,7 +488,7 @@ export const ChallanDetailScreen: React.FC = () => {
         />
         <Row
           title="Phone"
-          trailing={<span className="text-label">{party?.phones[0] ?? '—'}</span>}
+          trailing={<span className="text-label">{party?.phones?.[0] ?? '—'}</span>}
         />
         {party?.gstin && (
           <Row
@@ -530,8 +539,8 @@ export const ChallanDetailScreen: React.FC = () => {
       </InsetGroup>
 
       {/* Items Breakdown */}
-      <InsetGroup title={`Items Dispatched (${challan.lines.length})`}>
-        {challan.lines.map((line, idx) => (
+      <InsetGroup title={`Items Dispatched (${lines.length})`}>
+        {lines.map((line, idx) => (
           <div
             key={idx}
             className="p-3.5 flex items-center justify-between border-b last:border-b-0 border-separator/30"
@@ -619,14 +628,14 @@ export const ChallanDetailScreen: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-6 h-6 rounded-full bg-accent/15 text-accent font-bold text-caption flex items-center justify-center">
-                        {assignee?.name.charAt(0) ?? 'U'}
+                        {assignee?.name?.charAt(0) ?? 'U'}
                       </div>
                       <div className="flex flex-col">
                         <span className="text-subhead font-semibold text-label">
                           {assignee?.name ?? 'Assigned Staff'}
                         </span>
                         <span className="text-caption text-label-3">
-                          {assignee?.role.replace('_', ' ').toUpperCase()}
+                          {assignee?.role ? assignee.role.replace('_', ' ').toUpperCase() : 'STAFF'}
                         </span>
                       </div>
                     </div>
@@ -853,7 +862,7 @@ export const ChallanDetailScreen: React.FC = () => {
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.name} ({u.role.replace('_', ' ').toUpperCase()})
+                  {u.name} ({(u.role || 'staff').replace('_', ' ').toUpperCase()})
                 </option>
               ))}
             </select>

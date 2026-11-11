@@ -94,7 +94,13 @@ export const httpApiClient: ApiClient = {
       const q = query ? `&q=${encodeURIComponent(query)}` : '';
       return fetchJSON<Party[]>(`/parties?companyId=${companyId}${q}`);
     },
-    get: (id: Id) => fetchJSON<Party>(`/parties/${id}`),
+    get: async (id: Id) => {
+      try {
+        return await fetchJSON<Party>(`/parties/${id}`);
+      } catch {
+        return null as any;
+      }
+    },
     create: (data: Partial<Party>) =>
       fetchJSON<Party>('/parties', { method: 'POST', body: JSON.stringify(data) }),
     update: (id: Id, updates: Partial<Party>) =>

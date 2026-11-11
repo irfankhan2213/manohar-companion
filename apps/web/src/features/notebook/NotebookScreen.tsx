@@ -1219,9 +1219,7 @@ export const NotebookScreen: React.FC = () => {
           rows={5}
           value={notebook.content ?? ''}
           onChange={(e) => handleNoteContentChange(e.target.value)}
-          placeholder={
-            'Write anything here like Google Keep / Docs...\n• Party discussion notes, transport & rate agreements\n• Type math on any line like "Servo Motors: 12 * 4200 =" and click "Calculate Note Math (=)"\n• Click "+ Add Calculation Table" above to insert tables with auto-formulas'
-          }
+          placeholder="Write notes here..."
           className="w-full p-3 bg-fill/15 border border-separator/40 rounded-xl text-body text-label placeholder:text-label-3 leading-relaxed focus:outline-none focus:border-accent focus:bg-surface transition-all resize-y min-h-[120px]"
         />
       </div>

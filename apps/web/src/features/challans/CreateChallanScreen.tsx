@@ -318,7 +318,7 @@ export const CreateChallanScreen: React.FC = () => {
                         {p.name}
                       </span>
                       <span className="text-caption text-label-2">
-                        {p.city} · {p.phones[0]}
+                        {p.city ? `${p.city} · ` : ''}{p.phones?.[0] || 'No phone'}
                       </span>
                     </div>
                     {isSelected && (

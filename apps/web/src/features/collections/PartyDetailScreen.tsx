@@ -105,7 +105,7 @@ export const PartyDetailScreen: React.FC = () => {
   }
 
   // Active phone selection
-  const targetPhone = selectedPhone || (party?.phones[0] ?? '');
+  const targetPhone = selectedPhone || (party?.phones?.[0] ?? '');
 
   const handleSendReminder = () => {
     setReminderSheetOpen(false);

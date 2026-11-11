@@ -95,7 +95,7 @@ export const RemindersRepliesScreen: React.FC = () => {
         open={Boolean(selectedThreadId)}
         onOpenChange={(open) => !open && setSelectedThreadId(null)}
         title={activeParty?.name ?? 'Customer Conversation'}
-        description={`WhatsApp session · ${activeParty?.phones[0] ?? ''}`}
+        description={`WhatsApp session · ${activeParty?.phones?.[0] ?? ''}`}
       >
         <div className="flex flex-col h-[400px] pt-2">
           {/* Messages list */}
