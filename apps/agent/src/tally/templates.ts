@@ -59,7 +59,7 @@ export function buildCompanyInfoQuery(companyName?: string): string {
             <FIELDS>CompNameField, CompYearField, CompBooksField</FIELDS>
           </LINE>
           <FIELD NAME="CompNameField">
-            <SET>##SVCURRENTCOMPANY</SET>
+            <SET>if $$IsEmpty:##SVCURRENTCOMPANY then $$CurrentSimpleCompany else ##SVCURRENTCOMPANY</SET>
           </FIELD>
           <FIELD NAME="CompYearField">
             <SET>$$String:##SVFROMDATE</SET>

@@ -99,13 +99,13 @@ export function parseCompanyInfoResponse(xmlString: string): TallyCompanyInfo {
     extractXmlText(data?.COMPANYNAME) ||
     extractXmlText(body?.DESC?.STATICVARIABLES?.SVCURRENTCOMPANY) ||
     extractXmlText(data?.TALLYMESSAGE?.COMPANY?.NAME) ||
-    'Manohar Traders';
+    '';
 
   const fromDate = parseTallyDate(extractXmlText(data?.COMPYEARFIELD) || '20260401');
   const booksFrom = parseTallyDate(extractXmlText(data?.COMPBOOKSFIELD) || fromDate);
 
   return {
-    name: companyName.trim() || 'Manohar Traders',
+    name: companyName.trim(),
     financialYearFrom: fromDate,
     booksFrom: booksFrom,
   };

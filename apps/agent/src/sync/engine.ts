@@ -175,13 +175,18 @@ export class SyncEngine {
     try {
       // 1. Fetch active Company Info & Discover ALL Open Companies in TallyPrime directly
       // Never filter or require matching the Web App's companyName — always take whatever company is open in TallyPrime
-      const company: TallyCompanyInfo = await this.client.getCompanyInfo();
+      let company: TallyCompanyInfo = await this.client.getCompanyInfo();
 
       let openCompanies: TallyCompanyInfo[] = [];
       try {
         openCompanies = await this.client.getOpenCompanies();
       } catch {
         openCompanies = company?.name ? [company] : [];
+      }
+
+      // If getCompanyInfo returned empty name, take the first real open company from Tally
+      if (!company?.name && openCompanies.length > 0 && openCompanies[0]?.name) {
+        company = openCompanies[0];
       }
 
       const openNamesSet = new Set<string>();
