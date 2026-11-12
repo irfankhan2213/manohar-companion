@@ -448,7 +448,9 @@ export const PartyDetailScreen: React.FC = () => {
               </div>
             ) : (
               bills.map((bill) => {
-                const daysLate = getDaysOverdue(bill.dueDate, FIXED_TODAY);
+                const isPartySettled = (party?.closingBalance ?? 0) <= 0 && Boolean(party?.notes?.includes('Imported from Tally'));
+                const effPending = isPartySettled ? 0 : bill.pending;
+                const daysLate = effPending > 0 ? getDaysOverdue(bill.dueDate, FIXED_TODAY) : 0;
                 const isEstimated = bill.source === 'estimated';
 
                 return (
@@ -480,15 +482,15 @@ export const PartyDetailScreen: React.FC = () => {
                     }
                     trailing={
                       <span className="tabular-nums font-semibold">
-                        {bill.pending < 0
-                          ? `${formatINR(Math.abs(bill.pending))} Cr`
-                          : bill.pending === 0
+                        {effPending < 0
+                          ? `${formatINR(Math.abs(effPending))} Cr`
+                          : effPending === 0
                             ? <span className="text-label-3">₹0 (Paid)</span>
-                            : formatINR(bill.pending)}
+                            : formatINR(effPending)}
                       </span>
                     }
                     trailingSubtitle={
-                      bill.pending > 0 ? (
+                      effPending > 0 ? (
                         daysLate > 0 ? (
                           <span className="text-danger font-semibold">
                             {daysLate} days late
@@ -496,7 +498,7 @@ export const PartyDetailScreen: React.FC = () => {
                         ) : (
                           <span className="text-ok font-medium">Within terms</span>
                         )
-                      ) : bill.pending < 0 ? (
+                      ) : effPending < 0 ? (
                         <span className="text-ok font-medium">Credit / Advance</span>
                       ) : (
                         <span className="text-label-3 font-medium">Settled</span>

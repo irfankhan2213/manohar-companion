@@ -615,8 +615,11 @@ export const CollectionsScreen: React.FC = () => {
               </div>
             ) : (
               historyBills.map((bill) => {
-                const daysLate = getDaysOverdue(bill.dueDate, FIXED_TODAY);
                 const p = partyMap.get(bill.partyId);
+                const isPartySettled = (p?.closingBalance ?? 0) <= 0 && Boolean(p?.notes?.includes('Imported from Tally'));
+                const effPending = isPartySettled ? 0 : bill.pending;
+                const daysLate = effPending > 0 ? getDaysOverdue(bill.dueDate, FIXED_TODAY) : 0;
+
                 return (
                   <Row
                     key={bill.id}
@@ -636,19 +639,29 @@ export const CollectionsScreen: React.FC = () => {
                       <div className="flex flex-col items-end">
                         <span className="text-[11px] font-medium text-label-2">Pending</span>
                         <span className="tabular-nums font-semibold text-label">
-                          {formatINR(bill.pending)}
+                          {effPending < 0
+                            ? `${formatINR(Math.abs(effPending))} Cr`
+                            : effPending === 0
+                              ? <span className="text-label-3">₹0 (Paid)</span>
+                              : formatINR(effPending)}
                         </span>
                       </div>
                     }
                     trailingSubtitle={
-                      daysLate > 0 ? (
-                        <StatusText
-                          text={`${daysLate} days late`}
-                          variant={daysLate > 30 ? 'danger' : 'warn'}
-                          dot={false}
-                        />
+                      effPending > 0 ? (
+                        daysLate > 0 ? (
+                          <StatusText
+                            text={`${daysLate} days late`}
+                            variant={daysLate > 30 ? 'danger' : 'warn'}
+                            dot={false}
+                          />
+                        ) : (
+                          <span className="text-ok font-medium">Within terms</span>
+                        )
+                      ) : effPending < 0 ? (
+                        <span className="text-ok font-medium">Credit / Advance</span>
                       ) : (
-                        <span className="text-ok font-medium">Within terms</span>
+                        <span className="text-label-3 font-medium">Settled</span>
                       )
                     }
                     chevron

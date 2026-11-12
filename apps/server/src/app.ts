@@ -1092,7 +1092,7 @@ export function createApp(dbPath?: string): express.Express {
       return res.status(403).json({ error: 'Forbidden: Missing ledgers.view permission' });
     }
     let query = `
-      SELECT b.*, p.name as partyName 
+      SELECT b.*, p.name as partyName, p.closingBalance as partyClosingBalance, p.notes as partyNotes 
       FROM bills b 
       LEFT JOIN parties p ON b.partyId = p.id 
       WHERE 1=1
@@ -1133,7 +1133,13 @@ export function createApp(dbPath?: string): express.Express {
       params.push(`%${q}%`, `%${q}%`);
     }
     query += ' ORDER BY b.date DESC';
-    const rows = db.prepare(query).all(...params);
+    const rawRows = db.prepare(query).all(...params) as any[];
+    const rows = rawRows.map(b => {
+      if (b.partyNotes?.includes('Imported from Tally') && (b.partyClosingBalance ?? 0) <= 0) {
+        return { ...b, pending: 0 };
+      }
+      return b;
+    });
     res.json(rows);
   });
 
@@ -2201,7 +2207,9 @@ export function createApp(dbPath?: string): express.Express {
       closingBalance: p.closingBalance ?? 0,
     };
 
-    const bills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
+    const rawBills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
+    const isPartySettled = Boolean(p.notes && p.notes.includes('Imported from Tally')) && (p.closingBalance ?? 0) <= 0;
+    const bills = rawBills.map(b => isPartySettled ? { ...b, pending: 0 } : b);
     let ledgerLines = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
     if (ledgerLines.length === 0) {
       if (bills.length > 0) {
@@ -4561,6 +4569,9 @@ export function createApp(dbPath?: string): express.Express {
             db.prepare('UPDATE bills SET pending = 0 WHERE companyId = ? AND partyId = ? AND pending != 0').run(resolvedCompanyId, dp.id);
             continue;
           }
+
+          // Debtor with positive balance: clear any negative bills (advances/returns already netted into closingBalance)
+          db.prepare('UPDATE bills SET pending = 0 WHERE companyId = ? AND partyId = ? AND pending < 0').run(resolvedCompanyId, dp.id);
 
           const pBills = db.prepare(
             'SELECT id, date, amount, pending FROM bills WHERE companyId = ? AND partyId = ? AND pending > 0 ORDER BY date DESC'

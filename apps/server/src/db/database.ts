@@ -469,6 +469,37 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     `).run();
   } catch {}
   try {
+    // Reconcile settled Tally bills with authoritative closing balance
+    const tallyDebtors = db.prepare(
+      "SELECT id, companyId, closingBalance FROM parties WHERE partyType = 'debtor' AND notes LIKE '%Imported from Tally%'"
+    ).all() as any[];
+    const updatePendingStmt = db.prepare('UPDATE bills SET pending = ? WHERE id = ?');
+    for (const dp of tallyDebtors) {
+      const closing = dp.closingBalance ?? 0;
+      if (closing <= 0) {
+        db.prepare('UPDATE bills SET pending = 0 WHERE partyId = ? AND pending != 0').run(dp.id);
+        continue;
+      }
+      db.prepare('UPDATE bills SET pending = 0 WHERE partyId = ? AND pending < 0').run(dp.id);
+      const pBills = db.prepare(
+        'SELECT id, amount, pending FROM bills WHERE partyId = ? AND pending > 0 ORDER BY date DESC'
+      ).all(dp.id) as any[];
+      if (pBills.length === 0) continue;
+      const sumPos = pBills.reduce((acc: number, b: any) => acc + b.pending, 0);
+      if (sumPos <= closing) continue;
+      let remainingOwed = closing;
+      for (const b of pBills) {
+        if (remainingOwed > 0) {
+          const assigned = Math.min(b.pending, remainingOwed);
+          if (b.pending !== assigned) updatePendingStmt.run(assigned, b.id);
+          remainingOwed -= assigned;
+        } else {
+          if (b.pending !== 0) updatePendingStmt.run(0, b.id);
+        }
+      }
+    }
+  } catch {}
+  try {
     db.prepare('ALTER TABLE challans ADD COLUMN roundOff INTEGER DEFAULT 0').run();
   } catch {}
 
