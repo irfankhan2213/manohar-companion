@@ -4514,6 +4514,48 @@ export function createApp(dbPath?: string): express.Express {
           ).run(resolvedCompanyId);
         }
       }
+
+      // Reconcile settled/paid bills against Tally's authoritative closingBalance from Balance Sheet
+      try {
+        const debtorParties = db.prepare(
+          "SELECT id, closingBalance FROM parties WHERE companyId = ? AND partyType = 'debtor'"
+        ).all(resolvedCompanyId) as any[];
+
+        const updatePendingStmt = db.prepare('UPDATE bills SET pending = ? WHERE id = ?');
+
+        for (const dp of debtorParties) {
+          const closing = dp.closingBalance ?? 0;
+          if (closing <= 0) continue;
+
+          const pBills = db.prepare(
+            'SELECT id, date, amount, pending FROM bills WHERE companyId = ? AND partyId = ? AND pending > 0 ORDER BY date DESC'
+          ).all(resolvedCompanyId, dp.id) as any[];
+
+          if (pBills.length === 0) continue;
+
+          const sumPos = pBills.reduce((acc, b) => acc + b.pending, 0);
+          if (sumPos <= closing) continue;
+
+          // Positive bills exceed closingBalance: customer has already paid older bills.
+          // Settle backwards (newest bills remain pending up to closing, older bills set to 0).
+          let remainingOwed = closing;
+          for (const b of pBills) {
+            if (remainingOwed > 0) {
+              const assigned = Math.min(b.pending, remainingOwed);
+              if (b.pending !== assigned) {
+                updatePendingStmt.run(assigned, b.id);
+              }
+              remainingOwed -= assigned;
+            } else {
+              if (b.pending !== 0) {
+                updatePendingStmt.run(0, b.id);
+              }
+            }
+          }
+        }
+      } catch (reconErr: any) {
+        console.warn(`[SyncPush] Error reconciling bills with closingBalance: ${reconErr?.message}`);
+      }
     }
 
     if (Array.isArray(stockItems)) {

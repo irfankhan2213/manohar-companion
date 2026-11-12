@@ -92,7 +92,9 @@ export function buildOpenCompaniesQuery(): string {
           <COLLECTION NAME="ListOfOpenCompanies" ISMODIFY="No">
             <TYPE>Company</TYPE>
             <FETCH>NAME, STARTINGFROM, BOOKSFROM, PARTYGSTIN, GSTIN, GUID</FETCH>
+            <FILTER>IsLoadedCompany</FILTER>
           </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="IsLoadedCompany">$$IsSelectedCompany:$Name</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -181,7 +183,9 @@ export function buildVouchersQuery(companyName?: string): string {
           <COLLECTION NAME="CustomVouchersCollection" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <FETCH>VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ALLINVENTORYENTRIES.LIST</FETCH>
+            <FILTER>IsChallanFilter</FILTER>
           </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="IsChallanFilter">$$IsDeliveryNote:$VoucherTypeName or $$IsReceiptNote:$VoucherTypeName or $VoucherTypeName contains "Delivery" or $VoucherTypeName contains "Receipt Note" or $VoucherTypeName contains "Challan"</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>

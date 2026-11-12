@@ -202,11 +202,7 @@ describe('Tally Parser', () => {
     expect(rn.lines.length).toBe(1);
     expect(rn.lines[0]?.itemName).toBe('Hook Assembly - Heavy Duty');
 
-    expect(result.bills.length).toBe(1);
-    const saleBill = result.bills[0]!;
-    expect(saleBill.partyName).toBe('Bharat Textiles');
-    expect(saleBill.billNo).toBe('INV/MOCK/101');
-    expect(saleBill.openingAmount).toBe(450000);
+    expect(result.bills.length).toBe(0);
   });
 
   it('parses real Tally XML with singular BILL tag in COLLECTION', () => {

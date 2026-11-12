@@ -31,7 +31,7 @@ describe('Sync Engine', () => {
 
     expect(payload.company.name).toBe('Manohar Traders');
     expect(payload.ledgers.length).toBe(5);
-    expect(payload.bills.length).toBe(5);
+    expect(payload.bills.length).toBe(4);
     expect(payload.challans?.length).toBe(2);
     expect(payload.stockItems.length).toBe(4);
     expect(payload.maxAlterId).toBe(1480);
@@ -480,7 +480,7 @@ describe('Sync Engine', () => {
 
       expect(payload.company.name).toBe('Manohar Traders');
       expect(payload.ledgers.length).toBe(5);
-      expect(payload.bills.length).toBe(5);
+      expect(payload.bills.length).toBe(4);
       expect(payload.challans?.length).toBe(2);
       expect(payload.stockItems.length).toBe(4);
 
@@ -488,7 +488,7 @@ describe('Sync Engine', () => {
       expect(pushedBody.companyId).toBe('c1');
       expect(pushedBody.companyName).toBe('Manohar Traders');
       expect(pushedBody.parties.length).toBe(5);
-      expect(pushedBody.bills.length).toBe(5);
+      expect(pushedBody.bills.length).toBe(4);
       expect(pushedBody.challans.length).toBe(2);
       expect(pushedBody.stockItems.length).toBe(4);
       expect(store.get().companyName).toBe('Manohar Traders');

@@ -80,7 +80,7 @@ export class TallyClient {
   constructor(options: TallyClientOptions = {}) {
     this.url = options.url || 'http://127.0.0.1:25853';
     this.mock = options.mock ?? false;
-    this.timeoutMs = options.timeoutMs || 8000;
+    this.timeoutMs = options.timeoutMs || 30000;
   }
 
   public setMockMode(mock: boolean) {

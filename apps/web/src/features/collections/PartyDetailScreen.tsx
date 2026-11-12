@@ -146,15 +146,17 @@ export const PartyDetailScreen: React.FC = () => {
   const targetPhone = selectedPhone || tallyPhones[0] || localPhones[0] || '';
 
   const totalOwed =
-    bills.length > 0
-      ? bills.reduce((sum, b) => sum + b.pending, 0)
-      : Math.abs((party as any)?.closingBalance || 0);
+    party?.closingBalance !== undefined && party?.closingBalance !== null && party.closingBalance !== 0
+      ? (isCreditor ? Math.abs(party.closingBalance) : party.closingBalance)
+      : (bills.length > 0 ? bills.reduce((sum, b) => sum + b.pending, 0) : 0);
 
-  // Find oldest bill days late
+  // Find oldest bill days late (strictly for unpaid pending bills)
   let maxDaysLate = 0;
   for (const b of bills) {
-    const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
-    if (days > maxDaysLate) maxDaysLate = days;
+    if (b.pending > 0) {
+      const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
+      if (days > maxDaysLate) maxDaysLate = days;
+    }
   }
 
   const handleAddLocalPhone = () => {
@@ -473,14 +475,28 @@ export const PartyDetailScreen: React.FC = () => {
                         )}
                       </span>
                     }
-                    trailing={<span className="tabular-nums font-semibold">{formatINR(bill.pending)}</span>}
+                    trailing={
+                      <span className="tabular-nums font-semibold">
+                        {bill.pending < 0
+                          ? `${formatINR(Math.abs(bill.pending))} Cr`
+                          : bill.pending === 0
+                            ? <span className="text-label-3">₹0 (Paid)</span>
+                            : formatINR(bill.pending)}
+                      </span>
+                    }
                     trailingSubtitle={
-                      daysLate > 0 ? (
-                        <span className="text-danger font-semibold">
-                          {daysLate} days late
-                        </span>
+                      bill.pending > 0 ? (
+                        daysLate > 0 ? (
+                          <span className="text-danger font-semibold">
+                            {daysLate} days late
+                          </span>
+                        ) : (
+                          <span className="text-ok font-medium">Within terms</span>
+                        )
+                      ) : bill.pending < 0 ? (
+                        <span className="text-ok font-medium">Credit / Advance</span>
                       ) : (
-                        <span className="text-ok font-medium">Within terms</span>
+                        <span className="text-label-3 font-medium">Settled</span>
                       )
                     }
                   />

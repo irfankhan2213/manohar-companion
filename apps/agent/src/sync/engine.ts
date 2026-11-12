@@ -233,6 +233,10 @@ export class SyncEngine {
         });
       }
 
+      // If only 1 company is open in Tally, do not pass explicit SVCURRENTCOMPANY
+      // because Tally is already pointing at this active company.
+      const queryTarget = openCompanyNames.length > 1 ? targetCompany : undefined;
+
       // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (stock adjustments & challans) FIRST
       // and write them to Tally BEFORE reading Tally's closing stock & ledger balances!
       if (this.cloudUrl && primaryCompanyId) {
@@ -240,32 +244,22 @@ export class SyncEngine {
       }
 
       // 3. Always fetch all Ledgers (from AlterID 0) for targetCompany
-      const ledgers: TallyLedger[] = await this.client.getLedgers(0, targetCompany);
+      const ledgers: TallyLedger[] = await this.client.getLedgers(0, queryTarget);
 
       // 4. Fetch Bills Outstanding for targetCompany
-      let bills: TallyBill[] = await this.client.getBills(undefined, targetCompany);
+      let bills: TallyBill[] = await this.client.getBills(undefined, queryTarget);
 
-      // 4b. Fetch Vouchers (Delivery Challans, Receipt Notes, Invoices)
+      // 4b. Fetch Vouchers (Delivery Challans and Receipt Notes only)
       let challans: TallyChallanSync[] = [];
       try {
-        const vchResult = await this.client.getVouchers(undefined, targetCompany);
+        const vchResult = await this.client.getVouchers(undefined, queryTarget);
         challans = vchResult.challans || [];
-        if (Array.isArray(vchResult.bills) && vchResult.bills.length > 0) {
-          const existingBillKeys = new Set(bills.map((b) => `${b.partyName.toLowerCase()}_${b.billNo.toLowerCase()}`));
-          for (const vb of vchResult.bills) {
-            const key = `${vb.partyName.toLowerCase()}_${vb.billNo.toLowerCase()}`;
-            if (!existingBillKeys.has(key)) {
-              bills.push(vb);
-              existingBillKeys.add(key);
-            }
-          }
-        }
       } catch (vchErr: any) {
         console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
       }
 
       // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
-      const stockItems: TallyStockItem[] = await this.client.getStockItems(0, targetCompany);
+      const stockItems: TallyStockItem[] = await this.client.getStockItems(0, queryTarget);
 
       // 6. Compute max AlterID seen across new ledgers & stock items
       let maxAlterId = lastAlterId;
@@ -347,23 +341,13 @@ export class SyncEngine {
             await this.pullOutboxFromCloud(extra.companyId, extraTarget);
           }
           const extraInfo = await this.client.getCompanyInfo(extraTarget);
-          if (extraInfo?.name) {
+          if (extraInfo?.name && normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget)) {
             const extraLedgers = await this.client.getLedgers(0, extraTarget);
             let extraBills = await this.client.getBills(undefined, extraTarget);
             let extraChallans: TallyChallanSync[] = [];
             try {
               const extraVch = await this.client.getVouchers(undefined, extraTarget);
               extraChallans = extraVch.challans || [];
-              if (Array.isArray(extraVch.bills) && extraVch.bills.length > 0) {
-                const keys = new Set(extraBills.map((b) => `${b.partyName.toLowerCase()}_${b.billNo.toLowerCase()}`));
-                for (const vb of extraVch.bills) {
-                  const k = `${vb.partyName.toLowerCase()}_${vb.billNo.toLowerCase()}`;
-                  if (!keys.has(k)) {
-                    extraBills.push(vb);
-                    keys.add(k);
-                  }
-                }
-              }
             } catch {}
             const extraStock = await this.client.getStockItems(0, extraTarget);
             let extraMaxAlter = extra.lastAlterId || 0;

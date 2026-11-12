@@ -279,22 +279,25 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
       if (s === 'no' || s === 'false' || s === '0') isDebit = false;
     }
 
-    const parsedClosing = parseTallyAmount(rawBill.CLOSINGBALANCE);
-    const parsedOpening = parseTallyAmount(rawBill.OPENINGBALANCE);
+    const rawClosingText = extractXmlText(rawBill.CLOSINGBALANCE);
+    const rawOpeningText = extractXmlText(rawBill.OPENINGBALANCE);
 
-    let closingAmount = parsedClosing;
-    if (isDebit === false && closingAmount > 0) {
-      closingAmount = -closingAmount;
-    } else if (isDebit === true && closingAmount < 0) {
-      closingAmount = Math.abs(closingAmount);
-    }
+    // In Tally XML, customer debit balances are exported with '-' (e.g. "-28845.00") or 'Dr'.
+    // In business terms, customer receivables are POSITIVE. Only explicit Cr / credit notes are negative.
+    const isExplicitCr =
+      /(?:cr|credit)\.?$/i.test(rawClosingText) ||
+      isDebit === false;
+    const isExplicitOpeningCr =
+      /(?:cr|credit)\.?$/i.test(rawOpeningText) ||
+      isDebit === false;
 
-    let openingAmount = parsedOpening;
-    if (isDebit === false && openingAmount > 0) {
-      openingAmount = -openingAmount;
-    } else if (isDebit === true && openingAmount < 0) {
-      openingAmount = Math.abs(openingAmount);
-    }
+    const closingNum = rawClosingText.replace(/[^\d.]/g, '');
+    const openingNum = rawOpeningText.replace(/[^\d.]/g, '');
+    const closingPaise = rupeesToPaise(parseFloat(closingNum) || 0);
+    const openingPaise = rupeesToPaise(parseFloat(openingNum) || 0);
+
+    const closingAmount = isExplicitCr ? -closingPaise : closingPaise;
+    let openingAmount = isExplicitOpeningCr ? -openingPaise : openingPaise;
     if (openingAmount === 0 && closingAmount !== 0) {
       openingAmount = closingAmount;
     }
@@ -415,40 +418,9 @@ export function parseVouchersResponse(
         roundOff: 0,
       });
     }
-
-    // Sales Invoice or Purchase Invoice
-    const isSales = vchTypeLower.includes('sales') && !vchTypeLower.includes('order');
-    const isPurchase = vchTypeLower.includes('purchase') && !vchTypeLower.includes('order');
-
-    if (isSales || isPurchase) {
-      let billAmount = totalInvAmount;
-      if (billAmount === 0) {
-        const rawLedgers = toArray(v['LEDGERENTRIES.LIST'] || v.LEDGERENTRIES);
-        for (const le of rawLedgers) {
-          const lName = extractXmlText(le.LEDGERNAME);
-          if (lName && lName.toLowerCase() === partyName.toLowerCase()) {
-            billAmount = Math.abs(parseTallyAmount(le.AMOUNT));
-            break;
-          }
-        }
-      }
-
-      if (billAmount > 0) {
-        bills.push({
-          partyName: partyName.trim(),
-          billNo: vchNumber.trim(),
-          billDate: dateStr,
-          dueDate: dateStr,
-          openingAmount: billAmount,
-          pendingAmount: billAmount,
-          isOverdue: false,
-          daysOverdue: 0,
-        });
-      }
-    }
   }
 
-  return { challans, bills };
+  return { challans, bills: [] };
 }
 
 export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {
