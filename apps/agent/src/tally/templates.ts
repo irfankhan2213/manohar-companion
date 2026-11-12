@@ -151,9 +151,36 @@ export function buildBillsQuery(companyName?: string): string {
         <TDLMESSAGE>
           <COLLECTION NAME="BillsCollection" ISMODIFY="No">
             <TYPE>Bills</TYPE>
-            <CHILDOF>$$GroupSundryDebtors</CHILDOF>
-            <BELONGSTO>Yes</BELONGSTO>
             <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, OPENINGBALANCE, CLOSINGBALANCE, ISDEBIT</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function buildVouchersQuery(companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>CustomVouchersCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="CustomVouchersCollection" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <FETCH>VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ALLINVENTORYENTRIES.LIST</FETCH>
           </COLLECTION>
         </TDLMESSAGE>
       </TDL>

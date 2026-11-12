@@ -3,6 +3,7 @@ import {
   TallyLedger,
   TallyBill,
   TallyStockItem,
+  TallyChallanSync,
   VoucherImportResult,
 } from '../types.js';
 import {
@@ -10,6 +11,7 @@ import {
   buildOpenCompaniesQuery,
   buildLedgersQuery,
   buildBillsQuery,
+  buildVouchersQuery,
   buildStockItemsQuery,
 } from './templates.js';
 import {
@@ -17,6 +19,7 @@ import {
   parseOpenCompaniesResponse,
   parseLedgersResponse,
   parseBillsResponse,
+  parseVouchersResponse,
   parseStockItemsResponse,
   parseVoucherImportResponse,
 } from './parser.js';
@@ -25,6 +28,7 @@ import {
   getMockOpenCompaniesXml,
   getMockLedgersXml,
   getMockBillsXml,
+  getMockVouchersXml,
   getMockStockItemsXml,
   getMockVoucherImportResponseXml,
 } from './mock.js';
@@ -147,6 +151,7 @@ export class TallyClient {
         return getMockLedgersXml(lastAlter);
       }
       if (xmlPayload.includes('BillsCollection')) return getMockBillsXml();
+      if (xmlPayload.includes('CustomVouchersCollection')) return getMockVouchersXml();
       if (xmlPayload.includes('CustomStockCollection')) {
         const alterMatch = xmlPayload.match(/StockAlterFilter">.*?(\d+)/);
         const lastAlter = alterMatch && alterMatch[1] ? parseInt(alterMatch[1], 10) : 0;
@@ -235,6 +240,11 @@ export class TallyClient {
   public async getBills(today?: string, companyName?: string): Promise<TallyBill[]> {
     const xml = await this.postXml(buildBillsQuery(companyName));
     return parseBillsResponse(xml, today);
+  }
+
+  public async getVouchers(today?: string, companyName?: string): Promise<{ challans: TallyChallanSync[]; bills: TallyBill[] }> {
+    const xml = await this.postXml(buildVouchersQuery(companyName));
+    return parseVouchersResponse(xml, today);
   }
 
   public async getStockItems(lastAlterId: number = 0, companyName?: string): Promise<TallyStockItem[]> {

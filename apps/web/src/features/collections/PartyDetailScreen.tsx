@@ -47,7 +47,7 @@ export const PartyDetailScreen: React.FC = () => {
   const { currentCompanyId, currentRole, currentUser } = useAppStore();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'bills' | 'statement' | 'history'>('bills');
+  const [activeTab, setActiveTab] = useState<'bills' | 'challans' | 'statement' | 'history'>('bills');
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [reminderSheetOpen, setReminderSheetOpen] = useState(false);
   const [estimatedInfoOpen, setEstimatedInfoOpen] = useState(false);
@@ -59,6 +59,10 @@ export const PartyDetailScreen: React.FC = () => {
   // R4: Bills date range filter state
   const [billStartDate, setBillStartDate] = useState('');
   const [billEndDate, setBillEndDate] = useState('');
+
+  // Challans date range filter state
+  const [challanStartDate, setChallanStartDate] = useState('');
+  const [challanEndDate, setChallanEndDate] = useState('');
 
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
@@ -73,6 +77,17 @@ export const PartyDetailScreen: React.FC = () => {
       api.bills.list(currentCompanyId, partyId, {
         startDate: billStartDate || undefined,
         endDate: billEndDate || undefined,
+      }),
+  });
+
+  // Fetch party delivery and purchase challans with date range filters
+  const { data: partyChallans = [] } = useQuery({
+    queryKey: ['party-challans', currentCompanyId, partyId, challanStartDate, challanEndDate],
+    queryFn: () =>
+      api.challans.list(currentCompanyId, undefined, 'all', undefined, {
+        partyId,
+        startDate: challanStartDate || undefined,
+        endDate: challanEndDate || undefined,
       }),
   });
 
@@ -354,10 +369,11 @@ export const PartyDetailScreen: React.FC = () => {
         </div>
       )}
 
-      {/* 3-Option Segmented Control */}
+      {/* 4-Option Segmented Control */}
       <SegmentedControl
         options={[
           { value: 'bills', label: 'Bills' },
+          { value: 'challans', label: 'Challans' },
           { value: 'statement', label: 'Statement' },
           { value: 'history', label: 'History' },
         ]}
@@ -467,6 +483,124 @@ export const PartyDetailScreen: React.FC = () => {
                         <span className="text-ok font-medium">Within terms</span>
                       )
                     }
+                  />
+                );
+              })
+            )}
+          </InsetGroup>
+        </div>
+      )}
+
+      {/* Tab: Challans (Delivery Notes & Purchase Challans) */}
+      {activeTab === 'challans' && (
+        <div className="flex flex-col gap-3">
+          {/* Date Range Filter Bar */}
+          <div className="p-3 bg-surface rounded-xl border border-separator/50 flex flex-col gap-2 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-caption font-semibold uppercase tracking-wider text-label-2">
+                Filter Challans by Date
+              </span>
+              {(challanStartDate || challanEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChallanStartDate('');
+                    setChallanEndDate('');
+                  }}
+                  className="text-caption font-semibold text-accent hover:underline flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Clear Dates</span>
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="party-challans-from-date" className="text-[11px] text-label-3 font-medium block mb-1">
+                  From Date
+                </label>
+                <input
+                  id="party-challans-from-date"
+                  type="date"
+                  aria-label="From Date"
+                  value={challanStartDate}
+                  onChange={(e) => setChallanStartDate(e.target.value)}
+                  className="w-full h-9 px-2 bg-fill/30 border border-separator/40 rounded-lg text-footnote text-label focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+              <div>
+                <label htmlFor="party-challans-to-date" className="text-[11px] text-label-3 font-medium block mb-1">
+                  To Date
+                </label>
+                <input
+                  id="party-challans-to-date"
+                  type="date"
+                  aria-label="To Date"
+                  value={challanEndDate}
+                  onChange={(e) => setChallanEndDate(e.target.value)}
+                  className="w-full h-9 px-2 bg-fill/30 border border-separator/40 rounded-lg text-footnote text-label focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            </div>
+          </div>
+
+          <InsetGroup>
+            {partyChallans.length === 0 ? (
+              <div className="p-6 text-center text-label-2 text-subhead">
+                {challanStartDate || challanEndDate
+                  ? 'No challans match the selected date range.'
+                  : 'No past delivery or purchase challans for this party.'}
+              </div>
+            ) : (
+              partyChallans.map((ch) => {
+                const totalAmount = (ch.lines || []).reduce(
+                  (acc: number, line: any) => acc + (line.amount || 0),
+                  0
+                );
+                const itemsCount = (ch.lines || []).reduce(
+                  (acc: number, line: any) => acc + (line.qty || 0),
+                  0
+                );
+                return (
+                  <Row
+                    key={ch.id}
+                    title={
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{ch.number}</span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            ch.type === 'purchase'
+                              ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                              : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                          }`}
+                        >
+                          {ch.type === 'purchase' ? 'Purchase' : 'Sales / Delivery'}
+                        </span>
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-fill text-label-2 capitalize">
+                          {ch.status}
+                        </span>
+                      </div>
+                    }
+                    subtitle={
+                      <div className="flex flex-col gap-0.5 mt-0.5">
+                        <span className="text-caption text-label-2">
+                          Date: {ch.date} · {itemsCount} items ({(ch.lines || []).length} lines)
+                        </span>
+                        {(ch.lines || []).length > 0 && (
+                          <span className="text-[11px] text-label-3 truncate max-w-[280px]">
+                            {(ch.lines || []).map((l: any) => `${l.qty}x ${l.itemName || l.description || 'Item'}`).join(', ')}
+                          </span>
+                        )}
+                        {ch.narration && (
+                          <span className="text-[11px] text-label-3 italic truncate max-w-[280px]">
+                            {ch.narration}
+                          </span>
+                        )}
+                      </div>
+                    }
+                    trailing={totalAmount > 0 ? <span className="tabular-nums font-semibold">{formatINR(totalAmount)}</span> : undefined}
+                    chevron
+                    onClick={() => navigate(`/challans/${ch.id}`)}
                   />
                 );
               })

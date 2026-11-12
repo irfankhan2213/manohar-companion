@@ -5,6 +5,8 @@ import {
   TallyLedger,
   TallyBill,
   TallyStockItem,
+  TallyChallanSync,
+  TallyChallanLine,
   VoucherImportResult,
 } from '../types.js';
 
@@ -238,19 +240,35 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
   const body = envelope?.BODY || envelope?.body;
   const data = body?.DATA || body?.data;
 
-  const messages = toArray(data?.TALLYMESSAGE || data?.COLLECTION?.BILLS);
+  // Handle all Tally XML collection variants (COLLECTION.BILL, COLLECTION.BILLS, TALLYMESSAGE, etc.)
+  let messages: any[] = [];
+  if (data?.COLLECTION?.BILL) {
+    messages = toArray(data.COLLECTION.BILL);
+  } else if (data?.COLLECTION?.BILLS) {
+    messages = toArray(data.COLLECTION.BILLS);
+  } else if (data?.TALLYMESSAGE) {
+    messages = toArray(data.TALLYMESSAGE).flatMap((m: any) => toArray(m?.BILL || m?.BILLS || m));
+  } else if (data?.BILL) {
+    messages = toArray(data.BILL);
+  } else if (data?.BILLS) {
+    messages = toArray(data.BILLS);
+  }
   const bills: TallyBill[] = [];
 
   for (const msg of messages) {
-    const rawBill = msg?.BILLS || msg;
+    const rawBill = msg?.BILL || msg?.BILLS || msg;
     if (!rawBill || typeof rawBill !== 'object') continue;
 
-    const partyName = extractXmlText(rawBill.PARENT || rawBill['@_PARENT']);
-    const billNo = extractXmlText(rawBill.BILLREF || rawBill['@_BILLREF']);
+    const partyName = extractXmlText(
+      rawBill.PARENT || rawBill.PARTYLEDGERNAME || rawBill.PARTYNAME || rawBill['@_PARENT']
+    );
+    const billNo = extractXmlText(
+      rawBill.BILLREF || rawBill.NAME || rawBill.BILLNO || rawBill['@_BILLREF'] || rawBill['@_NAME']
+    );
     if (!partyName || !billNo || partyName === '[object Object]' || billNo === '[object Object]') continue;
 
-    const billDate = parseTallyDate(rawBill.BILLDATE);
-    const dueDate = parseTallyDate(rawBill.BILLDUE || rawBill.BILLDATE);
+    const billDate = parseTallyDate(rawBill.BILLDATE || rawBill.DATE);
+    const dueDate = parseTallyDate(rawBill.BILLDUE || rawBill.BILLDATE || rawBill.DATE);
 
     // Dr / Cr and ISDEBIT sign handling
     const isDebitRaw = rawBill.ISDEBIT !== undefined ? rawBill.ISDEBIT : rawBill['@_ISDEBIT'];
@@ -297,6 +315,140 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
   }
 
   return bills;
+}
+
+export function parseVouchersResponse(
+  xmlString: string,
+  today: string = new Date().toISOString().slice(0, 10)
+): { challans: TallyChallanSync[]; bills: TallyBill[] } {
+  const parsed = xmlParser.parse(xmlString);
+  const envelope = parsed?.ENVELOPE || parsed?.envelope;
+  const body = envelope?.BODY || envelope?.body;
+  const data = body?.DATA || body?.data;
+
+  let messages: any[] = [];
+  if (data?.COLLECTION?.VOUCHER) {
+    messages = toArray(data.COLLECTION.VOUCHER);
+  } else if (data?.TALLYMESSAGE) {
+    messages = toArray(data.TALLYMESSAGE).flatMap((m: any) => toArray(m?.VOUCHER || m));
+  } else if (data?.VOUCHER) {
+    messages = toArray(data.VOUCHER);
+  }
+
+  const challans: TallyChallanSync[] = [];
+  const bills: TallyBill[] = [];
+
+  for (const v of messages) {
+    if (!v || typeof v !== 'object') continue;
+    const vchType = extractXmlText(v.VOUCHERTYPENAME || v['@_VCHTYPE'] || v.VCHTYPE);
+    const vchTypeLower = vchType.toLowerCase();
+    const vchNumber = extractXmlText(v.VOUCHERNUMBER || v['@_VOUCHERNUMBER'] || v.NAME);
+    if (!vchNumber || vchNumber === '[object Object]') continue;
+
+    const dateStr = parseTallyDate(v.DATE || v['@_DATE']);
+    const partyName = extractXmlText(
+      v.PARTYLEDGERNAME || v.PARTYNAME || v.BASICBUYERNAME || v['@_PARTYLEDGERNAME']
+    );
+    if (!partyName || partyName === '[object Object]') continue;
+
+    const narration = extractXmlText(v.NARRATION);
+
+    // Extract inventory entries (ALLINVENTORYENTRIES.LIST or INVENTORYENTRIES.LIST or ALLINVENTORYENTRIES)
+    const rawInvList = toArray(
+      v['ALLINVENTORYENTRIES.LIST'] ||
+      v['INVENTORYENTRIES.LIST'] ||
+      v.ALLINVENTORYENTRIES ||
+      v.INVENTORYENTRIES
+    );
+
+    const lines: TallyChallanLine[] = [];
+    let totalInvAmount = 0;
+
+    for (const inv of rawInvList) {
+      if (!inv || typeof inv !== 'object') continue;
+      const itemName = extractXmlText(inv.STOCKITEMNAME || inv.ITEMNAME);
+      if (!itemName || itemName === '[object Object]') continue;
+
+      const rawQtyStr = extractXmlText(inv.BILLEDQTY || inv.ACTUALQTY || inv.QTY);
+      const qtyMatch = rawQtyStr.match(/([-+]?\d+(\.\d+)?)/);
+      const qty = qtyMatch && qtyMatch[1] ? Math.abs(parseFloat(qtyMatch[1])) : 1;
+      const unit = rawQtyStr.replace(/[-+]?\d+(\.\d+)?/g, '').trim() || 'pcs';
+
+      const ratePaise = Math.abs(parseTallyAmount(inv.RATE));
+      let amountPaise = Math.abs(parseTallyAmount(inv.AMOUNT));
+      if (amountPaise === 0 && ratePaise > 0 && qty > 0) {
+        amountPaise = Math.round(ratePaise * qty);
+      }
+      totalInvAmount += amountPaise;
+
+      lines.push({
+        itemName,
+        qty,
+        unit,
+        rate: ratePaise,
+        amount: amountPaise,
+      });
+    }
+
+    // Delivery Challan / Delivery Note
+    const isDeliveryChallan =
+      vchTypeLower.includes('delivery') ||
+      vchTypeLower.includes('dispatch') ||
+      (vchTypeLower.includes('challan') && !vchTypeLower.includes('receipt') && !vchTypeLower.includes('purchase'));
+
+    // Receipt Note / Purchase Challan
+    const isReceiptChallan =
+      vchTypeLower.includes('receipt note') ||
+      vchTypeLower.includes('grn') ||
+      vchTypeLower.includes('goods receipt') ||
+      (vchTypeLower.includes('challan') && (vchTypeLower.includes('purchase') || vchTypeLower.includes('receipt')));
+
+    if (isDeliveryChallan || isReceiptChallan) {
+      challans.push({
+        number: vchNumber.trim(),
+        date: dateStr,
+        partyName: partyName.trim(),
+        type: isDeliveryChallan ? 'sales' : 'purchase',
+        status: 'delivered',
+        lines,
+        notes: narration || undefined,
+        roundOff: 0,
+      });
+    }
+
+    // Sales Invoice or Purchase Invoice
+    const isSales = vchTypeLower.includes('sales') && !vchTypeLower.includes('order');
+    const isPurchase = vchTypeLower.includes('purchase') && !vchTypeLower.includes('order');
+
+    if (isSales || isPurchase) {
+      let billAmount = totalInvAmount;
+      if (billAmount === 0) {
+        const rawLedgers = toArray(v['LEDGERENTRIES.LIST'] || v.LEDGERENTRIES);
+        for (const le of rawLedgers) {
+          const lName = extractXmlText(le.LEDGERNAME);
+          if (lName && lName.toLowerCase() === partyName.toLowerCase()) {
+            billAmount = Math.abs(parseTallyAmount(le.AMOUNT));
+            break;
+          }
+        }
+      }
+
+      if (billAmount > 0) {
+        bills.push({
+          partyName: partyName.trim(),
+          billNo: vchNumber.trim(),
+          billDate: dateStr,
+          dueDate: dateStr,
+          openingAmount: billAmount,
+          pendingAmount: billAmount,
+          isOverdue: false,
+          daysOverdue: 0,
+        });
+      }
+    }
+  }
+
+  return { challans, bills };
 }
 
 export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {

@@ -43,11 +43,33 @@ export interface TallyStockItem {
   alterId: number;
 }
 
+export interface TallyChallanLine {
+  itemName: string;
+  description?: string;
+  qty: number;
+  unit: string;
+  rate: Paise;
+  amount: Paise;
+}
+
+export interface TallyChallanSync {
+  number: string;
+  date: string;
+  partyName: string;
+  type: 'sales' | 'purchase';
+  status?: string;
+  lines: TallyChallanLine[];
+  notes?: string;
+  vehicleNo?: string;
+  roundOff?: number;
+}
+
 export interface TallySyncPayload {
   company: TallyCompanyInfo;
   ledgers: TallyLedger[];
   bills: TallyBill[];
   stockItems: TallyStockItem[];
+  challans?: TallyChallanSync[];
   maxAlterId: number;
   syncedAt: string;
   durationMs: number;

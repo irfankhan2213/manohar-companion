@@ -30,13 +30,44 @@ pause
 exit /b 1
 
 :CHECK_ARGS
+:: Auto-heal agent-state.json if it contains legacy port 9999
+if exist "%~dp0agent-state.json" (
+    "%NODE_BIN%" -e "try{const p='%~dp0agent-state.json';let c=fs.readFileSync(p,'utf8');if(c.includes('9999')){fs.writeFileSync(p,c.replace(/:9999/g,':25853').replace(/\"tallyPort\":\s*9999/g,'\"tallyPort\": 25853'));}}catch(e){}" >nul 2>&1
+)
+
 if not "%~1"=="" (
-    if /i "%~1"=="start" goto START
-    if /i "%~1"=="sync" goto SYNC
+    if /i "%~1"=="start" goto START_CLI
+    if /i "%~1"=="sync" goto SYNC_CLI
     "%NODE_BIN%" tally-agent.mjs %*
     exit /b !errorlevel!
 )
 goto MENU
+
+:START_CLI
+:DAEMON_CLI_LOOP
+"%NODE_BIN%" tally-agent.mjs %*
+if !errorlevel! equ 42 (
+    echo.
+    echo =====================================================================
+    echo  [OTA UPDATE] Agent bundle was updated! Restarting sync daemon...
+    echo =====================================================================
+    timeout /t 2 /nobreak >nul 2>&1
+    goto DAEMON_CLI_LOOP
+)
+exit /b !errorlevel!
+
+:SYNC_CLI
+:SYNC_CLI_LOOP
+"%NODE_BIN%" tally-agent.mjs %*
+if !errorlevel! equ 42 (
+    echo.
+    echo =====================================================================
+    echo  [OTA UPDATE] Agent bundle was updated! Running sync with new version...
+    echo =====================================================================
+    timeout /t 2 /nobreak >nul 2>&1
+    goto SYNC_CLI_LOOP
+)
+exit /b !errorlevel!
 
 :MENU
 cls

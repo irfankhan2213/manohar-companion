@@ -3,6 +3,7 @@ import {
   buildCompanyInfoQuery,
   buildLedgersQuery,
   buildBillsQuery,
+  buildVouchersQuery,
   buildStockItemsQuery,
   buildStockJournalVoucherXml,
   buildDeliveryChallanVoucherXml,
@@ -25,9 +26,14 @@ describe('Tally XML Templates', () => {
   it('generates bills query XML', () => {
     const xml = buildBillsQuery();
     expect(xml).toContain('<TYPE>Bills</TYPE>');
-    expect(xml).toContain('<CHILDOF>$$GroupSundryDebtors</CHILDOF>');
-    expect(xml).toContain('<BELONGSTO>Yes</BELONGSTO>');
     expect(xml).toContain('BILLREF');
+  });
+
+  it('generates vouchers query XML for challans and invoices', () => {
+    const xml = buildVouchersQuery('Manohar Traders');
+    expect(xml).toContain('<TYPE>Voucher</TYPE>');
+    expect(xml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+    expect(xml).toContain('ALLINVENTORYENTRIES.LIST');
   });
 
   it('generates stock items query with AlterID filter', () => {

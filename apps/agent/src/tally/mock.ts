@@ -276,3 +276,62 @@ export function getMockVoucherImportResponseXml(): string {
   <ERRORS>0</ERRORS>
 </RESPONSE>`;
 }
+
+export function getMockVouchersXml(): string {
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <STATUS>1</STATUS>
+  </HEADER>
+  <BODY>
+    <DATA>
+      <TALLYMESSAGE>
+        <VOUCHER VCHTYPE="Delivery Note">
+          <DATE>20261015</DATE>
+          <VOUCHERTYPENAME>Delivery Note</VOUCHERTYPENAME>
+          <VOUCHERNUMBER>DC/001/26-27</VOUCHERNUMBER>
+          <PARTYLEDGERNAME>Sample Garments Pvt Ltd</PARTYLEDGERNAME>
+          <NARRATION>Delivery of motors</NARRATION>
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>Servo Motor (550W)</STOCKITEMNAME>
+            <BILLEDQTY>2 pcs</BILLEDQTY>
+            <RATE>4200.00/pcs</RATE>
+            <AMOUNT>-8400.00</AMOUNT>
+          </ALLINVENTORYENTRIES.LIST>
+        </VOUCHER>
+      </TALLYMESSAGE>
+      <TALLYMESSAGE>
+        <VOUCHER VCHTYPE="Receipt Note">
+          <DATE>20261016</DATE>
+          <VOUCHERTYPENAME>Receipt Note</VOUCHERTYPENAME>
+          <VOUCHERNUMBER>RN/001/26-27</VOUCHERNUMBER>
+          <PARTYLEDGERNAME>Standard Sewing Machines Ltd</PARTYLEDGERNAME>
+          <NARRATION>Goods received at main godown</NARRATION>
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>Hook Assembly - Heavy Duty</STOCKITEMNAME>
+            <BILLEDQTY>5 pcs</BILLEDQTY>
+            <RATE>1450.00/pcs</RATE>
+            <AMOUNT>7250.00</AMOUNT>
+          </ALLINVENTORYENTRIES.LIST>
+        </VOUCHER>
+      </TALLYMESSAGE>
+      <TALLYMESSAGE>
+        <VOUCHER VCHTYPE="Sales">
+          <DATE>20261010</DATE>
+          <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+          <VOUCHERNUMBER>INV/MOCK/101</VOUCHERNUMBER>
+          <PARTYLEDGERNAME>Bharat Textiles</PARTYLEDGERNAME>
+          <NARRATION>Sales invoice</NARRATION>
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>Sewing Thread 40/2 (White)</STOCKITEMNAME>
+            <BILLEDQTY>10 boxes</BILLEDQTY>
+            <RATE>450.00/box</RATE>
+            <AMOUNT>-4500.00</AMOUNT>
+          </ALLINVENTORYENTRIES.LIST>
+        </VOUCHER>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}

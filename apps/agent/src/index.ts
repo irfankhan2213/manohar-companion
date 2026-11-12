@@ -72,7 +72,7 @@ const engine = new SyncEngine({
   pollIntervalMs,
   onSyncComplete: (p) => {
     console.log(
-      `[${new Date().toLocaleTimeString()}] Sync OK · Co: "${p.company.name}" · Ledgers: ${p.ledgers.length} · Bills: ${p.bills.length} · Stock: ${p.stockItems.length} · AlterID: ${p.maxAlterId} (${p.durationMs}ms)`
+      `[${new Date().toLocaleTimeString()}] Sync OK · Co: "${p.company.name}" · Ledgers: ${p.ledgers.length} · Bills: ${p.bills.length} · Challans: ${p.challans?.length || 0} · Stock: ${p.stockItems.length} · AlterID: ${p.maxAlterId} (${p.durationMs}ms)`
     );
   },
   onSyncError: (e) => {

@@ -11,6 +11,7 @@ import {
   TallyLedger,
   TallyBill,
   TallyStockItem,
+  TallyChallanSync,
   CompanySyncConfig,
 } from '../types.js';
 import {
@@ -242,7 +243,26 @@ export class SyncEngine {
       const ledgers: TallyLedger[] = await this.client.getLedgers(0, targetCompany);
 
       // 4. Fetch Bills Outstanding for targetCompany
-      const bills: TallyBill[] = await this.client.getBills(undefined, targetCompany);
+      let bills: TallyBill[] = await this.client.getBills(undefined, targetCompany);
+
+      // 4b. Fetch Vouchers (Delivery Challans, Receipt Notes, Invoices)
+      let challans: TallyChallanSync[] = [];
+      try {
+        const vchResult = await this.client.getVouchers(undefined, targetCompany);
+        challans = vchResult.challans || [];
+        if (Array.isArray(vchResult.bills) && vchResult.bills.length > 0) {
+          const existingBillKeys = new Set(bills.map((b) => `${b.partyName.toLowerCase()}_${b.billNo.toLowerCase()}`));
+          for (const vb of vchResult.bills) {
+            const key = `${vb.partyName.toLowerCase()}_${vb.billNo.toLowerCase()}`;
+            if (!existingBillKeys.has(key)) {
+              bills.push(vb);
+              existingBillKeys.add(key);
+            }
+          }
+        }
+      } catch (vchErr: any) {
+        console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
+      }
 
       // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
       const stockItems: TallyStockItem[] = await this.client.getStockItems(0, targetCompany);
@@ -262,6 +282,7 @@ export class SyncEngine {
         ledgers,
         bills,
         stockItems,
+        challans,
         maxAlterId,
         syncedAt: nowIso,
         durationMs: Date.now() - startTime,
@@ -328,7 +349,22 @@ export class SyncEngine {
           const extraInfo = await this.client.getCompanyInfo(extraTarget);
           if (extraInfo?.name) {
             const extraLedgers = await this.client.getLedgers(0, extraTarget);
-            const extraBills = await this.client.getBills(undefined, extraTarget);
+            let extraBills = await this.client.getBills(undefined, extraTarget);
+            let extraChallans: TallyChallanSync[] = [];
+            try {
+              const extraVch = await this.client.getVouchers(undefined, extraTarget);
+              extraChallans = extraVch.challans || [];
+              if (Array.isArray(extraVch.bills) && extraVch.bills.length > 0) {
+                const keys = new Set(extraBills.map((b) => `${b.partyName.toLowerCase()}_${b.billNo.toLowerCase()}`));
+                for (const vb of extraVch.bills) {
+                  const k = `${vb.partyName.toLowerCase()}_${vb.billNo.toLowerCase()}`;
+                  if (!keys.has(k)) {
+                    extraBills.push(vb);
+                    keys.add(k);
+                  }
+                }
+              }
+            } catch {}
             const extraStock = await this.client.getStockItems(0, extraTarget);
             let extraMaxAlter = extra.lastAlterId || 0;
             for (const l of extraLedgers) if (l.alterId > extraMaxAlter) extraMaxAlter = l.alterId;
@@ -341,6 +377,7 @@ export class SyncEngine {
                   ledgers: extraLedgers,
                   bills: extraBills,
                   stockItems: extraStock,
+                  challans: extraChallans,
                   maxAlterId: extraMaxAlter,
                   syncedAt: nowIso,
                   durationMs: Date.now() - startTime,
@@ -579,6 +616,21 @@ export class SyncEngine {
       alias: null,
     }));
 
+    // Map past Delivery Challans and Purchase Challans from Tally
+    const challans = (payload.challans || []).map((c) => ({
+      id: `ch-${companyPrefix}${slugify(c.number || Math.random().toString())}`,
+      partyId: `p-${companyPrefix}${slugify(c.partyName)}`,
+      partyName: c.partyName,
+      number: c.number,
+      date: c.date,
+      type: c.type,
+      status: c.status || 'delivered',
+      lines: c.lines || [],
+      roundOff: c.roundOff || 0,
+      notes: c.notes,
+      vehicleNo: c.vehicleNo,
+    }));
+
     const pushRes = await fetch(`${this.cloudUrl}/api/sync/push`, {
       method: 'POST',
       headers: {
@@ -593,6 +645,7 @@ export class SyncEngine {
         parties,
         bills,
         stockItems,
+        challans,
       }),
     });
 

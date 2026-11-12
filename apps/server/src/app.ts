@@ -4394,7 +4394,7 @@ export function createApp(dbPath?: string): express.Express {
   app.post('/api/sync/push', (req, res) => {
     const user = getRequestUser(req);
     const agentAuth = resolveAgentAuth(req, user);
-    const { companyId, companyName, alterId, parties, bills, stockItems } = req.body;
+    const { companyId, companyName, alterId, parties, bills, stockItems, challans } = req.body;
     const now = new Date().toISOString();
     if (!companyId && !companyName) {
       return res.status(400).json({ error: 'Missing companyId: Tally agent must connect to a specific company/organization' });
@@ -4410,7 +4410,7 @@ export function createApp(dbPath?: string): express.Express {
     const defaultTenantId = compRow.tenantId || user?.tenantId || agentAuth.tenantId || 'platform';
 
     // Auto-purge Sample Demo Mode data when first real Tally sync arrives for this company
-    if ((Array.isArray(parties) && parties.length > 0) || (Array.isArray(bills) && bills.length > 0) || (Array.isArray(stockItems) && stockItems.length > 0)) {
+    if ((Array.isArray(parties) && parties.length > 0) || (Array.isArray(bills) && bills.length > 0) || (Array.isArray(stockItems) && stockItems.length > 0) || (Array.isArray(challans) && challans.length > 0)) {
       try {
         db.prepare("DELETE FROM bills WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
         db.prepare("DELETE FROM parties WHERE companyId = ? AND id LIKE 'demo-%'").run(resolvedCompanyId);
@@ -4598,10 +4598,63 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    let challansUpdated = 0;
+    if (Array.isArray(challans)) {
+      const stmt = db.prepare(`
+        INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, vehicleNo, lrNo, transporter, narration, status, createdBy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          companyId = excluded.companyId,
+          type = excluded.type,
+          number = excluded.number,
+          date = excluded.date,
+          partyId = excluded.partyId,
+          lines = excluded.lines,
+          roundOff = excluded.roundOff,
+          vehicleNo = COALESCE(excluded.vehicleNo, challans.vehicleNo),
+          narration = COALESCE(excluded.narration, challans.narration),
+          status = COALESCE(challans.status, excluded.status)
+      `);
+
+      for (const ch of challans) {
+        let partyId = ch.partyId ? (partyIdRemap.get(ch.partyId) || ch.partyId) : null;
+        if (ch.partyName) {
+          const matchedParty = db
+            .prepare('SELECT id FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1')
+            .get(resolvedCompanyId, String(ch.partyName).trim()) as any;
+          if (matchedParty) {
+            partyId = matchedParty.id;
+          }
+        }
+
+        const numSlug = String(ch.number || Math.random().toString()).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'num';
+        const safeChallanId = ch.id || `ch-${resolvedCompanyId}-${numSlug}`;
+        const linesJson = typeof ch.lines === 'string' ? ch.lines : JSON.stringify(ch.lines || []);
+        stmt.run(
+          safeChallanId,
+          resolvedCompanyId,
+          ch.type || 'sales',
+          ch.number || '',
+          ch.date || now.slice(0, 10),
+          partyId || null,
+          ch.godownId || null,
+          linesJson,
+          ch.roundOff || 0,
+          ch.vehicleNo || null,
+          ch.lrNo || null,
+          ch.transporter || null,
+          ch.notes || ch.narration || null,
+          ch.status || 'delivered',
+          ch.createdBy || 'tally_sync'
+        );
+        challansUpdated++;
+      }
+    }
+
     db.prepare(`
       INSERT INTO sync_batches (companyId, syncedAt, alterId, vouchersCount, ledgersCount, stockCount)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(resolvedCompanyId, now, alterId || 0, billsUpdated, partiesUpdated, stockUpdated);
+    `).run(resolvedCompanyId, now, alterId || 0, billsUpdated + challansUpdated, partiesUpdated, stockUpdated);
 
     if (compRow?.id) {
       if (companyName && typeof companyName === 'string' && companyName.trim()) {
@@ -4650,6 +4703,7 @@ export function createApp(dbPath?: string): express.Express {
       alterId,
       partiesUpdated,
       billsUpdated,
+      challansUpdated,
       stockUpdated,
       commands: commandsToSend,
       tenantCompanies,
