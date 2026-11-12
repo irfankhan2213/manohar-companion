@@ -24,6 +24,8 @@ import {
 
 export interface HomeSummary {
   totalReceivables: number; // in paise
+  totalDebit?: number; // in paise
+  totalCredit?: number; // in paise
   totalOverdue: number; // in paise
   notDuePercentage: number;
   latePercentage: number;

@@ -104,15 +104,38 @@ export const HomeScreen: React.FC = () => {
               <TrendingUp className="w-4 h-4 text-label-3" />
             </div>
 
-            <div className="flex items-baseline mt-1 font-semibold text-hero-num text-label tracking-tight tabular-nums">
-              {isLoading ? (
-                <span className="animate-pulse bg-fill h-12 w-48 rounded-lg" />
-              ) : (
-                formatINR(summary?.totalReceivables ?? 0)
-              )}
+            {/* Total Debit (Above) */}
+            <div className="mt-2 flex flex-col">
+              <span className="text-caption text-label-3 uppercase tracking-wider font-semibold">
+                Total Debit (Owed to you)
+              </span>
+              <div className="flex items-baseline mt-0.5 font-bold text-hero-num text-label tracking-tight tabular-nums">
+                {isLoading ? (
+                  <span className="animate-pulse bg-fill h-12 w-48 rounded-lg" />
+                ) : (
+                  <>
+                    <span>{formatINR(summary?.totalDebit ?? summary?.totalReceivables ?? 0)}</span>
+                    <span className="ml-1.5 text-headline text-label-3 font-medium">Dr</span>
+                  </>
+                )}
+              </div>
             </div>
 
-            <div className="inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full bg-danger/10 border border-danger/15 w-fit">
+            {/* Total Credit (Below) */}
+            <div className="mt-2.5 flex items-center justify-between py-2 px-3 rounded-xl bg-fill/50 border border-separator/30">
+              <span className="text-footnote text-label-2 font-medium">
+                Total Credit (Advances / Cr)
+              </span>
+              <span className="text-subhead font-semibold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                {isLoading ? (
+                  <span className="animate-pulse bg-fill h-4 w-16 rounded inline-block" />
+                ) : (
+                  `${formatINR(summary?.totalCredit ?? 0)} Cr`
+                )}
+              </span>
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1 rounded-full bg-danger/10 border border-danger/15 w-fit">
               <span className="w-1.5 h-1.5 rounded-full bg-danger" />
               <span className="text-footnote text-danger font-semibold tabular-nums">
                 {t('home.isOverdue', {

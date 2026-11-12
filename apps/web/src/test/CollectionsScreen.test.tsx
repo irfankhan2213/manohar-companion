@@ -142,4 +142,58 @@ describe('CollectionsScreen Component', () => {
       expect(screen.getByText(/Send reminders \(1\)/)).toBeInTheDocument();
     });
   });
+
+  it('supports the 4 quick filters: All Customers, Debtors, Creditors, and Overdue Only', async () => {
+    // Seed a supplier (creditor)
+    const { mockApiClient } = await import('../mock/db.js');
+    await mockApiClient.parties.create({
+      id: 'p-creditor-filter-test',
+      tenantId: 'tenant-1',
+      companyId: 'c1',
+      name: 'Shree Balaji Yarns',
+      city: 'Surat',
+      phones: ['+91 98222 33333'],
+      parentGroup: 'Sundry Creditors',
+      partyType: 'creditor',
+      creditDays: 30,
+      closingBalance: 750000,
+    });
+
+    queryClient.clear();
+    renderComponent();
+
+    // 1. Initial / Debtors filter: customers visible, creditors hidden
+    await waitFor(() => {
+      expect(screen.getByText('Sample Garments Pvt Ltd')).toBeInTheDocument();
+      expect(screen.queryByText('Shree Balaji Yarns')).not.toBeInTheDocument();
+    });
+
+    // 2. Click "Creditors" pill: creditors visible, customers hidden
+    fireEvent.click(screen.getByText('Creditors'));
+    await waitFor(() => {
+      expect(screen.getByText('Shree Balaji Yarns')).toBeInTheDocument();
+      expect(screen.queryByText('Sample Garments Pvt Ltd')).not.toBeInTheDocument();
+    });
+
+    // 3. Click "All Customers" pill: both visible
+    fireEvent.click(screen.getByText('All Customers'));
+    await waitFor(() => {
+      expect(screen.getByText('Sample Garments Pvt Ltd')).toBeInTheDocument();
+      expect(screen.getByText('Shree Balaji Yarns')).toBeInTheDocument();
+    });
+
+    // 4. Click "Debtors" pill: only debtors visible
+    fireEvent.click(screen.getByText('Debtors'));
+    await waitFor(() => {
+      expect(screen.getByText('Sample Garments Pvt Ltd')).toBeInTheDocument();
+      expect(screen.queryByText('Shree Balaji Yarns')).not.toBeInTheDocument();
+    });
+
+    // 5. Click "Overdue Only" pill: only overdue customers visible
+    fireEvent.click(screen.getByText('Overdue Only'));
+    await waitFor(() => {
+      expect(screen.getByText('Sample Garments Pvt Ltd')).toBeInTheDocument();
+      expect(screen.queryByText('Shree Balaji Yarns')).not.toBeInTheDocument();
+    });
+  });
 });

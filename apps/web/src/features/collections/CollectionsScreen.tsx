@@ -346,31 +346,69 @@ export const CollectionsScreen: React.FC = () => {
             }}
           />
 
-          {/* Quick Status Sub-Filter */}
-          <div className="flex items-center gap-2 px-1">
+          {/* Quick Filter: All Customers | Debtors | Creditors | Overdue Only */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
             <button
               type="button"
-              onClick={() => setTabFilter('all')}
-              className={`px-3 py-1 rounded-full text-caption font-semibold transition-all ${
-                tabFilter === 'all'
-                  ? 'bg-fill text-label shadow-xs border border-separator/60'
+              onClick={() => {
+                setPartyTypeTab('all');
+                setTabFilter('all');
+                setSelectedPartyIds(new Set());
+              }}
+              className={clsx(
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                partyTypeTab === 'all' && tabFilter === 'all'
+                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
-              }`}
+              )}
             >
-              {partyTypeTab === 'creditor'
-                ? 'All Suppliers'
-                : partyTypeTab === 'all'
-                ? 'All Parties'
-                : 'All Customers'}
+              All Customers
             </button>
             <button
               type="button"
-              onClick={() => setTabFilter(tabFilter === 'late' ? 'all' : 'late')}
-              className={`px-3 py-1 rounded-full text-caption font-semibold transition-all ${
-                tabFilter === 'late'
-                  ? 'bg-danger/15 text-danger border border-danger/30'
+              onClick={() => {
+                setPartyTypeTab('debtor');
+                setTabFilter('all');
+                setSelectedPartyIds(new Set());
+              }}
+              className={clsx(
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                partyTypeTab === 'debtor' && tabFilter === 'all'
+                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
-              }`}
+              )}
+            >
+              Debtors
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPartyTypeTab('creditor');
+                setTabFilter('all');
+                setSelectedPartyIds(new Set());
+                setIsMultiSelect(false);
+              }}
+              className={clsx(
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                partyTypeTab === 'creditor' && tabFilter === 'all'
+                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
+                  : 'text-label-2 hover:text-label hover:bg-fill/40'
+              )}
+            >
+              Creditors
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTabFilter(tabFilter === 'late' ? 'all' : 'late');
+                setSelectedPartyIds(new Set());
+              }}
+              className={clsx(
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                tabFilter === 'late'
+                  ? 'bg-danger/15 text-danger border border-danger/30 font-bold'
+                  : 'text-label-2 hover:text-label hover:bg-fill/40'
+              )}
             >
               Overdue Only
             </button>

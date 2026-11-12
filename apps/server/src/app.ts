@@ -902,8 +902,11 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
     if (req.query.type && (req.query.type === 'debtor' || req.query.type === 'creditor')) {
-      query += ' AND partyType = ?';
-      params.push(req.query.type);
+      if (req.query.type === 'creditor') {
+        query += " AND (partyType = 'creditor' OR parentGroup LIKE '%Creditor%' OR notes LIKE '%creditor%')";
+      } else {
+        query += " AND (partyType = 'debtor' OR partyType IS NULL OR parentGroup LIKE '%Debtor%' OR notes LIKE '%debtor%') AND NOT (parentGroup LIKE '%Creditor%' OR notes LIKE '%creditor%')";
+      }
     }
     const rows = db.prepare(query).all(...params) as any[];
     let parties: Party[] = rows.map(p => {
@@ -1852,6 +1855,8 @@ export function createApp(dbPath?: string): express.Express {
     const hasDemoSeedBills = bills.some((b: any) => b.id === 'b-1' || b.id === 'b-2' || b.id === 'b-6');
     const today = hasDemoSeedBills ? '2026-10-17' : getTodayIST();
     let totalReceivables = 0;
+    let totalDebit = 0;
+    let totalCredit = 0;
     let totalOverdue = 0;
     let notDue = 0;
     let late1_30 = 0;
@@ -1874,6 +1879,7 @@ export function createApp(dbPath?: string): express.Express {
       const customerReceivable = closingBal !== 0 ? closingBal : billSum;
 
       if (customerReceivable > 0) {
+        totalDebit += customerReceivable;
         totalReceivables += customerReceivable;
 
         if (positiveBills.length > 0) {
@@ -1925,6 +1931,8 @@ export function createApp(dbPath?: string): express.Express {
           // Debtor with positive closing balance without individual positive bills
           notDue += customerReceivable;
         }
+      } else if (customerReceivable < 0) {
+        totalCredit += Math.abs(customerReceivable);
       }
     }
 
@@ -2014,6 +2022,8 @@ export function createApp(dbPath?: string): express.Express {
 
     res.json({
       totalReceivables,
+      totalDebit,
+      totalCredit,
       totalOverdue,
       notDuePercentage: notDuePct,
       latePercentage: latePct,

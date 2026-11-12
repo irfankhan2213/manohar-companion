@@ -216,6 +216,8 @@ export const mockApiClient: ApiClient = {
       }
 
       let totalReceivables = 0;
+      let totalDebit = 0;
+      let totalCredit = 0;
       let totalOverdue = 0;
       let notDue = 0;
       let late1_30 = 0;
@@ -238,6 +240,7 @@ export const mockApiClient: ApiClient = {
         const customerReceivable = closingBal !== 0 ? closingBal : billSum;
 
         if (customerReceivable > 0) {
+          totalDebit += customerReceivable;
           totalReceivables += customerReceivable;
 
           if (positiveBills.length > 0) {
@@ -284,6 +287,8 @@ export const mockApiClient: ApiClient = {
           } else {
             notDue += customerReceivable;
           }
+        } else if (customerReceivable < 0) {
+          totalCredit += Math.abs(customerReceivable);
         }
       }
 
@@ -349,6 +354,8 @@ export const mockApiClient: ApiClient = {
 
       return {
         totalReceivables,
+        totalDebit,
+        totalCredit,
         totalOverdue,
         notDuePercentage: notDuePct,
         latePercentage: latePct,
