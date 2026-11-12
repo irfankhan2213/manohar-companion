@@ -460,6 +460,15 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare("ALTER TABLE parties ADD COLUMN partyType TEXT DEFAULT 'debtor'").run();
   } catch {}
   try {
+    // Correctly migrate parties where Tally imported note or parentGroup indicates Sundry Creditors
+    db.prepare(`
+      UPDATE parties 
+      SET partyType = 'creditor', parentGroup = 'Sundry Creditors' 
+      WHERE (notes LIKE '%Creditor%' OR notes LIKE '%Supplier%' OR parentGroup LIKE '%Creditor%')
+        AND (partyType != 'creditor' OR parentGroup != 'Sundry Creditors')
+    `).run();
+  } catch {}
+  try {
     db.prepare('ALTER TABLE challans ADD COLUMN roundOff INTEGER DEFAULT 0').run();
   } catch {}
 

@@ -27,10 +27,10 @@ describe('HomeScreen Component', () => {
     renderComponent();
 
     await waitFor(() => {
-      expect(screen.getByText('Total Debit (Owed to you)')).toBeInTheDocument();
+      expect(screen.getByText('Total Debit (Customers owe you)')).toBeInTheDocument();
       expect(screen.getByText('₹18,42,300')).toBeInTheDocument();
       expect(screen.getByText('Dr')).toBeInTheDocument();
-      expect(screen.getByText('Total Credit (Advances / Cr)')).toBeInTheDocument();
+      expect(screen.getByText('Total Credit (You owe suppliers)')).toBeInTheDocument();
       expect(screen.getByText('₹0 Cr')).toBeInTheDocument();
       expect(screen.getByText('₹6,10,200 is overdue')).toBeInTheDocument();
     });

@@ -200,6 +200,10 @@ export const mockApiClient: ApiClient = {
         const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
         return type === 'debtor';
       });
+      const creditorParties = parties.filter((p) => {
+        const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
+        return type === 'creditor';
+      });
       const debtorPartyIds = new Set(debtorParties.map((p) => p.id));
       const debtorPartyMap = new Map<string, Party>(debtorParties.map((p) => [p.id, p]));
 
@@ -290,6 +294,11 @@ export const mockApiClient: ApiClient = {
         } else if (customerReceivable < 0) {
           totalCredit += Math.abs(customerReceivable);
         }
+      }
+
+      // Sum Sundry Creditors (money owed to suppliers)
+      for (const p of creditorParties) {
+        totalCredit += Math.abs(p.closingBalance || 0);
       }
 
       const notDuePct = totalReceivables > 0 ? Math.round((notDue / totalReceivables) * 100) : 100;

@@ -1840,6 +1840,10 @@ export function createApp(dbPath?: string): express.Express {
       const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
       return type === 'debtor';
     });
+    const creditorParties = parties.filter(p => {
+      const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
+      return type === 'creditor';
+    });
     const debtorPartyIds = new Set(debtorParties.map(p => p.id));
     const debtorPartyMap = new Map(debtorParties.map(p => [p.id, { ...p, phones: JSON.parse(p.phones || '[]') }]));
 
@@ -1934,6 +1938,11 @@ export function createApp(dbPath?: string): express.Express {
       } else if (customerReceivable < 0) {
         totalCredit += Math.abs(customerReceivable);
       }
+    }
+
+    // Sum Sundry Creditors (money owed to suppliers)
+    for (const p of creditorParties) {
+      totalCredit += Math.abs(p.closingBalance ?? 0);
     }
 
     const overdueList = Array.from(partyOverdueMap.values()).sort((a, b) => b.daysLate - a.daysLate || b.amount - a.amount);
@@ -4434,9 +4443,13 @@ export function createApp(dbPath?: string): express.Express {
             : p.id;
         partyIdRemap.set(p.id, safePartyId);
         const notesStr = String(p.notes || existing?.notes || '');
-        const parentGroup = p.parentGroup || existing?.parentGroup || (notesStr.toLowerCase().includes('creditor') ? 'Sundry Creditors' : 'Sundry Debtors');
-        const isCreditor = p.partyType === 'creditor' || parentGroup.toLowerCase().includes('creditor') || notesStr.toLowerCase().includes('creditor');
+        const isCreditor = p.partyType === 'creditor'
+          || (p.parentGroup && p.parentGroup.toLowerCase().includes('creditor'))
+          || (existing?.parentGroup && existing.parentGroup.toLowerCase().includes('creditor'))
+          || notesStr.toLowerCase().includes('creditor')
+          || notesStr.toLowerCase().includes('supplier');
         const partyType = isCreditor ? 'creditor' : 'debtor';
+        const parentGroup = isCreditor ? 'Sundry Creditors' : (p.parentGroup || existing?.parentGroup || 'Sundry Debtors');
         const closing = p.closingBalance ?? existing?.closingBalance ?? 0;
         stmt.run(
           safePartyId,
