@@ -5,11 +5,15 @@ import {
   Send,
   Info,
   Phone,
+  PhoneCall,
   Calendar,
   PauseCircle,
   ExternalLink,
   MessageSquare,
   Check,
+  Plus,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { can, formatINR, getDaysOverdue, Party } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -23,6 +27,18 @@ import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
 import { FIXED_TODAY } from '../../mock/seed.js';
 import { openWhatsAppReminderUrl } from '../reminders/whatsapp.js';
+
+function cleanPhoneForWhatsApp(phone: string): string {
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (digits.length === 10) {
+    return `91${digits}`;
+  }
+  return digits;
+}
+
+function cleanPhoneForTel(phone: string): string {
+  return phone.replace(/\s+/g, '');
+}
 
 export const PartyDetailScreen: React.FC = () => {
   const { partyId = '' } = useParams<{ partyId: string }>();
@@ -40,16 +56,24 @@ export const PartyDetailScreen: React.FC = () => {
   const [newPhoneInput, setNewPhoneInput] = useState('');
   const [addingPhone, setAddingPhone] = useState(false);
 
+  // R4: Bills date range filter state
+  const [billStartDate, setBillStartDate] = useState('');
+  const [billEndDate, setBillEndDate] = useState('');
+
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
     queryKey: ['party', partyId],
     queryFn: () => api.parties.get(partyId),
   });
 
-  // Fetch party bills
+  // Fetch party bills with date range filters
   const { data: bills = [] } = useQuery({
-    queryKey: ['party-bills', currentCompanyId, partyId],
-    queryFn: () => api.bills.list(currentCompanyId, partyId),
+    queryKey: ['party-bills', currentCompanyId, partyId, billStartDate, billEndDate],
+    queryFn: () =>
+      api.bills.list(currentCompanyId, partyId, {
+        startDate: billStartDate || undefined,
+        endDate: billEndDate || undefined,
+      }),
   });
 
   // Fetch ledger statement
@@ -92,6 +116,20 @@ export const PartyDetailScreen: React.FC = () => {
   const canEdit = can(currentUser || currentRole, 'party.edit');
   const canSend = can(currentUser || currentRole, 'reminders.send');
 
+  const isCreditor =
+    party?.partyType === 'creditor' ||
+    Boolean(party?.parentGroup && party?.parentGroup.toLowerCase().includes('creditor')) ||
+    Boolean(party?.notes && party?.notes.toLowerCase().includes('creditor'));
+
+  const tallyPhones = party?.phones ?? [];
+  const localPhones = party?.customPhones ?? [];
+  const allPhones = React.useMemo(() => [
+    ...tallyPhones.map((p) => ({ phone: p, source: 'tally' as const, label: 'Tally Master' })),
+    ...localPhones.map((p) => ({ phone: p, source: 'local' as const, label: 'Local Contact' })),
+  ], [tallyPhones, localPhones]);
+
+  const targetPhone = selectedPhone || tallyPhones[0] || localPhones[0] || '';
+
   const totalOwed =
     bills.length > 0
       ? bills.reduce((sum, b) => sum + b.pending, 0)
@@ -104,12 +142,55 @@ export const PartyDetailScreen: React.FC = () => {
     if (days > maxDaysLate) maxDaysLate = days;
   }
 
-  // Active phone selection
-  const targetPhone = selectedPhone || (party?.phones?.[0] ?? '');
+  const handleAddLocalPhone = () => {
+    const trimmed = newPhoneInput.trim();
+    if (!trimmed) return;
+    const currentCustom = party?.customPhones ?? [];
+    if (currentCustom.includes(trimmed) || (party?.phones ?? []).includes(trimmed)) {
+      showToast({
+        message: 'This contact number is already recorded for this party',
+        variant: 'neutral',
+      });
+      return;
+    }
+    const updated = [...currentCustom, trimmed];
+    updatePartyMutation.mutate(
+      { customPhones: updated },
+      {
+        onSuccess: () => {
+          setNewPhoneInput('');
+          setAddingPhone(false);
+          showToast({
+            message: 'Local contact number added successfully',
+            variant: 'success',
+          });
+        },
+      }
+    );
+  };
+
+  const handleDeleteLocalPhone = (phoneToDelete: string) => {
+    const currentCustom = party?.customPhones ?? [];
+    const updated = currentCustom.filter((p) => p !== phoneToDelete);
+    updatePartyMutation.mutate(
+      { customPhones: updated },
+      {
+        onSuccess: () => {
+          showToast({
+            message: 'Local contact number removed',
+            variant: 'success',
+          });
+          if (selectedPhone === phoneToDelete) {
+            setSelectedPhone('');
+          }
+        },
+      }
+    );
+  };
 
   const handleSendReminder = () => {
     setReminderSheetOpen(false);
-    if (party) {
+    if (party && !isCreditor) {
       const computedDueDate = bills[0]?.date
         ? new Date(Date.parse(bills[0].date) + reminderDueDays * 86400000).toISOString().slice(0, 10)
         : bills[0]?.dueDate;
@@ -153,9 +234,20 @@ export const PartyDetailScreen: React.FC = () => {
     <LargeTitleScreen
       title={party.name}
       subtitle={
-        <span className="text-subhead text-label-2 font-medium">
-          {party.city}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-subhead text-label-2 font-medium">
+            {party.city}
+          </span>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[11px] font-semibold uppercase tracking-wider ${
+              isCreditor
+                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+                : 'bg-accent-soft text-accent'
+            }`}
+          >
+            {isCreditor ? 'Supplier' : 'Customer'}
+          </span>
+        </div>
       }
       showBack
       headerAction={
@@ -168,16 +260,31 @@ export const PartyDetailScreen: React.FC = () => {
         </button>
       }
     >
-      {/* Hero Card: Total Owed */}
+      {/* Hero Card: Total Owed / Payable */}
       <div className="bg-surface rounded-ios-card p-5 border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex flex-col gap-3">
         <div className="flex flex-col">
-          <span className="text-subhead text-label-2 font-medium">
-            Currently owes
-          </span>
+          <div className="flex items-center justify-between">
+            <span className="text-subhead text-label-2 font-medium">
+              {isCreditor ? 'Payable (You owe)' : 'Currently owes'}
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-caption font-semibold uppercase tracking-wider ${
+                isCreditor
+                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20'
+                  : 'bg-accent-soft text-accent border border-accent/20'
+              }`}
+            >
+              {isCreditor ? 'Sundry Creditor (Supplier)' : 'Sundry Debtor (Customer)'}
+            </span>
+          </div>
           <div className="text-hero-num text-label font-semibold tracking-tight tabular-nums mt-0.5">
             {formatINR(totalOwed)}
           </div>
-          {maxDaysLate > 0 ? (
+          {isCreditor ? (
+            <div className="text-subhead text-label-2 font-medium mt-1">
+              Supplier account · Reminders disabled
+            </div>
+          ) : maxDaysLate > 0 ? (
             <div className="text-subhead text-danger font-medium mt-1">
               Oldest bill is {maxDaysLate} days late.
             </div>
@@ -188,7 +295,8 @@ export const PartyDetailScreen: React.FC = () => {
           )}
         </div>
 
-        {canSend && (
+        {/* Reminders enabled strictly for Customer Debtors who owe money */}
+        {!isCreditor && canSend && (
           <div className="pt-2">
             <Button
               fullWidth
@@ -207,6 +315,45 @@ export const PartyDetailScreen: React.FC = () => {
         )}
       </div>
 
+      {/* Quick Contact Bar */}
+      {allPhones.length > 0 && (
+        <div className="bg-surface rounded-ios-card p-3.5 border border-separator/40 shadow-xs flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-full bg-accent-soft text-accent flex items-center justify-center shrink-0">
+              <Phone className="w-4 h-4" />
+            </div>
+            <div className="flex flex-col min-w-0">
+              <span className="text-subhead font-semibold text-label truncate">
+                {targetPhone}
+              </span>
+              <span className="text-caption text-label-2">
+                {allPhones.find((p) => p.phone === targetPhone)?.label ?? 'Contact'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <a
+              href={`tel:${cleanPhoneForTel(targetPhone)}`}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-fill/70 hover:bg-fill text-label text-caption font-semibold transition-colors"
+              aria-label={`Call ${targetPhone}`}
+            >
+              <PhoneCall className="w-3.5 h-3.5 text-accent" />
+              <span>Call</span>
+            </a>
+            <a
+              href={`https://wa.me/${cleanPhoneForWhatsApp(targetPhone)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-ok/10 hover:bg-ok/20 text-ok text-caption font-semibold transition-colors"
+              aria-label={`WhatsApp ${targetPhone}`}
+            >
+              <MessageSquare className="w-3.5 h-3.5 text-ok" />
+              <span>WhatsApp</span>
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* 3-Option Segmented Control */}
       <SegmentedControl
         options={[
@@ -220,58 +367,112 @@ export const PartyDetailScreen: React.FC = () => {
 
       {/* Tab 1: Bills */}
       {activeTab === 'bills' && (
-        <InsetGroup>
-          {bills.length === 0 ? (
-            <div className="p-6 text-center text-label-2 text-subhead">
-              No open bills for this customer.
+        <div className="flex flex-col gap-3">
+          {/* Date Range Filter Bar */}
+          <div className="p-3 bg-surface rounded-xl border border-separator/50 flex flex-col gap-2 shadow-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-caption font-semibold uppercase tracking-wider text-label-2">
+                Filter by Date Range
+              </span>
+              {(billStartDate || billEndDate) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setBillStartDate('');
+                    setBillEndDate('');
+                  }}
+                  className="text-caption font-semibold text-accent hover:underline flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Clear Dates</span>
+                </button>
+              )}
             </div>
-          ) : (
-            bills.map((bill) => {
-              const daysLate = getDaysOverdue(bill.dueDate, FIXED_TODAY);
-              const isEstimated = bill.source === 'estimated';
-
-              return (
-                <Row
-                  key={bill.id}
-                  title={bill.billNo}
-                  subtitle={
-                    <span className="inline-flex items-center gap-1.5 flex-wrap">
-                      <span className="text-label-2">Inv: {bill.date}</span>
-                      <span className="text-label-3">·</span>
-                      <span className="font-semibold text-label">Due: {bill.dueDate}</span>
-                      <span className="text-caption text-label-3">
-                        ({party.creditDays}d terms)
-                      </span>
-                      {isEstimated && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEstimatedInfoOpen(true);
-                          }}
-                          className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-0.5"
-                        >
-                          <span>· Estimated</span>
-                          <Info className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </span>
-                  }
-                  trailing={<span className="tabular-nums font-semibold">{formatINR(bill.pending)}</span>}
-                  trailingSubtitle={
-                    daysLate > 0 ? (
-                      <span className="text-danger font-semibold">
-                        {daysLate} days late
-                      </span>
-                    ) : (
-                      <span className="text-ok font-medium">Within terms</span>
-                    )
-                  }
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label htmlFor="party-bills-from-date" className="text-[11px] text-label-3 font-medium block mb-1">
+                  From Date
+                </label>
+                <input
+                  id="party-bills-from-date"
+                  type="date"
+                  aria-label="From Date"
+                  value={billStartDate}
+                  onChange={(e) => setBillStartDate(e.target.value)}
+                  className="w-full h-9 px-2 bg-fill/30 border border-separator/40 rounded-lg text-footnote text-label focus:outline-none focus:ring-1 focus:ring-accent"
                 />
-              );
-            })
-          )}
-        </InsetGroup>
+              </div>
+              <div>
+                <label htmlFor="party-bills-to-date" className="text-[11px] text-label-3 font-medium block mb-1">
+                  To Date
+                </label>
+                <input
+                  id="party-bills-to-date"
+                  type="date"
+                  aria-label="To Date"
+                  value={billEndDate}
+                  onChange={(e) => setBillEndDate(e.target.value)}
+                  className="w-full h-9 px-2 bg-fill/30 border border-separator/40 rounded-lg text-footnote text-label focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+            </div>
+          </div>
+
+          <InsetGroup>
+            {bills.length === 0 ? (
+              <div className="p-6 text-center text-label-2 text-subhead">
+                {billStartDate || billEndDate
+                  ? 'No bills match the selected date range.'
+                  : 'No open bills for this customer.'}
+              </div>
+            ) : (
+              bills.map((bill) => {
+                const daysLate = getDaysOverdue(bill.dueDate, FIXED_TODAY);
+                const isEstimated = bill.source === 'estimated';
+
+                return (
+                  <Row
+                    key={bill.id}
+                    title={bill.billNo}
+                    subtitle={
+                      <span className="inline-flex items-center gap-1.5 flex-wrap">
+                        <span className="text-label-2">Inv: {bill.date}</span>
+                        <span className="text-label-3">·</span>
+                        <span className="font-semibold text-label">Due: {bill.dueDate}</span>
+                        <span className="text-caption text-label-3">
+                          ({party.creditDays}d terms)
+                        </span>
+                        {isEstimated && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEstimatedInfoOpen(true);
+                            }}
+                            className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-0.5"
+                          >
+                            <span>· Estimated</span>
+                            <Info className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </span>
+                    }
+                    trailing={<span className="tabular-nums font-semibold">{formatINR(bill.pending)}</span>}
+                    trailingSubtitle={
+                      daysLate > 0 ? (
+                        <span className="text-danger font-semibold">
+                          {daysLate} days late
+                        </span>
+                      ) : (
+                        <span className="text-ok font-medium">Within terms</span>
+                      )
+                    }
+                  />
+                );
+              })
+            )}
+          </InsetGroup>
+        </div>
       )}
 
       {/* Tab 2: Statement (Tally Ledger with running balance) */}
@@ -403,19 +604,84 @@ export const PartyDetailScreen: React.FC = () => {
             />
           </div>
 
-          {/* Contact Numbers */}
-          <div className="flex flex-col gap-1.5">
+          {/* Section 1: Tally Master Numbers */}
+          <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <label className="text-footnote font-semibold uppercase tracking-wider text-label-2">
-                Phone Numbers &amp; Persons
-              </label>
+              <div>
+                <label className="text-footnote font-semibold uppercase tracking-wider text-label-2 block">
+                  Tally Master Numbers
+                </label>
+                <span className="text-caption text-label-3 font-medium">Read-only · Synced from Tally ERP</span>
+              </div>
+            </div>
+
+            {tallyPhones.length === 0 ? (
+              <div className="p-3 bg-fill/20 border border-separator/30 rounded-xl text-footnote text-label-3 italic">
+                No master numbers recorded in Tally.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {tallyPhones.map((phone, idx) => (
+                  <div
+                    key={`tally-${idx}`}
+                    className="flex items-center justify-between p-3 bg-surface border border-separator/50 rounded-xl"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Phone className="w-4 h-4 text-label-2 shrink-0" />
+                      <span className="text-subhead font-semibold text-label truncate">{phone}</span>
+                      {idx === 0 && (
+                        <span className="text-caption font-semibold bg-accent-soft text-accent px-2 py-0.5 rounded-full shrink-0">
+                          Primary
+                        </span>
+                      )}
+                      <span className="text-caption font-medium bg-fill text-label-2 px-1.5 py-0.5 rounded shrink-0">
+                        Tally
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={`tel:${cleanPhoneForTel(phone)}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-fill/60 hover:bg-fill text-label text-caption font-semibold transition-colors"
+                        aria-label={`Call ${phone}`}
+                      >
+                        <PhoneCall className="w-3.5 h-3.5 text-accent" />
+                        <span>Call</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${cleanPhoneForWhatsApp(phone)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-ok/10 hover:bg-ok/20 text-ok text-caption font-semibold transition-colors"
+                        aria-label={`WhatsApp ${phone}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-ok" />
+                        <span>WhatsApp</span>
+                      </a>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Section 2: Local Contact Numbers */}
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-footnote font-semibold uppercase tracking-wider text-label-2 block">
+                  Local Contact Numbers
+                </label>
+                <span className="text-caption text-label-3 font-medium">Stored locally · Preserved across Tally syncs</span>
+              </div>
               {canEdit && (
                 <button
                   type="button"
                   onClick={() => setAddingPhone(!addingPhone)}
-                  className="text-caption font-semibold text-accent hover:underline"
+                  className="text-caption font-semibold text-accent hover:underline inline-flex items-center gap-1"
                 >
-                  {addingPhone ? 'Cancel' : '+ Add Person / Phone'}
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>{addingPhone ? 'Cancel' : 'Add Number'}</span>
                 </button>
               )}
             </div>
@@ -429,40 +695,65 @@ export const PartyDetailScreen: React.FC = () => {
                   onChange={(e) => setNewPhoneInput(e.target.value)}
                   className="flex-1 h-9 px-3 bg-surface rounded-lg border border-separator/50 text-subhead font-mono outline-none focus:border-accent"
                 />
-                <Button
-                  size="small"
-                  onClick={() => {
-                    if (newPhoneInput.trim()) {
-                      const updated = [...party.phones, newPhoneInput.trim()];
-                      updatePartyMutation.mutate({ phones: updated });
-                      setNewPhoneInput('');
-                      setAddingPhone(false);
-                    }
-                  }}
-                >
+                <Button size="small" onClick={handleAddLocalPhone}>
                   Add
                 </Button>
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
-              {party.phones.map((phone, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-center justify-between p-3 bg-surface border border-separator/50 rounded-xl"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Phone className="w-4 h-4 text-label-2" />
-                    <span className="text-subhead font-semibold text-label">{phone}</span>
+            {localPhones.length === 0 ? (
+              <div className="p-3 bg-fill/20 border border-separator/30 rounded-xl text-footnote text-label-3 italic">
+                No local contact numbers saved yet. Add one above.
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {localPhones.map((phone, idx) => (
+                  <div
+                    key={`local-${idx}`}
+                    className="flex items-center justify-between p-3 bg-surface border border-separator/50 rounded-xl"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Phone className="w-4 h-4 text-label-2 shrink-0" />
+                      <span className="text-subhead font-semibold text-label truncate">{phone}</span>
+                      <span className="text-caption font-medium bg-ok/10 text-ok px-1.5 py-0.5 rounded shrink-0">
+                        Local
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <a
+                        href={`tel:${cleanPhoneForTel(phone)}`}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-fill/60 hover:bg-fill text-label text-caption font-semibold transition-colors"
+                        aria-label={`Call ${phone}`}
+                      >
+                        <PhoneCall className="w-3.5 h-3.5 text-accent" />
+                        <span>Call</span>
+                      </a>
+                      <a
+                        href={`https://wa.me/${cleanPhoneForWhatsApp(phone)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-ok/10 hover:bg-ok/20 text-ok text-caption font-semibold transition-colors"
+                        aria-label={`WhatsApp ${phone}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-ok" />
+                        <span>WhatsApp</span>
+                      </a>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLocalPhone(phone)}
+                          aria-label={`Delete ${phone}`}
+                          className="p-1.5 text-danger/80 hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
                   </div>
-                  {idx === 0 && (
-                    <span className="text-caption font-semibold bg-accent-soft text-accent px-2 py-0.5 rounded-full">
-                      Primary
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Credit Terms */}
@@ -556,16 +847,29 @@ export const PartyDetailScreen: React.FC = () => {
               Send to
             </span>
             <div className="flex flex-col gap-2">
-              {party.phones.map((phone) => (
+              {allPhones.map(({ phone, source, label }) => (
                 <button
                   key={phone}
                   type="button"
                   onClick={() => setSelectedPhone(phone)}
-                  className="flex items-center justify-between p-3 bg-surface border border-separator/50 rounded-xl text-left active:bg-fill/50 transition-colors"
+                  className={`flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
+                    targetPhone === phone
+                      ? 'bg-accent/5 border-accent text-label'
+                      : 'bg-surface border-separator/50 hover:bg-fill/40'
+                  }`}
                 >
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-label-2" />
                     <span className="text-subhead font-semibold text-label">{phone}</span>
+                    <span
+                      className={`text-caption px-2 py-0.5 rounded-full font-medium ${
+                        source === 'local'
+                          ? 'bg-ok/10 text-ok'
+                          : 'bg-fill text-label-2'
+                      }`}
+                    >
+                      {label}
+                    </span>
                   </div>
                   {targetPhone === phone && (
                     <Check className="w-4 h-4 text-accent stroke-[2.5]" />

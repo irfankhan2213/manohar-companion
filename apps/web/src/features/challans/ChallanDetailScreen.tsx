@@ -16,6 +16,7 @@ import {
   XCircle,
   Image as ImageIcon,
   Truck,
+  Edit,
 } from 'lucide-react';
 import { formatINR, Task, User } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -183,6 +184,37 @@ export const ChallanDetailScreen: React.FC = () => {
     },
   });
 
+  const cancelChallanMutation = useMutation({
+    mutationFn: () => (api.challans.updateStatus ? api.challans.updateStatus(id, 'cancelled') : Promise.resolve(null as any)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['challan', id] });
+      queryClient.invalidateQueries({ queryKey: ['challans'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
+      showToast({
+        message:
+          challan?.type === 'sales'
+            ? 'Challan cancelled and sales stock restored to godown'
+            : 'Challan marked as cancelled',
+        variant: 'neutral',
+      });
+    },
+  });
+
+  const deleteChallanMutation = useMutation({
+    mutationFn: () => (api.challans.delete ? api.challans.delete(id) : Promise.resolve({ success: true, id })),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['challans'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
+      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
+      showToast({
+        message: 'Challan deleted',
+        variant: 'neutral',
+      });
+      navigate('/challans');
+    },
+  });
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -258,37 +290,6 @@ export const ChallanDetailScreen: React.FC = () => {
     );
   }
 
-  const cancelChallanMutation = useMutation({
-    mutationFn: () => (api.challans.updateStatus ? api.challans.updateStatus(id, 'cancelled') : Promise.resolve(null as any)),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['challan', id] });
-      queryClient.invalidateQueries({ queryKey: ['challans'] });
-      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
-      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
-      showToast({
-        message:
-          challan?.type === 'sales'
-            ? 'Challan cancelled and sales stock restored to godown'
-            : 'Challan marked as cancelled',
-        variant: 'neutral',
-      });
-    },
-  });
-
-  const deleteChallanMutation = useMutation({
-    mutationFn: () => (api.challans.delete ? api.challans.delete(id) : Promise.resolve({ success: true, id })),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['challans'] });
-      queryClient.invalidateQueries({ queryKey: ['stock-items'] });
-      queryClient.invalidateQueries({ queryKey: ['stock-item'] });
-      showToast({
-        message: 'Challan deleted',
-        variant: 'neutral',
-      });
-      navigate('/challans');
-    },
-  });
-
   const lines = Array.isArray(challan.lines) ? challan.lines : [];
 
   const getLineGstRate = (line: (typeof lines)[0]) =>
@@ -298,12 +299,13 @@ export const ChallanDetailScreen: React.FC = () => {
   const getLineAmount = (line: (typeof lines)[0]) =>
     Number(line?.amount) > 0 ? Number(line?.amount) : Math.round((Number(line?.qty) || 0) * (Number(line?.rate) || 0));
 
+  const roundOffPaise = challan.roundOff ?? 0;
   const subtotalPaise = lines.reduce((acc, l) => acc + getLineAmount(l), 0);
   const gstPaise = lines.reduce(
     (acc, l) => acc + Math.round(getLineAmount(l) * (getLineGstRate(l) / 100)),
     0
   );
-  const grandTotalPaise = subtotalPaise + gstPaise;
+  const grandTotalPaise = subtotalPaise + gstPaise + roundOffPaise;
   const godownName = (Array.isArray(godowns) ? godowns : []).find((g) => g.id === challan.godownId)?.name ?? 'Main Godown (Ludhiana)';
 
   const handleShareWhatsApp = () => {
@@ -423,24 +425,33 @@ export const ChallanDetailScreen: React.FC = () => {
         )}
       </div>
 
-      {/* Primary Actions: Print & Share */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Primary Actions: Edit, Print & Share */}
+      <div className="grid grid-cols-3 gap-2">
+        <Button
+          variant="tinted"
+          onClick={() => navigate(`/challans/${challan.id}/edit`)}
+          className="h-11 flex items-center justify-center gap-1.5"
+        >
+          <Edit className="w-4 h-4" />
+          <span>Edit</span>
+        </Button>
+
         <Button
           variant="primary"
           onClick={() => navigate(`/print/challan/${challan.id}`)}
-          className="h-11 flex items-center justify-center gap-2"
+          className="h-11 flex items-center justify-center gap-1.5"
         >
           <Printer className="w-4 h-4" />
-          <span>View / Print PDF</span>
+          <span>Print PDF</span>
         </Button>
 
         <Button
           variant="tinted"
           onClick={handleShareWhatsApp}
-          className="h-11 flex items-center justify-center gap-2 text-[#1B5E20] border-[#C5E1A5] bg-[#E8F5E9]"
+          className="h-11 flex items-center justify-center gap-1.5 text-[#1B5E20] border-[#C5E1A5] bg-[#E8F5E9]"
         >
           <Share2 className="w-4 h-4" />
-          <span>Share WhatsApp</span>
+          <span>WhatsApp</span>
         </Button>
       </div>
 
@@ -549,6 +560,11 @@ export const ChallanDetailScreen: React.FC = () => {
               <span className="text-subhead font-semibold text-label">
                 {line.description}
               </span>
+              {line.itemDescription && (
+                <span className="text-caption text-label-2 italic">
+                  Note: {line.itemDescription}
+                </span>
+              )}
               <span className="text-caption text-label-2 tabular-nums">
                 {line.qty} {line.unit} × {formatINR(line.rate)} · HSN {getLineHsn(line)} · GST {getLineGstRate(line)}%
               </span>
@@ -567,6 +583,14 @@ export const ChallanDetailScreen: React.FC = () => {
             <span>Calculated GST</span>
             <span className="font-mono font-semibold">{formatINR(gstPaise)}</span>
           </div>
+          {roundOffPaise !== 0 && (
+            <div className="flex items-center justify-between text-label-2">
+              <span>Round Off</span>
+              <span className="font-mono font-semibold">
+                {roundOffPaise > 0 ? '+' : ''}{formatINR(roundOffPaise, { showDecimals: true })}
+              </span>
+            </div>
+          )}
           <div className="flex items-center justify-between text-subhead font-bold text-label pt-1 border-t border-separator/30">
             <span>Grand Total</span>
             <span className="font-mono text-accent">{formatINR(grandTotalPaise)}</span>

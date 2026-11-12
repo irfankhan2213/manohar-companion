@@ -80,14 +80,14 @@ function loadDB(): MockDB {
     // ignore
   }
   return {
-    companies: INITIAL_COMPANIES,
-    agent: INITIAL_AGENT,
-    users: INITIAL_USERS,
-    parties: INITIAL_PARTIES,
-    bills: INITIAL_BILLS,
-    godowns: INITIAL_GODOWNS,
-    stock: INITIAL_STOCK,
-    balances: INITIAL_BALANCES,
+    companies: INITIAL_COMPANIES.map((c) => ({ ...c })),
+    agent: { ...INITIAL_AGENT },
+    users: INITIAL_USERS.map((u) => ({ ...u })),
+    parties: INITIAL_PARTIES.map((p) => ({ ...p, phones: [...p.phones], customPhones: [...(p.customPhones || [])] })),
+    bills: INITIAL_BILLS.map((b) => ({ ...b })),
+    godowns: INITIAL_GODOWNS.map((g) => ({ ...g })),
+    stock: INITIAL_STOCK.map((s) => ({ ...s })),
+    balances: INITIAL_BALANCES.map((b) => ({ ...b })),
     outbox: [
       {
         id: 'out-1',
@@ -98,13 +98,13 @@ function loadDB(): MockDB {
         attempts: 1,
       },
     ],
-    rules: INITIAL_RULES,
-    replyThreads: INITIAL_REPLY_THREADS,
-    challans: INITIAL_CHALLANS,
-    notebooks: INITIAL_NOTEBOOKS,
-    activities: INITIAL_ACTIVITIES,
-    tasks: INITIAL_TASKS,
-    notifications: INITIAL_NOTIFICATIONS,
+    rules: { ...INITIAL_RULES },
+    replyThreads: INITIAL_REPLY_THREADS.map((t) => ({ ...t, messages: [...t.messages] })),
+    challans: INITIAL_CHALLANS.map((c) => ({ ...c, lines: c.lines.map((l) => ({ ...l })) })),
+    notebooks: INITIAL_NOTEBOOKS.map((n) => ({ ...n })),
+    activities: [...INITIAL_ACTIVITIES],
+    tasks: INITIAL_TASKS.map((t) => ({ ...t })),
+    notifications: INITIAL_NOTIFICATIONS.map((n) => ({ ...n })),
   };
 }
 

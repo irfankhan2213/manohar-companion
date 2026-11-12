@@ -41,6 +41,17 @@ export const HomeScreen: React.FC = () => {
 
   const isWhatsAppAttached = summary?.whatsappAttached ?? reminderRules?.whatsappEnabled ?? false;
 
+  // Filter most overdue parties to strictly exclude any Creditors (Suppliers)
+  const visibleMostOverdue = React.useMemo(() => {
+    return (summary?.mostOverdue ?? []).filter((item) => {
+      const isCreditor =
+        item.party.partyType === 'creditor' ||
+        Boolean(item.party.parentGroup && item.party.parentGroup.toLowerCase().includes('creditor')) ||
+        Boolean(item.party.notes && item.party.notes.toLowerCase().includes('creditor'));
+      return !isCreditor;
+    });
+  }, [summary?.mostOverdue]);
+
   return (
     <LargeTitleScreen
       title={t('home.title', 'Home')}
@@ -283,13 +294,13 @@ export const HomeScreen: React.FC = () => {
       )}
 
       {/* Section: Most Overdue */}
-      {canViewLedgers && (
+      {canViewLedgers && visibleMostOverdue.length > 0 && (
         <InsetGroup
           title={t('home.mostOverdue', 'Most overdue')}
           actionText={t('home.seeAll', 'See all')}
           onActionClick={() => navigate('/collections')}
         >
-          {summary?.mostOverdue.map((item) => (
+          {visibleMostOverdue.map((item) => (
             <Row
               key={item.party.id}
               onClick={() => navigate(`/collections/${item.party.id}`)}

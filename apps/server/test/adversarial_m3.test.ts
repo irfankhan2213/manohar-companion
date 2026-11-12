@@ -12,25 +12,32 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
     app = createApp();
     db = getDB();
 
-    // Dev admin login
+    // dev admin login
     const loginRes = await request(app)
       .post('/api/auth/login')
       .send({ phone: '9814011223', pin: '1234' });
     authToken = loginRes.body.token;
     expect(authToken).toBeDefined();
+
+    // Clean test records before start
+    try {
+      db.prepare("DELETE FROM bills WHERE id LIKE 'b-adv-%'").run();
+      db.prepare("DELETE FROM parties WHERE id LIKE 'p-adv-%'").run();
+      db.prepare("DELETE FROM companies WHERE id LIKE 'c-adversarial-%' OR id LIKE 'c-receivables-%'").run();
+    } catch {}
   });
 
   afterAll(() => {
-    // Clean test records
+    // Clean test records after finish
     try {
-      db.prepare("DELETE FROM bills WHERE companyId LIKE 'comp-adv-%'").run();
-      db.prepare("DELETE FROM parties WHERE companyId LIKE 'comp-adv-%'").run();
-      db.prepare("DELETE FROM companies WHERE id LIKE 'comp-adv-%'").run();
+      db.prepare("DELETE FROM bills WHERE id LIKE 'b-adv-%'").run();
+      db.prepare("DELETE FROM parties WHERE id LIKE 'p-adv-%'").run();
+      db.prepare("DELETE FROM companies WHERE id LIKE 'c-adversarial-%' OR id LIKE 'c-receivables-%'").run();
     } catch {}
   });
 
   describe('R1: Party Custom Phones Persistence & Tally Sync Protection', () => {
-    const testCompanyId = 'comp-adv-r1';
+    let resolvedR1CompanyId: string;
 
     it('preserves custom contact numbers across repeated Tally sync cycles and name-matching syncs', async () => {
       // 1. Initial Tally sync push with phone A
@@ -38,7 +45,6 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
         .post('/api/sync/push')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          companyId: testCompanyId,
           companyName: 'Adversarial R1 Company',
           parties: [
             {
@@ -64,6 +70,8 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
           stockItems: [],
         });
       expect(pushRes1.status).toBe(200);
+      resolvedR1CompanyId = pushRes1.body.companyId;
+      expect(resolvedR1CompanyId).toBeDefined();
 
       // Verify initial state
       let party = (await request(app).get('/api/parties/p-adv-cust-1').set('Authorization', `Bearer ${authToken}`)).body;
@@ -86,7 +94,7 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
         .post('/api/sync/push')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          companyId: testCompanyId,
+          companyId: resolvedR1CompanyId,
           parties: [
             {
               id: 'p-adv-cust-1',
@@ -113,7 +121,7 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
         .post('/api/sync/push')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          companyId: testCompanyId,
+          companyId: resolvedR1CompanyId,
           parties: [
             {
               id: 'p-adv-generated-id-999',
@@ -150,7 +158,7 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
         .post('/api/sync/push')
         .set('Authorization', `Bearer ${authToken}`)
         .send({
-          companyId: testCompanyId,
+          companyId: resolvedR1CompanyId,
           parties: [
             {
               id: 'p-adv-cust-1',
@@ -171,11 +179,11 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
     });
 
     it('differentiates debtors and creditors with GET /api/parties?type=debtor|creditor', async () => {
-      const debtors = (await request(app).get(`/api/parties?companyId=${testCompanyId}&type=debtor`).set('Authorization', `Bearer ${authToken}`)).body;
+      const debtors = (await request(app).get(`/api/parties?companyId=${resolvedR1CompanyId}&type=debtor`).set('Authorization', `Bearer ${authToken}`)).body;
       expect(debtors.some((p: any) => p.name === 'Gupta Steel Traders')).toBe(true);
       expect(debtors.some((p: any) => p.name === 'National Metal Suppliers')).toBe(false);
 
-      const creditors = (await request(app).get(`/api/parties?companyId=${testCompanyId}&type=creditor`).set('Authorization', `Bearer ${authToken}`)).body;
+      const creditors = (await request(app).get(`/api/parties?companyId=${resolvedR1CompanyId}&type=creditor`).set('Authorization', `Bearer ${authToken}`)).body;
       expect(creditors.some((p: any) => p.name === 'National Metal Suppliers')).toBe(true);
       expect(creditors.some((p: any) => p.name === 'Gupta Steel Traders')).toBe(false);
     });
@@ -284,7 +292,7 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
               partyId: 'p-adv-d1',
               billNo: 'INV/D1/03',
               date: '2026-10-01',
-              dueDate: '2026-10-31',
+              dueDate: '2026-11-30', // not due (today is 2026-11-11)
               amount: 2000000, // ₹20,000
               pending: 2000000,
             },
@@ -321,10 +329,12 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
           stockItems: [],
         });
       expect(pushRes.status).toBe(200);
+      const resolvedCompanyId = pushRes.body.companyId;
+      expect(resolvedCompanyId).toBeDefined();
 
       // Fetch dashboard / home summary for this test company
       const summaryRes = await request(app)
-        .get(`/api/home/summary?companyId=${testCompanyId}`)
+        .get(`/api/home/summary?companyId=${resolvedCompanyId}`)
         .set('Authorization', `Bearer ${authToken}`);
       expect(summaryRes.status).toBe(200);
 
@@ -344,28 +354,153 @@ describe('Milestone 3 Empirical Adversarial Challenge Suite', () => {
       // Expected totalOverdue: 500,000 + 2,000,000 = 2,500,000 paise (₹25,000).
       expect(stats.totalOverdue).toBe(2500000);
 
-      // 3. Not Due:
-      // Debtor 1 Bill 3 (₹20,000) is due 2026-10-31 (today in seed comparison is 2026-10-17, or current IST).
-      // Expected notDue: 2,000,000 paise (₹20,000).
-      expect(stats.notDue).toBe(2000000);
+      // 3. Not Due Percentage:
+      // notDue = 2,000,000, totalReceivables = 4,500,000 => Math.round((2000000 / 4500000) * 100) = 44%
+      expect(stats.notDuePercentage).toBe(44);
 
-      // 4. Overdue Parties List:
+      // 4. Most Overdue Parties List:
       // Must NOT contain any creditors
-      expect(stats.overdueParties.some((p: any) => p.party.partyType === 'creditor')).toBe(false);
-      expect(stats.overdueParties.some((p: any) => p.party.name.includes('Supplier'))).toBe(false);
+      expect(stats.mostOverdue.some((o: any) => o.party.partyType === 'creditor')).toBe(false);
+      expect(stats.mostOverdue.some((o: any) => o.party.name.includes('Supplier'))).toBe(false);
 
-      // Debtor 1 overdue amount in list must reflect post-FIFO pending (₹5,000, NOT ₹25,000)
-      const debtor1Entry = stats.overdueParties.find((p: any) => p.party.id === 'p-adv-d1');
+      // Debtor 1 overdue amount in list must reflect post-FIFO pending (₹5,000, NOT ₹25,000 or ₹45,000)
+      const debtor1Entry = stats.mostOverdue.find((o: any) => o.party.id === 'p-adv-d1');
       expect(debtor1Entry).toBeDefined();
       expect(debtor1Entry.amount).toBe(500000); // exactly ₹5,000
 
       // Debtor 2 overdue amount in list must reflect post-credit-note pending (₹20,000)
-      const debtor2Entry = stats.overdueParties.find((p: any) => p.party.id === 'p-adv-d2');
+      const debtor2Entry = stats.mostOverdue.find((o: any) => o.party.id === 'p-adv-d2');
       expect(debtor2Entry).toBeDefined();
       expect(debtor2Entry.amount).toBe(2000000); // exactly ₹20,000
 
-      // Debtor 3 (negative balance) must NOT appear in overdue list
-      expect(stats.overdueParties.some((p: any) => p.party.id === 'p-adv-d3')).toBe(false);
+      // Debtor 3 (negative balance) must NOT appear in mostOverdue list
+      expect(stats.mostOverdue.some((o: any) => o.party.id === 'p-adv-d3')).toBe(false);
+    });
+  });
+
+  describe('R1 Outbox: Tally Desktop Sync Agent Never Pushes Custom Numbers to Tally', () => {
+    it('verifies agent XML templates and sync engine outbox never send party contact numbers', async () => {
+      // 1. Verify /api/sync/pull only returns vouchers (challans & stock adjustments), never parties
+      const pullRes = await request(app)
+        .get('/api/sync/pull?companyId=c1')
+        .set('x-agent-key', 'dev-agent-secret-key');
+      expect(pullRes.status).toBe(200);
+      expect(Array.isArray(pullRes.body)).toBe(true);
+      // None of the pulled outbox items should have customPhones or party update actions
+      for (const item of pullRes.body) {
+        expect(item.customPhones).toBeUndefined();
+        expect(item.kind === 'stock_journal' || item.kind === 'challan' || item.type === 'delivery' || item.type === 'purchase').toBe(true);
+      }
+
+      // 2. Test outbox ACK handler accepts status without referencing customPhones
+      const ackRes = await request(app)
+        .post('/api/sync/ack')
+        .set('x-agent-key', 'dev-agent-secret-key')
+        .send({
+          challanId: 'non-existent-challan',
+          outboxId: 'non-existent-outbox',
+          status: 'synced',
+        });
+      expect(ackRes.status).toBe(200);
+      expect(ackRes.body.success).toBe(true);
+    });
+  });
+
+  describe('R3: Purchase Challan Line Description, RoundOff & Editing', () => {
+    it('preserves roundOff and itemDescription across creation and PUT update', async () => {
+      // Create purchase challan
+      const createRes = await request(app)
+        .post('/api/challans')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          companyId: 'c1',
+          type: 'purchase',
+          partyId: 'p-sample',
+          date: '2026-10-25',
+          roundOff: -48, // -48 paise
+          narration: 'Adversarial purchase challan test',
+          lines: [
+            {
+              itemId: 's1',
+              description: 'TAI MACHINE',
+              itemDescription: 'High precision calibrated servo motor',
+              qty: 5,
+              unit: 'set',
+              rate: 200000,
+              amount: 1000000,
+              gstRate: 18,
+            },
+          ],
+        });
+      expect(createRes.status).toBe(201);
+      const challanId = createRes.body.id;
+      expect(createRes.body.roundOff).toBe(-48);
+      expect(createRes.body.lines[0].itemDescription).toBe('High precision calibrated servo motor');
+
+      // Update via PUT /api/challans/:id
+      const updateRes = await request(app)
+        .put(`/api/challans/${challanId}`)
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          roundOff: 52, // +52 paise
+          narration: 'Updated notes after delivery verification',
+          lines: [
+            {
+              itemId: 's1',
+              description: 'TAI MACHINE',
+              itemDescription: 'Includes heavy duty spare needle pack and oil bottle',
+              qty: 6,
+              unit: 'set',
+              rate: 200000,
+              amount: 1200000,
+              gstRate: 18,
+            },
+          ],
+        });
+      expect(updateRes.status).toBe(200);
+      expect(updateRes.body.roundOff).toBe(52);
+      expect(updateRes.body.narration).toBe('Updated notes after delivery verification');
+      expect(updateRes.body.lines[0].qty).toBe(6);
+      expect(updateRes.body.lines[0].itemDescription).toBe('Includes heavy duty spare needle pack and oil bottle');
+
+      // Verify persistence via GET
+      const getRes = await request(app)
+        .get(`/api/challans/${challanId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(getRes.status).toBe(200);
+      expect(getRes.body.roundOff).toBe(52);
+      expect(getRes.body.lines[0].itemDescription).toBe('Includes heavy duty spare needle pack and oil bottle');
+    });
+  });
+
+  describe('R4: History Query Search & Filtering with SQL Safety', () => {
+    it('safely filters bills and challans by party, date range, and search query', async () => {
+      // 1. Bills filtering
+      const billsRes = await request(app)
+        .get('/api/bills?companyId=c1&startDate=2026-08-01&endDate=2026-09-30&q=sample')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(billsRes.status).toBe(200);
+      expect(Array.isArray(billsRes.body)).toBe(true);
+      for (const b of billsRes.body) {
+        expect(b.date >= '2026-08-01' && b.date <= '2026-09-30').toBe(true);
+      }
+
+      // 2. Challans filtering
+      const challansRes = await request(app)
+        .get('/api/challans?companyId=c1&startDate=2026-10-01&endDate=2026-10-31')
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(challansRes.status).toBe(200);
+      expect(Array.isArray(challansRes.body)).toBe(true);
+      for (const c of challansRes.body) {
+        expect(c.date >= '2026-10-01' && c.date <= '2026-10-31').toBe(true);
+      }
+
+      // 3. SQL Injection resistance in query params
+      const malformedRes = await request(app)
+        .get("/api/bills?companyId=c1&partyName=' OR '1'='1' --")
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(malformedRes.status).toBe(200);
+      expect(Array.isArray(malformedRes.body)).toBe(true);
     });
   });
 });

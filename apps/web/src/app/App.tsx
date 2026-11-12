@@ -215,6 +215,14 @@ export const App: React.FC = () => {
                 }
               />
               <Route
+                path="/challans/:id/edit"
+                element={
+                  <RequirePermission perm="challan.create">
+                    <CreateChallanScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
                 path="/challans/:id"
                 element={
                   <RequirePermission perm="challan.view">
