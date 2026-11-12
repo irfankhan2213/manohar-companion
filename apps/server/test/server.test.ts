@@ -327,7 +327,7 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(res.body.companyId).toBe('c1');
     expect(res.body.cloudUrl).toBeDefined();
     expect(res.body.agentSecretKey).toBeDefined();
-    expect(res.body.tallyUrl).toBe('http://127.0.0.1:9000');
+    expect(res.body.tallyUrl).toBe('http://127.0.0.1:25853');
   });
 
   it('generates organization-scoped pairing code and successfully pairs agent via POST /api/agent/pair', async () => {

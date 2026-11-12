@@ -481,6 +481,9 @@ export class SyncEngine {
         if (typeof cmd.pollIntervalMs === 'number' && cmd.pollIntervalMs >= 5000) {
           this.pollIntervalMs = cmd.pollIntervalMs;
         }
+        if (updates.tallyUrl) {
+          this.client.setUrl(updates.tallyUrl);
+        }
         if (Object.keys(updates).length > 0) {
           this.store.update(updates);
         }

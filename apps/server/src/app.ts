@@ -1334,7 +1334,7 @@ export function createApp(dbPath?: string): express.Express {
     const scopedTallyStatus = ((tenantId && map[`tallyStatus_${tenantId}`]) || map.tallyStatus || scopedStatus) as 'online' | 'offline';
     const scopedTallyError = (tenantId && map[`tallyError_${tenantId}`]) ?? map.tallyError ?? undefined;
     const scopedTallyPortRaw = (tenantId && map[`tallyPort_${tenantId}`]) || map.tallyPort;
-    const scopedTallyPort = scopedTallyPortRaw ? parseInt(scopedTallyPortRaw, 10) || 9000 : undefined;
+    const scopedTallyPort = scopedTallyPortRaw ? parseInt(scopedTallyPortRaw, 10) || 25853 : 25853;
     let scopedOpenCompanies: string[] | undefined = undefined;
     const openCompRaw = (tenantId && map[`openTallyCompanies_${tenantId}`]) || map.openTallyCompanies;
     if (openCompRaw) {
@@ -1428,7 +1428,8 @@ export function createApp(dbPath?: string): express.Express {
           tallyName: c.tallyName || c.name,
           lastAlterId: 0,
         })),
-        tallyUrl: 'http://127.0.0.1:9000',
+        tallyUrl: 'http://127.0.0.1:25853',
+        tallyPort: 25853,
         pollIntervalMs: 30000,
         lastAlterId: 0,
       },
@@ -1732,7 +1733,9 @@ export function createApp(dbPath?: string): express.Express {
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyError_${resolvedTenantId}`, String(req.body.tallyError || ''));
       }
       if (req.body?.tallyPort !== undefined) {
-        db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyPort_${resolvedTenantId}`, String(req.body.tallyPort || 9000));
+        let reportedPort = Number(req.body.tallyPort) || 25853;
+        if (reportedPort === 9999) reportedPort = 25853;
+        db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyPort_${resolvedTenantId}`, String(reportedPort));
       }
       if (Array.isArray(req.body?.openTallyCompanies)) {
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`openTallyCompanies_${resolvedTenantId}`, JSON.stringify(req.body.openTallyCompanies));

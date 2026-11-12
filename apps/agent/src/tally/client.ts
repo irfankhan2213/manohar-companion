@@ -30,12 +30,12 @@ import {
 } from './mock.js';
 
 export interface TallyClientOptions {
-  url?: string; // defaults to http://127.0.0.1:9000
+  url?: string; // defaults to http://127.0.0.1:25853
   mock?: boolean; // force simulator mode
   timeoutMs?: number;
 }
 
-const CANDIDATE_TALLY_PORTS = [25853, 9000, 9001, 9002, 9003, 9004, 9005, 9006, 9007, 9008, 9009, 9010, 9999];
+const CANDIDATE_TALLY_PORTS = [25853, 9000, 9001, 9002];
 
 /**
  * Normalizes a Tally company name by stripping trailing FY suffixes like "- (from 1-Apr-2026)" or "(2026-27)"
@@ -91,17 +91,23 @@ export class TallyClient {
     return this.url;
   }
 
+  public setUrl(url: string) {
+    if (url && typeof url === 'string') {
+      this.url = url.trim();
+    }
+  }
+
   public getActivePort(): number {
     try {
       const u = new URL(this.url);
-      return parseInt(u.port || '9000', 10) || 9000;
+      return parseInt(u.port || '25853', 10) || 25853;
     } catch {
-      return 9000;
+      return 25853;
     }
   }
 
   /**
-   * Automatically scans local ports 9000-9010 & 9999 when the configured port is unreachable
+   * Automatically scans local candidate ports (25853, 9000-9002) when configured port is unreachable
    */
   public async discoverActivePort(): Promise<string | null> {
     if (this.mock) return this.url;
@@ -119,8 +125,11 @@ export class TallyClient {
         });
         clearTimeout(timer);
         if (resp.ok) {
-          this.url = candidateUrl;
-          return candidateUrl;
+          const text = await resp.text();
+          if (text.includes('<ENVELOPE') || text.includes('<COMPANY') || text.includes('<STATICVARIABLES>')) {
+            this.url = candidateUrl;
+            return candidateUrl;
+          }
         }
       } catch {}
     }
@@ -173,14 +182,14 @@ export class TallyClient {
       if (this.mock) {
         return this.postXml(xmlPayload, false);
       }
-      // If connection failed on default port, auto-scan ports 9000-9010 & 9999 once
+      // If connection failed on default port, auto-scan candidate ports once
       if (allowPortScan) {
         const discovered = await this.discoverActivePort();
         if (discovered) {
           return this.postXml(xmlPayload, false);
         }
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 9000-9010.`);
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 25853 or 9000.`);
     }
   }
 
