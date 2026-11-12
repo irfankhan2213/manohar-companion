@@ -120,21 +120,24 @@ export const CollectionsScreen: React.FC = () => {
         Boolean(p.parentGroup && p.parentGroup.toLowerCase().includes('creditor')) ||
         Boolean(p.notes && p.notes.toLowerCase().includes('creditor'));
       const pBills = billMap.get(p.id) ?? [];
+      const isDemo = p.id.startsWith('demo-');
       const totalPending =
-        p.closingBalance !== undefined && p.closingBalance !== null && p.closingBalance !== 0
+        p.closingBalance !== undefined && p.closingBalance !== null && !isDemo
           ? (isCreditor ? Math.abs(p.closingBalance) : p.closingBalance)
           : (pBills.length > 0 ? pBills.reduce((acc, b) => acc + b.pending, 0) : 0);
 
       let maxDaysLate = 0;
       let worstBucket: AgingBucket = 'not_due';
 
-      for (const b of pBills) {
-        if (b.pending > 0) {
-          const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
-          if (days > maxDaysLate) maxDaysLate = days;
-          const bucket = getAgingBucket(b.dueDate, FIXED_TODAY);
-          if (bucket !== 'not_due') {
-            worstBucket = bucket;
+      if (!isCreditor && totalPending > 0) {
+        for (const b of pBills) {
+          if (b.pending > 0) {
+            const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
+            if (days > maxDaysLate) maxDaysLate = days;
+            const bucket = getAgingBucket(b.dueDate, FIXED_TODAY);
+            if (bucket !== 'not_due') {
+              worstBucket = bucket;
+            }
           }
         }
       }

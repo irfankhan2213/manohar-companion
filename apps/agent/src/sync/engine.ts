@@ -530,11 +530,12 @@ export class SyncEngine {
 
     const state = this.store.get();
     const companyName = payload.company?.name || state.companyName;
+    const knownList: CompanySyncConfig[] = Array.isArray(state.companies) ? [...state.companies] : [];
+    const matchedCfg = this.findCompanyConfigByName(companyName, knownList);
     const isNameMatchingState =
-      !companyName ||
-      !state.companyName ||
-      normalizeTallyCompanyName(state.companyName) === normalizeTallyCompanyName(companyName);
-    const companyId = targetCompanyId || (isNameMatchingState ? (this.companyId || state.companyId) : undefined);
+      Boolean(companyName && state.companyName) &&
+      normalizeTallyCompanyName(state.companyName || '') === normalizeTallyCompanyName(companyName || '');
+    const companyId = targetCompanyId || matchedCfg?.companyId || (isNameMatchingState ? (this.companyId || state.companyId) : undefined);
     const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
     const companyPrefix = companyId ? `${slugify(companyId)}-` : (companyName ? `${slugify(companyName)}-` : '');
 

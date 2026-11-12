@@ -24,7 +24,7 @@ describe('Milestone 6 Challenger 2 Adversarial Stress Suite (R1-R5)', () => {
     try {
       db.prepare("DELETE FROM challans WHERE id LIKE 'ch-m6-%'").run();
       db.prepare("DELETE FROM bills WHERE id LIKE 'b-m6-%'").run();
-      db.prepare("DELETE FROM parties WHERE id LIKE 'p-m6-%'").run();
+      db.prepare("DELETE FROM parties WHERE id LIKE 'p-m6-%' OR name IN ('Vardhman Knitting Works', 'Shree Krishna Yarns Ltd')").run();
     } catch {}
   });
 
@@ -33,7 +33,7 @@ describe('Milestone 6 Challenger 2 Adversarial Stress Suite (R1-R5)', () => {
     try {
       db.prepare("DELETE FROM challans WHERE id LIKE 'ch-m6-%'").run();
       db.prepare("DELETE FROM bills WHERE id LIKE 'b-m6-%'").run();
-      db.prepare("DELETE FROM parties WHERE id LIKE 'p-m6-%'").run();
+      db.prepare("DELETE FROM parties WHERE id LIKE 'p-m6-%' OR name IN ('Vardhman Knitting Works', 'Shree Krishna Yarns Ltd')").run();
     } catch {}
   });
 

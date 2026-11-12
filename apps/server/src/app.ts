@@ -1879,11 +1879,15 @@ export function createApp(dbPath?: string): express.Express {
       const sumNegative = negativeBills.reduce((acc, b) => acc + b.pending, 0); // signed negative (credit notes)
       const billSum = sumPositive + sumNegative;
       const closingBal = p.closingBalance ?? 0;
+      const isImportedFromTally = Boolean(p.notes && p.notes.includes('Imported from Tally'));
 
       // Authoritative customer receivable:
-      // If closingBalance is provided and non-zero, it is authoritative from Tally ledger.
-      // Otherwise, fall back to billSum (e.g. seed data where closingBalance is 0/undefined).
-      const customerReceivable = closingBal !== 0 ? closingBal : billSum;
+      // For real Tally data, closingBalance is authoritative from Tally's Balance Sheet.
+      // If closingBalance is 0 or negative in Tally, the customer owes ₹0 (never resurrect historical bills).
+      // For test/demo parties, fall back to billSum when closingBalance is 0/undefined.
+      const customerReceivable = isImportedFromTally
+        ? (closingBal > 0 ? closingBal : 0)
+        : (closingBal !== 0 ? closingBal : billSum);
 
       if (customerReceivable > 0) {
         totalDebit += customerReceivable;
@@ -1938,12 +1942,10 @@ export function createApp(dbPath?: string): express.Express {
           // Debtor with positive closing balance without individual positive bills
           notDue += customerReceivable;
         }
-      } else if (customerReceivable < 0) {
-        totalCredit += Math.abs(customerReceivable);
       }
     }
 
-    // Sum Sundry Creditors (money owed to suppliers)
+    // Sum Sundry Creditors (money owed to suppliers from Tally's Balance Sheet)
     for (const p of creditorParties) {
       totalCredit += Math.abs(p.closingBalance ?? 0);
     }
@@ -2109,26 +2111,48 @@ export function createApp(dbPath?: string): express.Express {
       };
 
       const pBills = billsByParty.get(p.id) || [];
+      const isDebtor = (p.partyType || 'debtor') === 'debtor';
+      const isCreditor = !isDebtor;
+      const isImportedFromTally = Boolean(p.notes && p.notes.includes('Imported from Tally'));
+
       let totalOutstanding = 0;
       let overdueAmount = 0;
       let earliestDueDate: string | undefined = undefined;
 
-      if (pBills.length > 0) {
-        for (const b of pBills) {
-          if (b.pending === 0) continue;
-          totalOutstanding += b.pending;
-          if (b.pending > 0) {
-            const days = getDaysOverdue(b.dueDate, today);
-            if (days > 0) {
-              overdueAmount += b.pending;
-              if (!earliestDueDate || b.dueDate < earliestDueDate) {
-                earliestDueDate = b.dueDate;
-              }
+      if (isImportedFromTally) {
+        totalOutstanding = isCreditor ? Math.abs(p.closingBalance ?? 0) : Math.max(0, p.closingBalance ?? 0);
+      } else if (p.closingBalance !== undefined && p.closingBalance !== null && p.closingBalance !== 0) {
+        totalOutstanding = isCreditor ? Math.abs(p.closingBalance) : p.closingBalance;
+      } else if (pBills.length > 0) {
+        totalOutstanding = pBills.reduce((acc, b) => acc + (b.pending || 0), 0);
+      }
+
+      // Overdue amount calculation: only debtors with positive outstanding balances can be overdue
+      if (isDebtor && totalOutstanding > 0 && pBills.length > 0) {
+        const positiveBills = pBills.filter(b => b.pending > 0);
+        const sumPos = positiveBills.reduce((acc, b) => acc + b.pending, 0);
+        let reductionPool = Math.max(0, sumPos - totalOutstanding);
+        const sorted = [...positiveBills].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        for (const b of sorted) {
+          let effPending = b.pending;
+          if (reductionPool > 0) {
+            if (reductionPool >= effPending) {
+              reductionPool -= effPending;
+              effPending = 0;
+            } else {
+              effPending -= reductionPool;
+              reductionPool = 0;
+            }
+          }
+          if (effPending <= 0) continue;
+          const days = getDaysOverdue(b.dueDate, today);
+          if (days > 0) {
+            overdueAmount += effPending;
+            if (!earliestDueDate || b.dueDate < earliestDueDate) {
+              earliestDueDate = b.dueDate;
             }
           }
         }
-      } else if (p.closingBalance) {
-        totalOutstanding = p.closingBalance;
       }
 
       const agingSummary = calculateAgingSummary(pBills, today);
@@ -4434,16 +4458,23 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
+        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
         const existingByName = p.name
           ? (db.prepare('SELECT * FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(p.name).trim()) as any)
           : null;
-        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
-        const existing = existingByName || existingById;
-        const safePartyId = existingByName
-          ? existingByName.id
-          : existingById && existingById.tenantId && existingById.tenantId !== defaultTenantId
-            ? `${resolvedCompanyId}_${p.id}`
-            : p.id;
+        const existing = (existingById && existingById.companyId === resolvedCompanyId ? existingById : null) || existingByName;
+
+        // Prevent cross-company ID collision: if an existing party belongs to another company, scope the ID by resolvedCompanyId
+        const safePartyId = existingById && existingById.companyId === resolvedCompanyId
+          ? p.id
+          : existingByName
+            ? existingByName.id
+            : existingById && (
+                (existingById.tenantId && existingById.tenantId !== defaultTenantId) ||
+                (existingById.companyId && existingById.companyId !== resolvedCompanyId)
+              )
+              ? `${resolvedCompanyId}_${p.id}`
+              : p.id;
         partyIdRemap.set(p.id, safePartyId);
         const notesStr = String(p.notes || existing?.notes || '');
         const isCreditor = p.partyType === 'creditor'
@@ -4518,14 +4549,18 @@ export function createApp(dbPath?: string): express.Express {
       // Reconcile settled/paid bills against Tally's authoritative closingBalance from Balance Sheet
       try {
         const debtorParties = db.prepare(
-          "SELECT id, closingBalance FROM parties WHERE companyId = ? AND partyType = 'debtor'"
+          "SELECT id, closingBalance FROM parties WHERE companyId = ? AND partyType = 'debtor' AND notes LIKE '%Imported from Tally%'"
         ).all(resolvedCompanyId) as any[];
 
         const updatePendingStmt = db.prepare('UPDATE bills SET pending = ? WHERE id = ?');
 
         for (const dp of debtorParties) {
           const closing = dp.closingBalance ?? 0;
-          if (closing <= 0) continue;
+          if (closing <= 0) {
+            // Customer owes ₹0 (or has an advance credit): mark all their bills as settled (pending = 0)
+            db.prepare('UPDATE bills SET pending = 0 WHERE companyId = ? AND partyId = ? AND pending != 0').run(resolvedCompanyId, dp.id);
+            continue;
+          }
 
           const pBills = db.prepare(
             'SELECT id, date, amount, pending FROM bills WHERE companyId = ? AND partyId = ? AND pending > 0 ORDER BY date DESC'

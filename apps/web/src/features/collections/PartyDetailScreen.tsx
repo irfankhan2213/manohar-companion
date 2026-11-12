@@ -145,17 +145,20 @@ export const PartyDetailScreen: React.FC = () => {
 
   const targetPhone = selectedPhone || tallyPhones[0] || localPhones[0] || '';
 
+  const isDemo = party?.id?.startsWith('demo-');
   const totalOwed =
-    party?.closingBalance !== undefined && party?.closingBalance !== null && party.closingBalance !== 0
+    party?.closingBalance !== undefined && party?.closingBalance !== null && !isDemo
       ? (isCreditor ? Math.abs(party.closingBalance) : party.closingBalance)
       : (bills.length > 0 ? bills.reduce((sum, b) => sum + b.pending, 0) : 0);
 
-  // Find oldest bill days late (strictly for unpaid pending bills)
+  // Find oldest bill days late (strictly for debtors with positive total balance)
   let maxDaysLate = 0;
-  for (const b of bills) {
-    if (b.pending > 0) {
-      const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
-      if (days > maxDaysLate) maxDaysLate = days;
+  if (!isCreditor && totalOwed > 0) {
+    for (const b of bills) {
+      if (b.pending > 0) {
+        const days = getDaysOverdue(b.dueDate, FIXED_TODAY);
+        if (days > maxDaysLate) maxDaysLate = days;
+      }
     }
   }
 
