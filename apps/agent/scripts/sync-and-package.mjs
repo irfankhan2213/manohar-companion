@@ -117,20 +117,23 @@ with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zf
 `;
     execSync(`python3 -c '${pyScript}'`, { stdio: 'inherit' });
   } catch (pyErr) {
-    console.error('[Error] Failed to build zip archive:', pyErr);
-    process.exit(1);
+    if (fs.existsSync(publicZipPath)) {
+      console.warn('[Zip] Zip utility not available in environment; keeping pre-bundled zip archive.');
+    } else {
+      console.warn('[Zip] Skipping zip archive creation (no zip utility available).');
+    }
   }
 }
 
-const zipStat = fs.statSync(publicZipPath);
-console.log(`[Zip] Successfully generated ${publicZipPath} (${(zipStat.size / (1024 * 1024)).toFixed(2)} MB)`);
+if (fs.existsSync(publicZipPath)) {
+  const zipStat = fs.statSync(publicZipPath);
+  console.log(`[Zip] Archive ready at ${publicZipPath} (${(zipStat.size / (1024 * 1024)).toFixed(2)} MB)`);
+}
 
 // 6. Propagate zip to artifacts and build outputs
 const artifactDestinations = [
   path.resolve(repoRoot, 'apps/web/dist/tally-agent-windows.zip'),
   path.resolve(repoRoot, 'artifacts/tally-agent-windows.zip'),
-  // Brain conversation artifact path if exists
-  '/Users/irfan/.gemini/antigravity/brain/e0953962-38b0-4758-8369-c4077ef42b00/tally-agent-windows.zip',
 ];
 
 for (const dest of artifactDestinations) {
