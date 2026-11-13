@@ -536,6 +536,10 @@ export const mockApiClient: ApiClient = {
         const balances = db.balances.filter((b: StockBalance) => b.itemId === id);
         return { item, balances };
       },
+      history: async (id: string) => ({
+        item: db.stock.find((s) => s.id === id) || { id, name: 'Item', unit: 'pcs' },
+        movements: [],
+      }),
       create: async (data: any) => {
         const activeCompanyId = useAppStore.getState().currentCompanyId;
         const resolvedCompanyId = data.companyId || (activeCompanyId !== 'all' ? activeCompanyId : 'c1');
@@ -1370,6 +1374,56 @@ export const mockApiClient: ApiClient = {
         },
         total: 1211575220,
       },
+    }),
+    profitAndLoss: async (_companyId?: string) => ({
+      period: { fromDate: '2026-04-01', toDate: '2026-11-12' },
+      companyName: 'Chinese Parts(M T M)',
+      tradingAccount: {
+        debits: { openingStock: 940732675, purchases: 450000000, directExpenses: 0, total: 1390732675 },
+        credits: { sales: 850000000, closingStock: 1343903821, directIncomes: 0, total: 2193903821 },
+        grossProfit: 803171146,
+      },
+      incomeStatement: { grossProfit: 803171146, indirectIncomes: 0, indirectExpenses: 178982246, netProfit: 624188900 },
+    }),
+    trialBalance: async (_companyId?: string) => ({
+      asOfDate: '2026-11-12',
+      companyName: 'Chinese Parts(M T M)',
+      grandTotalDebit: 2159575346,
+      grandTotalCredit: 2159575346,
+      groups: [
+        { groupName: 'Current Assets', totalDebit: 2159575346, totalCredit: 0, ledgers: [] },
+        { groupName: 'Current Liabilities', totalDebit: 0, totalCredit: 587386320, ledgers: [] },
+      ],
+    }),
+    daybook: async () => ({
+      total: 0,
+      vouchers: [],
+    }),
+    daybookDetail: async (id: string) => ({
+      id,
+      voucherType: 'Sales',
+      voucherNumber: '1',
+      date: '2026-11-12',
+      amount: 100000,
+      ledgerEntries: [],
+      inventoryEntries: [],
+    }),
+    salesRegister: async () => ({
+      financialYear: '2026-27',
+      grandTotal: 850000000,
+      months: [],
+    }),
+    purchaseRegister: async () => ({
+      financialYear: '2026-27',
+      grandTotal: 450000000,
+      months: [],
+    }),
+    cashBank: async () => ({
+      asOfDate: '2026-11-12',
+      totalCash: -948000126,
+      totalBank: 0,
+      total: -948000126,
+      accounts: [],
     }),
   },
 };

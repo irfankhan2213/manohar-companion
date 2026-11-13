@@ -28,6 +28,12 @@ import { TasksScreen } from '../features/tasks/TasksScreen.js';
 import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
 import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
 import { BalanceSheetScreen } from '../features/reports/BalanceSheetScreen.js';
+import { ProfitAndLossScreen } from '../features/reports/ProfitAndLossScreen.js';
+import { TrialBalanceScreen } from '../features/reports/TrialBalanceScreen.js';
+import { DaybookScreen } from '../features/reports/DaybookScreen.js';
+import { SalesRegisterScreen } from '../features/reports/SalesRegisterScreen.js';
+import { PurchaseRegisterScreen } from '../features/reports/PurchaseRegisterScreen.js';
+import { CashBankScreen } from '../features/reports/CashBankScreen.js';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -270,6 +276,54 @@ export const App: React.FC = () => {
                 element={
                   <RequirePermission perm="ledgers.view">
                     <BalanceSheetScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/profit-and-loss"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <ProfitAndLossScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/trial-balance"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <TrialBalanceScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/daybook"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <DaybookScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/sales-register"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <SalesRegisterScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/purchase-register"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <PurchaseRegisterScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/cash-bank"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <CashBankScreen />
                   </RequirePermission>
                 }
               />

@@ -372,6 +372,25 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       ledgersCount INTEGER,
       stockCount INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS tally_vouchers (
+      id TEXT PRIMARY KEY,
+      companyId TEXT NOT NULL,
+      voucherType TEXT NOT NULL,
+      voucherNumber TEXT NOT NULL,
+      date TEXT NOT NULL,
+      partyName TEXT,
+      partyId TEXT,
+      amount INTEGER NOT NULL DEFAULT 0,
+      narration TEXT,
+      alterId INTEGER DEFAULT 0,
+      masterId TEXT,
+      isCancelled INTEGER DEFAULT 0,
+      isOptional INTEGER DEFAULT 0,
+      ledgerEntries TEXT DEFAULT '[]',
+      inventoryEntries TEXT DEFAULT '[]',
+      createdAt TEXT NOT NULL
+    );
   `);
 
   try {
@@ -511,6 +530,10 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       CREATE INDEX IF NOT EXISTS idx_bills_party ON bills (partyId);
       CREATE INDEX IF NOT EXISTS idx_bills_comp_party_bill ON bills (companyId, partyId, billNo);
       CREATE INDEX IF NOT EXISTS idx_ledger_party ON ledger_lines (partyId);
+      CREATE INDEX IF NOT EXISTS idx_ledger_comp_date ON ledger_lines (companyId, date);
+      CREATE INDEX IF NOT EXISTS idx_tally_vch_company_date ON tally_vouchers (companyId, date);
+      CREATE INDEX IF NOT EXISTS idx_tally_vch_type ON tally_vouchers (companyId, voucherType);
+      CREATE INDEX IF NOT EXISTS idx_tally_vch_party ON tally_vouchers (companyId, partyId);
       CREATE INDEX IF NOT EXISTS idx_parties_company ON parties (companyId);
       CREATE INDEX IF NOT EXISTS idx_parties_tenant ON parties (tenantId);
       CREATE INDEX IF NOT EXISTS idx_stock_company ON stock_items (companyId);

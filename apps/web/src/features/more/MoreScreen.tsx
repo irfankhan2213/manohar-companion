@@ -10,6 +10,11 @@ import {
   ShieldCheck,
   Smartphone,
   Scale,
+  TrendingUp,
+  BarChart3,
+  Calendar,
+  ShoppingCart,
+  Wallet,
 } from 'lucide-react';
 import { can } from '@saas/shared';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -71,15 +76,54 @@ export const MoreScreen: React.FC = () => {
             onClick={() => navigate('/activity')}
           />
         )}
-        {can(actor, 'ledgers.view') && (
+      </InsetGroup>
+
+      {can(actor, 'ledgers.view') && (
+        <InsetGroup title="Financial Statements & Registers">
           <Row
             leading={<Scale className="w-5 h-5 text-accent" />}
             title="Balance Sheet"
             chevron
             onClick={() => navigate('/reports/balance-sheet')}
           />
-        )}
-      </InsetGroup>
+          <Row
+            leading={<TrendingUp className="w-5 h-5 text-accent" />}
+            title="Profit & Loss A/c"
+            chevron
+            onClick={() => navigate('/reports/profit-and-loss')}
+          />
+          <Row
+            leading={<BarChart3 className="w-5 h-5 text-accent" />}
+            title="Trial Balance"
+            chevron
+            onClick={() => navigate('/reports/trial-balance')}
+          />
+          <Row
+            leading={<Calendar className="w-5 h-5 text-accent" />}
+            title="Daybook"
+            chevron
+            onClick={() => navigate('/reports/daybook')}
+          />
+          <Row
+            leading={<ShoppingCart className="w-5 h-5 text-accent" />}
+            title="Sales Register"
+            chevron
+            onClick={() => navigate('/reports/sales-register')}
+          />
+          <Row
+            leading={<FileSpreadsheet className="w-5 h-5 text-accent" />}
+            title="Purchase Register"
+            chevron
+            onClick={() => navigate('/reports/purchase-register')}
+          />
+          <Row
+            leading={<Wallet className="w-5 h-5 text-accent" />}
+            title="Cash & Bank Summary"
+            chevron
+            onClick={() => navigate('/reports/cash-bank')}
+          />
+        </InsetGroup>
+      )}
 
       <InsetGroup title="System & Preferences">
         <Row

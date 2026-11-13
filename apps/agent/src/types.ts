@@ -76,12 +76,36 @@ export interface VoucherManifestItem {
   guid?: string;
 }
 
+export interface TallySyncVoucher {
+  id: string;
+  voucherType: string;
+  voucherNumber: string;
+  date: string;
+  partyName?: string;
+  amount: number; // paise
+  narration?: string;
+  alterId?: number;
+  masterId?: string;
+  isCancelled?: boolean;
+  isOptional?: boolean;
+  ledgerEntries?: Array<{ ledger: string; amount: number; isDebit?: boolean }>;
+  inventoryEntries?: Array<{ item: string; qty: number; rate: number; amount: number; godown?: string; unit?: string }>;
+}
+
+export interface TallyGroup {
+  name: string;
+  parent?: string;
+  isAddable?: boolean;
+}
+
 export interface TallySyncPayload {
   company: TallyCompanyInfo;
   ledgers: TallyLedger[];
   bills: TallyBill[];
   stockItems: TallyStockItem[];
   challans?: TallyChallanSync[];
+  vouchers?: TallySyncVoucher[];
+  groups?: TallyGroup[];
   deletedVoucherMasterIds?: string[];
   maxAlterId: number;
   syncedAt: string;

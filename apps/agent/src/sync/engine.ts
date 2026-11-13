@@ -12,6 +12,8 @@ import {
   TallyBill,
   TallyStockItem,
   TallyChallanSync,
+  TallySyncVoucher,
+  TallyGroup,
   CompanySyncConfig,
 } from '../types.js';
 import {
@@ -277,6 +279,7 @@ export class SyncEngine {
       // 4b. Fetch Vouchers (Delivery Challans and Receipt Notes)
       let maxAlterId = lastAlterId;
       let challans: TallyChallanSync[] = [];
+      let vouchers: TallySyncVoucher[] = [];
       try {
         if (lastAlterId > 0) {
           const incResult = await this.client.getVouchersIncremental(lastAlterId, queryTarget);
@@ -288,6 +291,23 @@ export class SyncEngine {
         }
       } catch (vchErr: any) {
         console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
+      }
+
+      // 4c. Fetch All Vouchers for Daybook, Registers, and P&L
+      try {
+        const allVchResult = await this.client.getAllVouchers(lastAlterId, queryTarget);
+        vouchers = allVchResult.vouchers || [];
+        if (allVchResult.maxAlterId > maxAlterId) maxAlterId = allVchResult.maxAlterId;
+      } catch (allVchErr: any) {
+        console.warn(`[SyncEngine] All vouchers fetch notice: ${allVchErr?.message || allVchErr}`);
+      }
+
+      // 4d. Fetch Groups hierarchy
+      let groups: TallyGroup[] = [];
+      try {
+        groups = await this.client.getGroups(queryTarget);
+      } catch (grpErr: any) {
+        console.warn(`[SyncEngine] Groups fetch notice: ${grpErr?.message || grpErr}`);
       }
 
       // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
@@ -303,6 +323,9 @@ export class SyncEngine {
       for (const c of challans) {
         if (c.alterId && c.alterId > maxAlterId) maxAlterId = c.alterId;
       }
+      for (const v of vouchers) {
+        if (v.alterId && v.alterId > maxAlterId) maxAlterId = v.alterId;
+      }
 
       const nowIso = new Date().toISOString();
       const payload: TallySyncPayload = {
@@ -311,6 +334,8 @@ export class SyncEngine {
         bills,
         stockItems,
         challans,
+        vouchers,
+        groups,
         deletedVoucherMasterIds,
         maxAlterId,
         syncedAt: nowIso,
@@ -412,8 +437,21 @@ export class SyncEngine {
                 extraChallans = extraVch.challans || [];
               }
             } catch {}
+            let extraVouchers: TallySyncVoucher[] = [];
+            try {
+              const allExtraVch = await this.client.getAllVouchers(extra.lastAlterId || 0, extraTarget);
+              extraVouchers = allExtraVch.vouchers || [];
+              if (allExtraVch.maxAlterId > extraMaxAlter) extraMaxAlter = allExtraVch.maxAlterId;
+            } catch {}
+            let extraGroups: TallyGroup[] = [];
+            try {
+              extraGroups = await this.client.getGroups(extraTarget);
+            } catch {}
             for (const c of extraChallans) {
               if (c.alterId && c.alterId > extraMaxAlter) extraMaxAlter = c.alterId;
+            }
+            for (const v of extraVouchers) {
+              if (v.alterId && v.alterId > extraMaxAlter) extraMaxAlter = v.alterId;
             }
             const extraStock = await this.client.getStockItems(0, extraTarget);
             for (const l of extraLedgers) if (l.alterId > extraMaxAlter) extraMaxAlter = l.alterId;
@@ -427,6 +465,8 @@ export class SyncEngine {
                   bills: extraBills,
                   stockItems: extraStock,
                   challans: extraChallans,
+                  vouchers: extraVouchers,
+                  groups: extraGroups,
                   deletedVoucherMasterIds: extraDeletedIds,
                   maxAlterId: extraMaxAlter,
                   syncedAt: nowIso,

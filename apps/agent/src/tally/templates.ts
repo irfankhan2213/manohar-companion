@@ -263,6 +263,74 @@ export function buildVouchersIncrementalQuery(
 </ENVELOPE>`;
 }
 
+export function buildAllVouchersQuery(
+  minAlterId: number = 0,
+  companyName?: string,
+  fromDate?: string,
+  toDate?: string
+): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const fromDateTag = fromDate ? `\n        <SVFROMDATE>${fromDate}</SVFROMDATE>` : '';
+  const toDateTag = toDate ? `\n        <SVTODATE>${toDate}</SVTODATE>` : '';
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>AllVouchersCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}${fromDateTag}${toDateTag}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="AllVouchersCollection" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ISCANCELLED, ISOPTIONAL, ALLINVENTORYENTRIES.LIST, LEDGERENTRIES.LIST</FETCH>
+            <FILTER>VoucherAlterFilter</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="VoucherAlterFilter">$$Number:$AlterId &gt; ${minAlterId}</SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function buildGroupsQuery(companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>GroupsCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="GroupsCollection" ISMODIFY="No">
+            <TYPE>Group</TYPE>
+            <FETCH>NAME, PARENT, ISADDABLE</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+
 export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: string): string {
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`

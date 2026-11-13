@@ -9,6 +9,8 @@ import {
   TallyChallanLine,
   VoucherImportResult,
   VoucherManifestItem,
+  TallySyncVoucher,
+  TallyGroup,
 } from '../types.js';
 
 const xmlParser = new XMLParser({
@@ -542,3 +544,161 @@ export function parseVoucherImportResponse(xmlString: string): VoucherImportResu
     message: lineErrors,
   };
 }
+
+export function parseAllVouchersResponse(xmlString: string): { vouchers: TallySyncVoucher[]; maxAlterId: number } {
+  const parsed = xmlParser.parse(xmlString);
+  const envelope = parsed?.ENVELOPE || parsed?.envelope;
+  const body = envelope?.BODY || envelope?.body;
+  const data = body?.DATA || body?.data;
+
+  let messages: any[] = [];
+  if (data?.COLLECTION?.VOUCHER) {
+    messages = toArray(data.COLLECTION.VOUCHER);
+  } else if (data?.TALLYMESSAGE) {
+    messages = toArray(data.TALLYMESSAGE).flatMap((m: any) => toArray(m?.VOUCHER || m));
+  } else if (data?.VOUCHER) {
+    messages = toArray(data.VOUCHER);
+  }
+
+  const vouchers: TallySyncVoucher[] = [];
+  let maxAlterId = 0;
+
+  for (const v of messages) {
+    if (!v || typeof v !== 'object') continue;
+    const vAlterId = parseInt(extractXmlText(v.ALTERID || v['@_ALTERID']) || '0', 10);
+    if (vAlterId > maxAlterId) maxAlterId = vAlterId;
+
+    const vchType = extractXmlText(v.VOUCHERTYPENAME || v['@_VCHTYPE'] || v.VCHTYPE);
+    const vchNumber = extractXmlText(v.VOUCHERNUMBER || v['@_VOUCHERNUMBER'] || v.NAME);
+    if (!vchNumber || vchNumber === '[object Object]') continue;
+
+    const dateStr = parseTallyDate(v.DATE || v['@_DATE']);
+    const partyName = extractXmlText(
+      v.PARTYLEDGERNAME || v.PARTYNAME || v.BASICBUYERNAME || v['@_PARTYLEDGERNAME']
+    );
+    const narration = extractXmlText(v.NARRATION);
+    const masterId = extractXmlText(v.MASTERID || v['@_MASTERID'] || v.GUID) || undefined;
+    const guid = extractXmlText(v.GUID || v['@_GUID']) || undefined;
+    const id = guid || (masterId ? `vch-${masterId}` : `vch-${vchType}-${vchNumber}-${dateStr}`);
+
+    const isCancelledStr = extractXmlText(v.ISCANCELLED);
+    const isCancelled = isCancelledStr.toLowerCase() === 'yes';
+    const isOptionalStr = extractXmlText(v.ISOPTIONAL);
+    const isOptional = isOptionalStr.toLowerCase() === 'yes';
+
+    // Parse ledger entries
+    const rawLedgerList = toArray(
+      v['LEDGERENTRIES.LIST'] || v.LEDGERENTRIES || v['ALLLEDGERENTRIES.LIST']
+    );
+    const ledgerEntries: Array<{ ledger: string; amount: number; isDebit?: boolean }> = [];
+    let voucherAmount = 0;
+
+    for (const led of rawLedgerList) {
+      if (!led || typeof led !== 'object') continue;
+      const ledgerName = extractXmlText(led.LEDGERNAME);
+      if (!ledgerName || ledgerName === '[object Object]') continue;
+      const amountPaise = parseTallyAmount(led.AMOUNT);
+      const isDeemedPositive = extractXmlText(led.ISDEEMEDPOSITIVE).toLowerCase() === 'yes';
+      ledgerEntries.push({
+        ledger: ledgerName,
+        amount: Math.abs(amountPaise),
+        isDebit: isDeemedPositive,
+      });
+      if (Math.abs(amountPaise) > voucherAmount) {
+        voucherAmount = Math.abs(amountPaise);
+      }
+    }
+
+    // Parse inventory entries
+    const rawInvList = toArray(
+      v['ALLINVENTORYENTRIES.LIST'] ||
+      v['INVENTORYENTRIES.LIST'] ||
+      v.ALLINVENTORYENTRIES ||
+      v.INVENTORYENTRIES
+    );
+    const inventoryEntries: Array<{ item: string; qty: number; rate: number; amount: number; godown?: string; unit?: string }> = [];
+
+    for (const inv of rawInvList) {
+      if (!inv || typeof inv !== 'object') continue;
+      const itemName = extractXmlText(inv.STOCKITEMNAME || inv.ITEMNAME);
+      if (!itemName || itemName === '[object Object]') continue;
+      const rawQtyStr = extractXmlText(inv.BILLEDQTY || inv.ACTUALQTY || inv.QTY);
+      const qtyMatch = rawQtyStr.match(/([-+]?\d+(\.\d+)?)/);
+      const qty = qtyMatch && qtyMatch[1] ? Math.abs(parseFloat(qtyMatch[1])) : 1;
+      const unit = rawQtyStr.replace(/[-+]?\d+(\.\d+)?/g, '').trim() || 'pcs';
+      const ratePaise = Math.abs(parseTallyAmount(inv.RATE));
+      let amountPaise = Math.abs(parseTallyAmount(inv.AMOUNT));
+      if (amountPaise === 0 && ratePaise > 0 && qty > 0) {
+        amountPaise = Math.round(ratePaise * qty);
+      }
+      const godown = extractXmlText(
+        inv['BATCHALLOCATIONS.LIST']?.GODOWNNAME ||
+        inv.GODOWNNAME ||
+        toArray(inv['BATCHALLOCATIONS.LIST'])[0]?.GODOWNNAME
+      );
+
+      inventoryEntries.push({
+        item: itemName,
+        qty,
+        rate: ratePaise,
+        amount: amountPaise,
+        godown: godown || undefined,
+        unit,
+      });
+
+      if (voucherAmount === 0 && amountPaise > 0) {
+        voucherAmount += amountPaise;
+      }
+    }
+
+    vouchers.push({
+      id,
+      voucherType: vchType,
+      voucherNumber: vchNumber,
+      date: dateStr,
+      partyName: partyName || undefined,
+      amount: voucherAmount,
+      narration: narration || undefined,
+      alterId: vAlterId || undefined,
+      masterId: masterId || undefined,
+      isCancelled,
+      isOptional,
+      ledgerEntries,
+      inventoryEntries,
+    });
+  }
+
+  return { vouchers, maxAlterId };
+}
+
+export function parseGroupsResponse(xmlString: string): TallyGroup[] {
+  const parsed = xmlParser.parse(xmlString);
+  const envelope = parsed?.ENVELOPE || parsed?.envelope;
+  const body = envelope?.BODY || envelope?.body;
+  const data = body?.DATA || body?.data;
+
+  let messages: any[] = [];
+  if (data?.COLLECTION?.GROUP) {
+    messages = toArray(data.COLLECTION.GROUP);
+  } else if (data?.TALLYMESSAGE) {
+    messages = toArray(data.TALLYMESSAGE).flatMap((m: any) => toArray(m?.GROUP || m));
+  } else if (data?.GROUP) {
+    messages = toArray(data.GROUP);
+  }
+
+  const groups: TallyGroup[] = [];
+  for (const g of messages) {
+    if (!g || typeof g !== 'object') continue;
+    const name = extractXmlText(g.NAME || g['@_NAME']);
+    if (!name || name === '[object Object]') continue;
+    const parent = extractXmlText(g.PARENT);
+    const isAddableStr = extractXmlText(g.ISADDABLE);
+    groups.push({
+      name,
+      parent: parent || undefined,
+      isAddable: isAddableStr.toLowerCase() === 'yes',
+    });
+  }
+  return groups;
+}
+

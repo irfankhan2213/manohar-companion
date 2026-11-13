@@ -174,6 +174,7 @@ export const httpApiClient: ApiClient = {
           return null;
         }
       },
+      history: (id: Id) => fetchJSON<any>(`/stock/items/${id}/history`),
       create: (data: any) =>
         fetchJSON<StockItem>('/stock', {
           method: 'POST',
@@ -346,5 +347,43 @@ export const httpApiClient: ApiClient = {
   reports: {
     balanceSheet: (companyId?: string) =>
       fetchJSON<any>(`/reports/balance-sheet${companyId ? `?companyId=${companyId}` : ''}`),
+    profitAndLoss: (companyId?: string, fromDate?: string, toDate?: string) => {
+      const params = new URLSearchParams();
+      if (companyId && companyId !== 'all') params.set('companyId', companyId);
+      if (fromDate) params.set('fromDate', fromDate);
+      if (toDate) params.set('toDate', toDate);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return fetchJSON<any>(`/reports/profit-and-loss${qs}`);
+    },
+    trialBalance: (companyId?: string) =>
+      fetchJSON<any>(`/reports/trial-balance${companyId && companyId !== 'all' ? `?companyId=${companyId}` : ''}`),
+    daybook: (params?: { companyId?: string; date?: string; startDate?: string; endDate?: string; voucherType?: string; q?: string }) => {
+      const sp = new URLSearchParams();
+      if (params?.companyId && params.companyId !== 'all') sp.set('companyId', params.companyId);
+      if (params?.date) sp.set('date', params.date);
+      if (params?.startDate) sp.set('startDate', params.startDate);
+      if (params?.endDate) sp.set('endDate', params.endDate);
+      if (params?.voucherType && params.voucherType !== 'all') sp.set('voucherType', params.voucherType);
+      if (params?.q) sp.set('q', params.q);
+      const qs = sp.toString() ? `?${sp.toString()}` : '';
+      return fetchJSON<any>(`/reports/daybook${qs}`);
+    },
+    daybookDetail: (id: string) => fetchJSON<any>(`/reports/daybook/${id}`),
+    salesRegister: (companyId?: string, year?: string) => {
+      const sp = new URLSearchParams();
+      if (companyId && companyId !== 'all') sp.set('companyId', companyId);
+      if (year) sp.set('year', year);
+      const qs = sp.toString() ? `?${sp.toString()}` : '';
+      return fetchJSON<any>(`/reports/sales-register${qs}`);
+    },
+    purchaseRegister: (companyId?: string, year?: string) => {
+      const sp = new URLSearchParams();
+      if (companyId && companyId !== 'all') sp.set('companyId', companyId);
+      if (year) sp.set('year', year);
+      const qs = sp.toString() ? `?${sp.toString()}` : '';
+      return fetchJSON<any>(`/reports/purchase-register${qs}`);
+    },
+    cashBank: (companyId?: string) =>
+      fetchJSON<any>(`/reports/cash-bank${companyId && companyId !== 'all' ? `?companyId=${companyId}` : ''}`),
   },
 };

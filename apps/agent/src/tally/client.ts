@@ -10,6 +10,8 @@ import {
   TallyChallanSync,
   VoucherImportResult,
   VoucherManifestItem,
+  TallySyncVoucher,
+  TallyGroup,
 } from '../types.js';
 import {
   buildCompanyInfoQuery,
@@ -20,6 +22,8 @@ import {
   buildStockItemsQuery,
   buildVoucherManifestQuery,
   buildVouchersIncrementalQuery,
+  buildAllVouchersQuery,
+  buildGroupsQuery,
 } from './templates.js';
 import {
   parseCompanyInfoResponse,
@@ -30,6 +34,8 @@ import {
   parseStockItemsResponse,
   parseVoucherImportResponse,
   parseVoucherManifestResponse,
+  parseAllVouchersResponse,
+  parseGroupsResponse,
 } from './parser.js';
 import {
   getMockCompanyInfoXml,
@@ -379,6 +385,21 @@ export class TallyClient {
   public async getStockItems(lastAlterId: number = 0, companyName?: string): Promise<TallyStockItem[]> {
     const xml = await this.postXml(buildStockItemsQuery(lastAlterId, companyName));
     return parseStockItemsResponse(xml);
+  }
+
+  public async getAllVouchers(
+    minAlterId: number = 0,
+    companyName?: string,
+    fromDate?: string,
+    toDate?: string
+  ): Promise<{ vouchers: TallySyncVoucher[]; maxAlterId: number }> {
+    const xml = await this.postXml(buildAllVouchersQuery(minAlterId, companyName, fromDate, toDate));
+    return parseAllVouchersResponse(xml);
+  }
+
+  public async getGroups(companyName?: string): Promise<TallyGroup[]> {
+    const xml = await this.postXml(buildGroupsQuery(companyName));
+    return parseGroupsResponse(xml);
   }
 
   public async postVoucher(voucherXml: string): Promise<VoucherImportResult> {

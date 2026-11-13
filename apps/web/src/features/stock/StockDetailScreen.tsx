@@ -61,6 +61,11 @@ export const StockDetailScreen: React.FC = () => {
     refetchInterval: 2000,
   });
 
+  const { data: historyData } = useQuery({
+    queryKey: ['stock-history', itemId],
+    queryFn: () => (api.stock?.items?.history ? api.stock.items.history(itemId) : null),
+  });
+
   const recentOutbox = outboxItems.filter(
     (o) => o.kind === 'stock_journal' && o.refId === itemId
   );
@@ -270,6 +275,46 @@ export const StockDetailScreen: React.FC = () => {
             />
           );
         })}
+      </InsetGroup>
+
+      {/* Item Movement History */}
+      <InsetGroup title={`Movement History (${historyData?.movements?.length || 0})`}>
+        {!historyData?.movements || historyData.movements.length === 0 ? (
+          <div className="p-4 bg-surface text-center text-footnote text-label-3">
+            No transaction movements recorded for this item yet.
+          </div>
+        ) : (
+          historyData.movements.slice(0, 15).map((m: any, idx: number) => {
+            const isOutward = m.direction === 'outward';
+            return (
+              <Row
+                key={m.voucherId ? `${m.voucherId}-${idx}` : idx}
+                title={
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${isOutward ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                    <span className="font-semibold text-label">{m.partyName}</span>
+                    <span className="text-[11px] text-label-3 uppercase tracking-wider font-mono">
+                      #{m.voucherNumber}
+                    </span>
+                  </div>
+                }
+                subtitle={`${m.date} · ${m.voucherType}`}
+                trailing={
+                  <div className="flex flex-col items-end">
+                    <span className={`font-mono tabular-nums font-bold ${isOutward ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                      {isOutward ? `-${m.qty}` : `+${m.qty}`} {m.unit || item.unit}
+                    </span>
+                    {m.amount > 0 && (
+                      <span className="text-[11px] text-label-3 font-mono">
+                        {formatINR(m.amount)}
+                      </span>
+                    )}
+                  </div>
+                }
+              />
+            );
+          })
+        )}
       </InsetGroup>
 
       {/* Outbox Activity sent to Tally */}

@@ -109,6 +109,7 @@ export interface ApiClient {
     items: {
       list: (companyId: Id | 'all', query?: string) => Promise<Array<StockItem & { totalQty?: number; balances?: StockBalance[] }>>;
       get: (id: Id) => Promise<{ item: StockItem; balances: StockBalance[] } | null>;
+      history: (id: Id) => Promise<any>;
       create: (data: Partial<StockItem> & { name: string; unit?: string; group?: string; rate?: number; balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;
       update: (id: Id, data: Partial<StockItem> & { balances?: Array<{ godownId: string; qty: number }> }) => Promise<StockItem>;
       delete: (id: Id) => Promise<{ success: boolean }>;
@@ -202,5 +203,12 @@ export interface ApiClient {
   };
   reports?: {
     balanceSheet: (companyId?: string) => Promise<any>;
+    profitAndLoss: (companyId?: string, fromDate?: string, toDate?: string) => Promise<any>;
+    trialBalance: (companyId?: string) => Promise<any>;
+    daybook: (params?: { companyId?: string; date?: string; startDate?: string; endDate?: string; voucherType?: string; q?: string }) => Promise<any>;
+    daybookDetail: (id: string) => Promise<any>;
+    salesRegister: (companyId?: string, year?: string) => Promise<any>;
+    purchaseRegister: (companyId?: string, year?: string) => Promise<any>;
+    cashBank: (companyId?: string) => Promise<any>;
   };
 }

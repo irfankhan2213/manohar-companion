@@ -364,3 +364,39 @@ export const NotificationSchema = z.object({
   createdAt: z.string(),
 });
 export type Notification = z.infer<typeof NotificationSchema>;
+
+export interface TallyVoucherLedgerEntry {
+  ledger: string;
+  amount: number; // paise
+  isDebit?: boolean;
+}
+
+export interface TallyVoucherInventoryEntry {
+  item: string;
+  qty: number;
+  rate: number; // paise
+  amount: number; // paise
+  godown?: string;
+  unit?: string;
+}
+
+export const TallyVoucherSchema = z.object({
+  id: z.string(),
+  companyId: z.string(),
+  voucherType: z.string(),
+  voucherNumber: z.string(),
+  date: z.string(),
+  partyName: z.string().optional(),
+  partyId: z.string().optional(),
+  amount: z.number().int(),
+  narration: z.string().optional(),
+  alterId: z.number().int().optional(),
+  masterId: z.string().optional(),
+  isCancelled: z.boolean().optional(),
+  isOptional: z.boolean().optional(),
+  ledgerEntries: z.array(z.any()).optional().default([]),
+  inventoryEntries: z.array(z.any()).optional().default([]),
+  createdAt: z.string().optional(),
+});
+export type TallyVoucher = z.infer<typeof TallyVoucherSchema>;
+

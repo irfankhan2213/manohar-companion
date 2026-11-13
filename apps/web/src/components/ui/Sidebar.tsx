@@ -12,6 +12,8 @@ import {
   Activity,
   Settings,
   ShieldCheck,
+  Calendar,
+  Scale,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import clsx from 'clsx';
@@ -49,6 +51,12 @@ export const Sidebar: React.FC = () => {
       : []),
     ...(can(actor, 'stock.view')
       ? [{ to: '/stock', label: t('nav.stock', 'Stock'), icon: Package }]
+      : []),
+    ...(can(actor, 'ledgers.view')
+      ? [
+          { to: '/reports/daybook', label: 'Daybook', icon: Calendar },
+          { to: '/reports/balance-sheet', label: 'Balance Sheet', icon: Scale },
+        ]
       : []),
     ...(can(actor, 'challan.view')
       ? [{ to: '/challans', label: t('nav.challans', 'Challans'), icon: FileSpreadsheet }]
