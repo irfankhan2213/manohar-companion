@@ -1,3 +1,7 @@
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import {
   TallyCompanyInfo,
   TallyLedger,
@@ -5,6 +9,7 @@ import {
   TallyStockItem,
   TallyChallanSync,
   VoucherImportResult,
+  VoucherManifestItem,
 } from '../types.js';
 import {
   buildCompanyInfoQuery,
@@ -13,6 +18,8 @@ import {
   buildBillsQuery,
   buildVouchersQuery,
   buildStockItemsQuery,
+  buildVoucherManifestQuery,
+  buildVouchersIncrementalQuery,
 } from './templates.js';
 import {
   parseCompanyInfoResponse,
@@ -22,6 +29,7 @@ import {
   parseVouchersResponse,
   parseStockItemsResponse,
   parseVoucherImportResponse,
+  parseVoucherManifestResponse,
 } from './parser.js';
 import {
   getMockCompanyInfoXml,
@@ -31,15 +39,83 @@ import {
   getMockVouchersXml,
   getMockStockItemsXml,
   getMockVoucherImportResponseXml,
+  getMockVoucherManifestXml,
+  getMockIncrementalVouchersXml,
 } from './mock.js';
 
+const execAsync = promisify(exec);
+
 export interface TallyClientOptions {
-  url?: string; // defaults to http://127.0.0.1:25853
+  url?: string; // defaults to http://127.0.0.1:9000
   mock?: boolean; // force simulator mode
   timeoutMs?: number;
 }
 
-const CANDIDATE_TALLY_PORTS = [25853, 9000, 9001, 9002];
+export const CANDIDATE_TALLY_PORTS = [9000, 25853, 9999, 9001, 9002];
+
+export async function parseTallyIniPort(iniPath: string): Promise<number | null> {
+  try {
+    if (!fs.existsSync(iniPath)) return null;
+    const content = fs.readFileSync(iniPath, 'utf8');
+    const match = content.match(/^(?:TallyServerPort|TallyPort|TallyODBCPort|Port)\s*=\s*(\d+)/im);
+    if (match && match[1]) {
+      const port = parseInt(match[1], 10);
+      if (port > 0 && port < 65536) return port;
+    }
+  } catch {}
+  return null;
+}
+
+export async function discoverTallyPortFromRegistry(): Promise<number | null> {
+  if (process.platform !== 'win32') return null;
+
+  // 1. Try querying Windows Registry for Tally installation path
+  const regKeys = [
+    'HKLM\\SOFTWARE\\Tally Solutions',
+    'HKLM\\SOFTWARE\\WOW6432Node\\Tally Solutions',
+    'HKCU\\Software\\Tally Solutions',
+  ];
+
+  for (const regKey of regKeys) {
+    try {
+      const { stdout } = await execAsync(`reg query "${regKey}" /s`, { timeout: 2500 });
+      const portMatch = stdout.match(/(?:TallyServerPort|TallyPort|Port)\s+REG_\w+\s+(\d+)/i);
+      if (portMatch && portMatch[1]) {
+        const port = parseInt(portMatch[1], 10);
+        if (port > 0 && port < 65536) return port;
+      }
+      const lines = stdout.split(/\r?\n/);
+      for (const line of lines) {
+        const pathMatch = line.match(/([a-zA-Z]:\\[^"]+)/);
+        if (pathMatch && pathMatch[1]) {
+          const candidateDir = pathMatch[1].trim();
+          const iniInDir = path.join(candidateDir, 'tally.ini');
+          const port = await parseTallyIniPort(iniInDir);
+          if (port) return port;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Check standard installation directories on Windows
+  const standardPaths = [
+    'C:\\Program Files\\TallyPrime\\tally.ini',
+    'C:\\Program Files\\Tally.ERP9\\tally.ini',
+    'C:\\Program Files (x86)\\TallyPrime\\tally.ini',
+    'C:\\Program Files (x86)\\Tally.ERP9\\tally.ini',
+    'C:\\TallyPrime\\tally.ini',
+    'C:\\Tally.ERP9\\tally.ini',
+    'D:\\TallyPrime\\tally.ini',
+    'D:\\Tally.ERP9\\tally.ini',
+  ];
+
+  for (const p of standardPaths) {
+    const port = await parseTallyIniPort(p);
+    if (port) return port;
+  }
+
+  return null;
+}
 
 /**
  * Normalizes a Tally company name by stripping trailing FY suffixes like "- (from 1-Apr-2026)" or "(2026-27)"
@@ -111,12 +187,34 @@ export class TallyClient {
   }
 
   /**
-   * Automatically scans local candidate ports (25853, 9000-9002) when configured port is unreachable
+   * Automatically scans candidate ports ([9000, 25853, 9999, 9001, 9002], Windows registry, tally.ini)
    */
   public async discoverActivePort(): Promise<string | null> {
     if (this.mock) return this.url;
+
+    const portsToProbe: number[] = [];
+    const seenPorts = new Set<number>();
+
+    const addPort = (p?: number | null) => {
+      if (p && p > 0 && p < 65536 && !seenPorts.has(p)) {
+        seenPorts.add(p);
+        portsToProbe.push(p);
+      }
+    };
+
+    addPort(this.getActivePort());
+
+    try {
+      const regPort = await discoverTallyPortFromRegistry();
+      if (regPort) addPort(regPort);
+    } catch {}
+
+    for (const p of CANDIDATE_TALLY_PORTS) {
+      addPort(p);
+    }
+
     const probeXml = buildCompanyInfoQuery();
-    for (const port of CANDIDATE_TALLY_PORTS) {
+    for (const port of portsToProbe) {
       const candidateUrl = `http://127.0.0.1:${port}`;
       try {
         const controller = new AbortController();
@@ -145,6 +243,14 @@ export class TallyClient {
       // Determine request type from payload
       if (xmlPayload.includes('ListOfOpenCompanies')) return getMockOpenCompaniesXml();
       if (xmlPayload.includes('CompanyInfo')) return getMockCompanyInfoXml();
+      if (xmlPayload.includes('VoucherManifestCollection')) {
+        return getMockVoucherManifestXml();
+      }
+      if (xmlPayload.includes('IncrementalVouchersCollection')) {
+        const alterMatch = xmlPayload.match(/VoucherAlterFilter">.*?(\d+)/);
+        const minAlter = alterMatch && alterMatch[1] ? parseInt(alterMatch[1], 10) : 0;
+        return getMockIncrementalVouchersXml(minAlter);
+      }
       if (xmlPayload.includes('CustomLedgerCollection')) {
         const alterMatch = xmlPayload.match(/AlterId &gt; (\d+)/);
         const lastAlter = alterMatch && alterMatch[1] ? parseInt(alterMatch[1], 10) : 0;
@@ -245,6 +351,29 @@ export class TallyClient {
   public async getVouchers(today?: string, companyName?: string): Promise<{ challans: TallyChallanSync[]; bills: TallyBill[] }> {
     const xml = await this.postXml(buildVouchersQuery(companyName));
     return parseVouchersResponse(xml, today);
+  }
+
+  public async getVoucherManifest(companyName?: string): Promise<VoucherManifestItem[]> {
+    const xml = await this.postXml(buildVoucherManifestQuery(companyName));
+    return parseVoucherManifestResponse(xml);
+  }
+
+  public async getVouchersIncremental(
+    minAlterId: number = 0,
+    companyName?: string,
+    fromDate?: string,
+    toDate?: string
+  ): Promise<{ challans: TallyChallanSync[]; bills: TallyBill[]; maxAlterId: number }> {
+    const xml = await this.postXml(buildVouchersIncrementalQuery(minAlterId, companyName, fromDate, toDate));
+    const result = parseVouchersResponse(xml);
+    let maxAlter = minAlterId;
+    if (result.maxAlterId && result.maxAlterId > maxAlter) {
+      maxAlter = result.maxAlterId;
+    }
+    for (const c of result.challans) {
+      if (c.alterId && c.alterId > maxAlter) maxAlter = c.alterId;
+    }
+    return { ...result, maxAlterId: maxAlter };
   }
 
   public async getStockItems(lastAlterId: number = 0, companyName?: string): Promise<TallyStockItem[]> {

@@ -6,6 +6,7 @@ import { SettingsScreen } from '../features/settings/SettingsScreen.js';
 import { ToastProvider } from '../components/ui/Toast.js';
 import '../i18n/index.js';
 import { useAppStore } from '../app/store.js';
+import { api } from '../api/index.js';
 
 describe('SettingsScreen Component', () => {
   let queryClient: QueryClient;
@@ -136,5 +137,25 @@ describe('SettingsScreen Component', () => {
     await waitFor(() => {
       expect(screen.getByText(/AlterID reset queued/i)).toBeInTheDocument();
     });
+  });
+
+  it('displays port 9999 accurately in diagnostic telemetry without fallback to 25853', async () => {
+    const origStatus = api.agent.status;
+    api.agent.status = async () => ({
+      version: '1.5.0',
+      status: 'online',
+      lastSeenAt: new Date().toISOString(),
+      tallyPort: 9999,
+      openTallyCompanies: ['Manohar Traders'],
+    } as any);
+
+    try {
+      renderComponent();
+      await waitFor(() => {
+        expect(screen.getByText(/127\.0\.0\.1:9999 \(Auto-Scan\)/i)).toBeInTheDocument();
+      });
+    } finally {
+      api.agent.status = origStatus;
+    }
   });
 });

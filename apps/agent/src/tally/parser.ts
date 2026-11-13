@@ -8,6 +8,7 @@ import {
   TallyChallanSync,
   TallyChallanLine,
   VoucherImportResult,
+  VoucherManifestItem,
 } from '../types.js';
 
 const xmlParser = new XMLParser({
@@ -323,7 +324,7 @@ export function parseBillsResponse(xmlString: string, today: string = new Date()
 export function parseVouchersResponse(
   xmlString: string,
   today: string = new Date().toISOString().slice(0, 10)
-): { challans: TallyChallanSync[]; bills: TallyBill[] } {
+): { challans: TallyChallanSync[]; bills: TallyBill[]; maxAlterId?: number } {
   const parsed = xmlParser.parse(xmlString);
   const envelope = parsed?.ENVELOPE || parsed?.envelope;
   const body = envelope?.BODY || envelope?.body;
@@ -340,9 +341,12 @@ export function parseVouchersResponse(
 
   const challans: TallyChallanSync[] = [];
   const bills: TallyBill[] = [];
+  let maxAlterId = 0;
 
   for (const v of messages) {
     if (!v || typeof v !== 'object') continue;
+    const rawAlterId = parseInt(extractXmlText(v.ALTERID || v['@_ALTERID']) || '0', 10) || 0;
+    if (rawAlterId > maxAlterId) maxAlterId = rawAlterId;
     const vchType = extractXmlText(v.VOUCHERTYPENAME || v['@_VCHTYPE'] || v.VCHTYPE);
     const vchTypeLower = vchType.toLowerCase();
     const vchNumber = extractXmlText(v.VOUCHERNUMBER || v['@_VOUCHERNUMBER'] || v.NAME);
@@ -406,6 +410,10 @@ export function parseVouchersResponse(
       vchTypeLower.includes('goods receipt') ||
       (vchTypeLower.includes('challan') && (vchTypeLower.includes('purchase') || vchTypeLower.includes('receipt')));
 
+    const masterId = extractXmlText(v.MASTERID || v['@_MASTERID'] || v.GUID) || undefined;
+    const alterId = parseInt(extractXmlText(v.ALTERID || v['@_ALTERID']) || '0', 10) || undefined;
+    const guid = extractXmlText(v.GUID || v['@_GUID']) || undefined;
+
     if (isDeliveryChallan || isReceiptChallan) {
       challans.push({
         number: vchNumber.trim(),
@@ -416,11 +424,54 @@ export function parseVouchersResponse(
         lines,
         notes: narration || undefined,
         roundOff: 0,
+        masterId,
+        alterId,
+        guid,
       });
     }
   }
 
-  return { challans, bills: [] };
+  return { challans, bills: [], maxAlterId };
+}
+
+export function parseVoucherManifestResponse(xmlString: string): VoucherManifestItem[] {
+  const parsed = xmlParser.parse(xmlString);
+  const envelope = parsed?.ENVELOPE || parsed?.envelope;
+  const body = envelope?.BODY || envelope?.body;
+  const data = body?.DATA || body?.data;
+
+  let messages: any[] = [];
+  if (data?.COLLECTION?.VOUCHER) {
+    messages = toArray(data.COLLECTION.VOUCHER);
+  } else if (data?.TALLYMESSAGE) {
+    messages = toArray(data.TALLYMESSAGE).flatMap((m: any) => toArray(m?.VOUCHER || m));
+  } else if (data?.VOUCHER) {
+    messages = toArray(data.VOUCHER);
+  }
+
+  const items: VoucherManifestItem[] = [];
+  for (const v of messages) {
+    if (!v || typeof v !== 'object') continue;
+    const masterId = extractXmlText(v.MASTERID || v['@_MASTERID'] || v.GUID);
+    const voucherNumber = extractXmlText(v.VOUCHERNUMBER || v['@_VOUCHERNUMBER'] || v.NAME);
+    if (!masterId && !voucherNumber) continue;
+
+    const alterId = parseInt(extractXmlText(v.ALTERID || v['@_ALTERID']) || '0', 10) || 0;
+    const voucherTypeName = extractXmlText(v.VOUCHERTYPENAME || v['@_VCHTYPE'] || v.VCHTYPE) || undefined;
+    const date = parseTallyDate(v.DATE || v['@_DATE']);
+    const guid = extractXmlText(v.GUID || v['@_GUID']) || undefined;
+
+    items.push({
+      masterId: masterId || voucherNumber,
+      alterId,
+      voucherNumber: voucherNumber || masterId,
+      voucherTypeName,
+      date,
+      guid,
+    });
+  }
+
+  return items;
 }
 
 export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {

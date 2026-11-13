@@ -1342,4 +1342,34 @@ export const mockApiClient: ApiClient = {
       saveDB();
     },
   },
+  reports: {
+    balanceSheet: async (_companyId?: string) => ({
+      asOfDate: '2026-11-12',
+      companyName: 'Chinese Parts(M T M)',
+      liabilities: {
+        capitalAccount: 0,
+        loansLiability: 0,
+        currentLiabilities: {
+          total: 587386320,
+          dutiesAndTaxes: -48525380,
+          sundryCreditors: 635911700,
+        },
+        profitAndLoss: {
+          total: 624188900,
+        },
+        total: 1211575220,
+      },
+      assets: {
+        fixedAssets: 0,
+        currentAssets: {
+          total: 1211575220,
+          closingStock: 1343903821,
+          sundryDebtors: 815671525,
+          cashInHand: -948000126,
+          bankAccounts: 0,
+        },
+        total: 1211575220,
+      },
+    }),
+  },
 };

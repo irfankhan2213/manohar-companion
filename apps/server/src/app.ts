@@ -1739,8 +1739,7 @@ export function createApp(dbPath?: string): express.Express {
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyError_${resolvedTenantId}`, String(req.body.tallyError || ''));
       }
       if (req.body?.tallyPort !== undefined) {
-        let reportedPort = Number(req.body.tallyPort) || 25853;
-        if (reportedPort === 9999) reportedPort = 25853;
+        let reportedPort = Number(req.body.tallyPort) || 9000;
         db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`tallyPort_${resolvedTenantId}`, String(reportedPort));
       }
       if (Array.isArray(req.body?.openTallyCompanies)) {
@@ -1844,12 +1843,16 @@ export function createApp(dbPath?: string): express.Express {
     const bills = db.prepare(billsQuery).all(...billsParams) as any[];
     const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
 
-    // Strictly filter parties to Sundry Debtors (exclude Sundry Creditors)
+    // Strictly filter parties to Sundry Debtors (exclude Sundry Creditors and general ledgers)
     const debtorParties = parties.filter(p => {
+      const parent = (p.parentGroup || '').toLowerCase();
+      if (parent && !parent.includes('debtor')) return false;
       const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
       return type === 'debtor';
     });
     const creditorParties = parties.filter(p => {
+      const parent = (p.parentGroup || '').toLowerCase();
+      if (parent && !parent.includes('creditor')) return false;
       const type = p.partyType || (p.notes?.toLowerCase().includes('creditor') ? 'creditor' : 'debtor');
       return type === 'creditor';
     });
@@ -1874,6 +1877,8 @@ export function createApp(dbPath?: string): express.Express {
     let notDue = 0;
     let late1_30 = 0;
     let late30Plus = 0;
+    let grossReceivables = 0;
+    let advanceCredits = 0;
 
     const partyOverdueMap = new Map<string, { party: any; amount: number; daysLate: number; invoiceRef?: string }>();
 
@@ -1887,18 +1892,25 @@ export function createApp(dbPath?: string): express.Express {
       const closingBal = p.closingBalance ?? 0;
       const isImportedFromTally = Boolean(p.notes && p.notes.includes('Imported from Tally'));
 
-      // Authoritative customer receivable:
-      // For real Tally data, closingBalance is authoritative from Tally's Balance Sheet.
-      // If closingBalance is 0 or negative in Tally, the customer owes ₹0 (never resurrect historical bills).
-      // For test/demo parties, fall back to billSum when closingBalance is 0/undefined.
-      const customerReceivable = isImportedFromTally
-        ? (closingBal > 0 ? closingBal : 0)
+      // In Tally Balance Sheet:
+      // Sundry Debtors is the net closing balance of the group: Sum(Debits) - Sum(Credits).
+      // Debtor ledgers with credit balances (advances/credit notes) net against gross customer receivables.
+      const partyNetBalance = isImportedFromTally
+        ? closingBal
         : (closingBal !== 0 ? closingBal : billSum);
 
-      if (customerReceivable > 0) {
-        totalDebit += customerReceivable;
-        totalReceivables += customerReceivable;
+      totalDebit += partyNetBalance;
+      if (partyNetBalance > 0) {
+        grossReceivables += partyNetBalance;
+      } else if (partyNetBalance < 0) {
+        advanceCredits += Math.abs(partyNetBalance);
+      }
 
+      // Customer only owes if partyNetBalance > 0
+      const customerReceivable = Math.max(0, partyNetBalance);
+
+      if (customerReceivable > 0) {
+        totalReceivables += customerReceivable;
         if (positiveBills.length > 0) {
           // Reconcile unadjusted advances and credit notes against open bills in FIFO order (oldest first)
           let reductionPool = Math.max(0, sumPositive - customerReceivable);
@@ -1950,6 +1962,8 @@ export function createApp(dbPath?: string): express.Express {
         }
       }
     }
+
+
 
     // Sum Sundry Creditors (money owed to suppliers from Tally's Balance Sheet)
     for (const p of creditorParties) {
@@ -2043,6 +2057,8 @@ export function createApp(dbPath?: string): express.Express {
     res.json({
       totalReceivables,
       totalDebit,
+      grossDebit: grossReceivables,
+      advanceCredit: advanceCredits,
       totalCredit,
       totalOverdue,
       notDuePercentage: notDuePct,
@@ -2052,6 +2068,115 @@ export function createApp(dbPath?: string): express.Express {
       needsAttention,
       mostOverdue: overdueList.slice(0, 5),
       companyBreakdown,
+    });
+  });
+
+  // 4b. Tally Balance Sheet Report
+  app.get('/api/reports/balance-sheet', (req, res) => {
+    const user = getRequestUser(req);
+    if (!hasPermission(user, 'ledgers.view')) {
+      return res.status(403).json({ error: 'Forbidden: Missing ledgers.view permission' });
+    }
+    const companyId = req.query.companyId as string | undefined;
+
+    let partiesQuery = 'SELECT * FROM parties WHERE 1=1';
+    const partiesParams: any[] = [];
+    let resolvedCompany: any = null;
+
+    if (companyId && companyId !== 'all') {
+      partiesQuery += ' AND companyId = ?';
+      partiesParams.push(companyId);
+      resolvedCompany = db.prepare('SELECT * FROM companies WHERE id = ?').get(companyId);
+    } else if (isTenantScoped(user)) {
+      partiesQuery += ' AND (tenantId = ? OR companyId IN (SELECT id FROM companies WHERE tenantId = ?))';
+      partiesParams.push(user.tenantId, user.tenantId);
+      resolvedCompany = db.prepare('SELECT * FROM companies WHERE tenantId = ? LIMIT 1').get(user.tenantId);
+    } else {
+      resolvedCompany = db.prepare('SELECT * FROM companies LIMIT 1').get();
+    }
+
+    const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
+
+    // Compute Closing Stock from stock_items and stock_balances
+    let stockQuery = 'SELECT s.rate, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId WHERE 1=1';
+    const stockParams: any[] = [];
+    if (companyId && companyId !== 'all') {
+      stockQuery += ' AND s.companyId = ? GROUP BY s.id';
+      stockParams.push(companyId);
+    } else if (isTenantScoped(user)) {
+      stockQuery += ' AND s.companyId IN (SELECT id FROM companies WHERE tenantId = ?) GROUP BY s.id';
+      stockParams.push(user.tenantId);
+    } else {
+      stockQuery += ' GROUP BY s.id';
+    }
+    const stockRows = db.prepare(stockQuery).all(...stockParams) as any[];
+    const closingStock = stockRows.reduce((acc, row) => acc + Math.round((row.totalQty || 0) * (row.rate || 0)), 0);
+
+    let sundryDebtors = 0;
+    let sundryCreditors = 0;
+    let dutiesAndTaxes = 0;
+    let cashInHand = 0;
+    let bankAccounts = 0;
+    let capitalAccount = 0;
+    let loansLiability = 0;
+    let profitAndLoss = 0;
+
+    for (const p of parties) {
+      const bal = p.closingBalance ?? 0;
+      const parent = (p.parentGroup || '').toLowerCase();
+      const type = p.partyType || (parent.includes('creditor') ? 'creditor' : 'debtor');
+
+      if (parent.includes('duties') || parent.includes('tax')) {
+        dutiesAndTaxes += bal;
+      } else if (parent.includes('cash')) {
+        cashInHand += bal;
+      } else if (parent.includes('bank')) {
+        bankAccounts += bal;
+      } else if (parent.includes('capital')) {
+        capitalAccount += bal;
+      } else if (parent.includes('loan')) {
+        loansLiability += bal;
+      } else if (parent.includes('profit') || parent.includes('loss')) {
+        profitAndLoss += bal;
+      } else if (type === 'creditor' || parent.includes('creditor')) {
+        sundryCreditors += Math.abs(bal);
+      } else if (type === 'debtor' || parent.includes('debtor')) {
+        sundryDebtors += bal;
+      }
+    }
+
+    const currentLiabilitiesTotal = dutiesAndTaxes + sundryCreditors;
+    const currentAssetsTotal = closingStock + sundryDebtors + cashInHand + bankAccounts;
+    const totalAssets = currentAssetsTotal;
+    const totalLiabilities = capitalAccount + loansLiability + currentLiabilitiesTotal + (profitAndLoss || (totalAssets - (capitalAccount + loansLiability + currentLiabilitiesTotal)));
+
+    res.json({
+      asOfDate: getTodayIST(),
+      companyName: resolvedCompany?.name || 'Company',
+      liabilities: {
+        capitalAccount,
+        loansLiability,
+        currentLiabilities: {
+          total: currentLiabilitiesTotal,
+          dutiesAndTaxes,
+          sundryCreditors,
+        },
+        profitAndLoss: {
+          total: totalLiabilities - (capitalAccount + loansLiability + currentLiabilitiesTotal),
+        },
+        total: totalLiabilities,
+      },
+      assets: {
+        fixedAssets: 0,
+        currentAssets: {
+          total: currentAssetsTotal,
+          closingStock,
+          sundryDebtors,
+          cashInHand,
+          bankAccounts,
+        },
+        total: totalAssets,
+      },
     });
   });
 
@@ -2209,7 +2334,28 @@ export function createApp(dbPath?: string): express.Express {
 
     const rawBills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
     const isPartySettled = Boolean(p.notes && p.notes.includes('Imported from Tally')) && (p.closingBalance ?? 0) <= 0;
-    const bills = rawBills.map(b => isPartySettled ? { ...b, pending: 0 } : b);
+    let bills = rawBills.map(b => isPartySettled ? { ...b, pending: 0 } : b);
+
+    // For Tally debtors with positive closingBalance, ensure paid older bills are marked pending: 0 up to closingBalance
+    if (!isPartySettled && Boolean(p.notes && p.notes.includes('Imported from Tally')) && (p.closingBalance ?? 0) > 0) {
+      const positiveBills = bills.filter(b => b.pending > 0);
+      const sumPos = positiveBills.reduce((acc, b) => acc + b.pending, 0);
+      if (sumPos > (p.closingBalance ?? 0)) {
+        let remainingOwed = p.closingBalance ?? 0;
+        const sortedDesc = [...positiveBills].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        const billPendingMap = new Map<string, number>();
+        for (const b of sortedDesc) {
+          if (remainingOwed > 0) {
+            const assigned = Math.min(b.pending, remainingOwed);
+            billPendingMap.set(b.id, assigned);
+            remainingOwed -= assigned;
+          } else {
+            billPendingMap.set(b.id, 0);
+          }
+        }
+        bills = bills.map(b => billPendingMap.has(b.id) ? { ...b, pending: billPendingMap.get(b.id)! } : b);
+      }
+    }
     let ledgerLines = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(p.id) as any[];
     if (ledgerLines.length === 0) {
       if (bills.length > 0) {
@@ -4426,7 +4572,7 @@ export function createApp(dbPath?: string): express.Express {
   app.post('/api/sync/push', (req, res) => {
     const user = getRequestUser(req);
     const agentAuth = resolveAgentAuth(req, user);
-    const { companyId, companyName, alterId, parties, bills, stockItems, challans } = req.body;
+    const { companyId, companyName, alterId, parties, bills, stockItems, challans, deletedVoucherMasterIds } = req.body;
     const now = new Date().toISOString();
     if (!companyId && !companyName) {
       return res.status(400).json({ error: 'Missing companyId: Tally agent must connect to a specific company/organization' });
@@ -4490,8 +4636,12 @@ export function createApp(dbPath?: string): express.Express {
           || (existing?.parentGroup && existing.parentGroup.toLowerCase().includes('creditor'))
           || notesStr.toLowerCase().includes('creditor')
           || notesStr.toLowerCase().includes('supplier');
-        const partyType = isCreditor ? 'creditor' : 'debtor';
-        const parentGroup = isCreditor ? 'Sundry Creditors' : (p.parentGroup || existing?.parentGroup || 'Sundry Debtors');
+        const isDebtor = p.partyType === 'debtor'
+          || (p.parentGroup && p.parentGroup.toLowerCase().includes('debtor'))
+          || (existing?.parentGroup && existing.parentGroup.toLowerCase().includes('debtor'))
+          || (!p.parentGroup && !isCreditor && (!p.partyType || p.partyType === 'debtor'));
+        const partyType = isCreditor ? 'creditor' : (isDebtor ? 'debtor' : (p.partyType || 'other'));
+        const parentGroup = isCreditor ? 'Sundry Creditors' : (p.parentGroup || existing?.parentGroup || (isDebtor ? 'Sundry Debtors' : 'Other'));
         const closing = p.closingBalance ?? existing?.closingBalance ?? 0;
         stmt.run(
           safePartyId,
@@ -4736,6 +4886,22 @@ export function createApp(dbPath?: string): express.Express {
           ch.createdBy || 'tally_sync'
         );
         challansUpdated++;
+      }
+    }
+
+    // Purge deleted vouchers reported by agent manifest comparison
+    if (Array.isArray(deletedVoucherMasterIds) && deletedVoucherMasterIds.length > 0) {
+      const deletedIds = deletedVoucherMasterIds
+        .map((x: any) => String(x).trim())
+        .filter(Boolean);
+      if (deletedIds.length > 0) {
+        const placeholders = deletedIds.map(() => '?').join(',');
+        db.prepare(
+          `DELETE FROM challans WHERE companyId = ? AND (id IN (${placeholders}) OR number IN (${placeholders}))`
+        ).run(resolvedCompanyId, ...deletedIds, ...deletedIds);
+        db.prepare(
+          `DELETE FROM bills WHERE companyId = ? AND (id IN (${placeholders}) OR billNo IN (${placeholders}))`
+        ).run(resolvedCompanyId, ...deletedIds, ...deletedIds);
       }
     }
 

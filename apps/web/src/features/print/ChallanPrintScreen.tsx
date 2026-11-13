@@ -67,7 +67,13 @@ export const ChallanPrintScreen: React.FC = () => {
   const igstPaise = isInterstate ? totalGstPaise : 0;
   const cgstPaise = !isInterstate ? Math.round(totalGstPaise / 2) : 0;
   const sgstPaise = !isInterstate ? totalGstPaise - cgstPaise : 0;
-  const grandTotalPaise = subtotalPaise + (isInterstate ? igstPaise : cgstPaise + sgstPaise);
+  const rawGrandTotalPaise = subtotalPaise + (isInterstate ? igstPaise : cgstPaise + sgstPaise);
+
+  // Commercial nearest-rupee Round-Off (standard Tally and GST format)
+  const roundOffPaise = typeof (challan as any).roundOff === 'number'
+    ? (challan as any).roundOff
+    : (Math.round(rawGrandTotalPaise / 100) * 100 - rawGrandTotalPaise);
+  const grandTotalPaise = rawGrandTotalPaise + roundOffPaise;
 
   const titleType =
     challan.type === 'sales'
@@ -357,6 +363,16 @@ export const ChallanPrintScreen: React.FC = () => {
                     </span>
                   </div>
                 </>
+              )}
+              {roundOffPaise !== 0 && (
+                <div className="flex justify-between py-1">
+                  <span className="text-gray-600">Round Off:</span>
+                  <span className="font-mono font-semibold">
+                    {roundOffPaise > 0
+                      ? `+${formatINR(roundOffPaise)}`
+                      : `-${formatINR(Math.abs(roundOffPaise))}`}
+                  </span>
+                </div>
               )}
               <div className="flex justify-between pt-1.5 font-bold text-sm">
                 <span>Grand Total:</span>

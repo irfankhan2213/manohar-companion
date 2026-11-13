@@ -25,6 +25,8 @@ import {
 export interface HomeSummary {
   totalReceivables: number; // in paise
   totalDebit?: number; // in paise
+  grossDebit?: number; // in paise
+  advanceCredit?: number; // in paise
   totalCredit?: number; // in paise
   totalOverdue: number; // in paise
   notDuePercentage: number;
@@ -197,5 +199,8 @@ export interface ApiClient {
         financialYear?: string;
       }) => Promise<{ success: boolean; tenant: Tenant; owner: User; company: Company }>;
     };
+  };
+  reports?: {
+    balanceSheet: (companyId?: string) => Promise<any>;
   };
 }

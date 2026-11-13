@@ -710,7 +710,7 @@ export const SettingsScreen: React.FC = () => {
             <div className="p-2 rounded-xl bg-fill/40 flex flex-col">
               <span className="text-label-3 font-medium">Tally Port</span>
               <span className="font-mono font-bold text-label">
-                127.0.0.1:{agent?.tallyPort && agent.tallyPort !== 9999 ? agent.tallyPort : 25853} (Auto-Scan)
+                127.0.0.1:{agent?.tallyPort || 25853} (Auto-Scan)
               </span>
             </div>
             <div className="p-2 rounded-xl bg-fill/40 flex flex-col">

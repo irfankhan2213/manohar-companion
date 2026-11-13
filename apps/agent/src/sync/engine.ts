@@ -233,14 +233,39 @@ export class SyncEngine {
         });
       }
 
-      // If only 1 company is open in Tally, do not pass explicit SVCURRENTCOMPANY
-      // because Tally is already pointing at this active company.
-      const queryTarget = openCompanyNames.length > 1 ? targetCompany : undefined;
+      // Unconditionally scope every outgoing Tally query with targetCompany
+      // so multi-company synchronization works reliably without cross-company bleed
+      const queryTarget = targetCompany;
 
       // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (stock adjustments & challans) FIRST
       // and write them to Tally BEFORE reading Tally's closing stock & ledger balances!
       if (this.cloudUrl && primaryCompanyId) {
         await this.pullOutboxFromCloud(primaryCompanyId, targetCompany);
+      }
+
+      // 2b. Query lightweight voucher manifest to detect deletions
+      let deletedVoucherMasterIds: string[] = [];
+      let currentVoucherMasterIds: string[] = [];
+      try {
+        const manifest = await this.client.getVoucherManifest(queryTarget);
+        currentVoucherMasterIds = Array.from(
+          new Set(
+            manifest
+              .flatMap((m) => [m.voucherNumber, m.masterId].filter(Boolean) as string[])
+              .map((s) => s.trim())
+              .filter(Boolean)
+          )
+        );
+        const prevActiveIds: string[] =
+          matchedConfig?.activeVoucherMasterIds ||
+          (isSameAsPreviousSync ? currentState.activeVoucherMasterIds : undefined) ||
+          [];
+        if (prevActiveIds.length > 0) {
+          const manifestSet = new Set(currentVoucherMasterIds);
+          deletedVoucherMasterIds = prevActiveIds.filter((id: string) => !manifestSet.has(id));
+        }
+      } catch (manifestErr: any) {
+        console.warn(`[SyncEngine] Voucher manifest query notice: ${manifestErr?.message || manifestErr}`);
       }
 
       // 3. Always fetch all Ledgers (from AlterID 0) for targetCompany
@@ -249,11 +274,18 @@ export class SyncEngine {
       // 4. Fetch Bills Outstanding for targetCompany
       let bills: TallyBill[] = await this.client.getBills(undefined, queryTarget);
 
-      // 4b. Fetch Vouchers (Delivery Challans and Receipt Notes only)
+      // 4b. Fetch Vouchers (Delivery Challans and Receipt Notes)
+      let maxAlterId = lastAlterId;
       let challans: TallyChallanSync[] = [];
       try {
-        const vchResult = await this.client.getVouchers(undefined, queryTarget);
-        challans = vchResult.challans || [];
+        if (lastAlterId > 0) {
+          const incResult = await this.client.getVouchersIncremental(lastAlterId, queryTarget);
+          challans = incResult.challans || [];
+          if (incResult.maxAlterId > maxAlterId) maxAlterId = incResult.maxAlterId;
+        } else {
+          const vchResult = await this.client.getVouchers(undefined, queryTarget);
+          challans = vchResult.challans || [];
+        }
       } catch (vchErr: any) {
         console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
       }
@@ -261,13 +293,15 @@ export class SyncEngine {
       // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
       const stockItems: TallyStockItem[] = await this.client.getStockItems(0, queryTarget);
 
-      // 6. Compute max AlterID seen across new ledgers & stock items
-      let maxAlterId = lastAlterId;
+      // 6. Compute max AlterID seen across new ledgers, stock items & vouchers
       for (const l of ledgers) {
         if (l.alterId > maxAlterId) maxAlterId = l.alterId;
       }
       for (const s of stockItems) {
         if (s.alterId > maxAlterId) maxAlterId = s.alterId;
+      }
+      for (const c of challans) {
+        if (c.alterId && c.alterId > maxAlterId) maxAlterId = c.alterId;
       }
 
       const nowIso = new Date().toISOString();
@@ -277,6 +311,7 @@ export class SyncEngine {
         bills,
         stockItems,
         challans,
+        deletedVoucherMasterIds,
         maxAlterId,
         syncedAt: nowIso,
         durationMs: Date.now() - startTime,
@@ -305,6 +340,7 @@ export class SyncEngine {
           tallyName: targetCompany,
           lastAlterId: this.pendingAlterIdReset ? 0 : maxAlterId,
           lastSyncedAt: nowIso,
+          activeVoucherMasterIds: currentVoucherMasterIds.length > 0 ? currentVoucherMasterIds : (matchedConfig?.activeVoucherMasterIds || currentState.activeVoucherMasterIds),
         };
         if (existingIdx >= 0) {
           knownList[existingIdx] = updatedEntry;
@@ -337,20 +373,49 @@ export class SyncEngine {
       for (const extra of additionalTargets) {
         try {
           const extraTarget = extra.tallyName;
+          const matchedCfg = this.findCompanyConfigByName(extraTarget, knownList);
           if (this.cloudUrl && extra.companyId) {
             await this.pullOutboxFromCloud(extra.companyId, extraTarget);
           }
           const extraInfo = await this.client.getCompanyInfo(extraTarget);
           if (extraInfo?.name && normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget)) {
+            let extraDeletedIds: string[] = [];
+            let extraActiveIds: string[] = [];
+            try {
+              const extraManifest = await this.client.getVoucherManifest(extraTarget);
+              extraActiveIds = Array.from(
+                new Set(
+                  extraManifest
+                    .flatMap((m) => [m.voucherNumber, m.masterId].filter(Boolean) as string[])
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                )
+              );
+              const prevExtraIds: string[] = matchedCfg?.activeVoucherMasterIds || [];
+              if (prevExtraIds.length > 0) {
+                const extraSet = new Set(extraActiveIds);
+                extraDeletedIds = prevExtraIds.filter((id: string) => !extraSet.has(id));
+              }
+            } catch {}
+
             const extraLedgers = await this.client.getLedgers(0, extraTarget);
             let extraBills = await this.client.getBills(undefined, extraTarget);
+            let extraMaxAlter = extra.lastAlterId || 0;
             let extraChallans: TallyChallanSync[] = [];
             try {
-              const extraVch = await this.client.getVouchers(undefined, extraTarget);
-              extraChallans = extraVch.challans || [];
+              if (extra.lastAlterId > 0) {
+                const extraInc = await this.client.getVouchersIncremental(extra.lastAlterId, extraTarget);
+                extraChallans = extraInc.challans || [];
+                if (extraInc.maxAlterId > extraMaxAlter) extraMaxAlter = extraInc.maxAlterId;
+              } else {
+                const extraVch = await this.client.getVouchers(undefined, extraTarget);
+                extraChallans = extraVch.challans || [];
+              }
             } catch {}
+            for (const c of extraChallans) {
+              if (c.alterId && c.alterId > extraMaxAlter) extraMaxAlter = c.alterId;
+            }
             const extraStock = await this.client.getStockItems(0, extraTarget);
-            let extraMaxAlter = extra.lastAlterId || 0;
             for (const l of extraLedgers) if (l.alterId > extraMaxAlter) extraMaxAlter = l.alterId;
             for (const s of extraStock) if (s.alterId > extraMaxAlter) extraMaxAlter = s.alterId;
             let resolvedExtraId = extra.companyId;
@@ -362,6 +427,7 @@ export class SyncEngine {
                   bills: extraBills,
                   stockItems: extraStock,
                   challans: extraChallans,
+                  deletedVoucherMasterIds: extraDeletedIds,
                   maxAlterId: extraMaxAlter,
                   syncedAt: nowIso,
                   durationMs: Date.now() - startTime,
@@ -384,6 +450,7 @@ export class SyncEngine {
                 tallyName: extraInfo.name,
                 lastAlterId: extraMaxAlter,
                 lastSyncedAt: nowIso,
+                activeVoucherMasterIds: extraActiveIds.length > 0 ? extraActiveIds : matchedCfg?.activeVoucherMasterIds,
               };
               if (idx >= 0) knownList[idx] = entry;
               else knownList.push(entry);
@@ -405,6 +472,7 @@ export class SyncEngine {
         tallyPort: activePort,
         openTallyCompanies: openCompanyNames.length > 0 ? openCompanyNames : [company.name],
         companies: knownList.length > 0 ? knownList : currentState.companies,
+        activeVoucherMasterIds: currentVoucherMasterIds.length > 0 ? currentVoucherMasterIds : currentState.activeVoucherMasterIds,
       });
 
       this.onSyncComplete?.(payload);
@@ -631,6 +699,7 @@ export class SyncEngine {
         bills,
         stockItems,
         challans,
+        deletedVoucherMasterIds: payload.deletedVoucherMasterIds,
       }),
     });
 

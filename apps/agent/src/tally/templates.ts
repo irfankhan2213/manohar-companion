@@ -154,7 +154,9 @@ export function buildBillsQuery(companyName?: string): string {
           <COLLECTION NAME="BillsCollection" ISMODIFY="No">
             <TYPE>Bills</TYPE>
             <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, OPENINGBALANCE, CLOSINGBALANCE, ISDEBIT</FETCH>
+            <FILTER>UnclearedBillsOnly</FILTER>
           </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="UnclearedBillsOnly">(NOT $$IsBillCleared) AND ($$Number:$CLOSINGBALANCE != 0)</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -182,10 +184,78 @@ export function buildVouchersQuery(companyName?: string): string {
         <TDLMESSAGE>
           <COLLECTION NAME="CustomVouchersCollection" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
-            <FETCH>VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ALLINVENTORYENTRIES.LIST</FETCH>
+            <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ALLINVENTORYENTRIES.LIST</FETCH>
             <FILTER>IsChallanFilter</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="IsChallanFilter">$$IsDeliveryNote:$VoucherTypeName or $$IsReceiptNote:$VoucherTypeName or $VoucherTypeName contains "Delivery" or $VoucherTypeName contains "Receipt Note" or $VoucherTypeName contains "Challan"</SYSTEM>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function buildVoucherManifestQuery(companyName?: string): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>VoucherManifestCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="VoucherManifestCollection" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <FETCH>MASTERID, ALTERID, VOUCHERNUMBER, VOUCHERTYPENAME, DATE, GUID</FETCH>
+          </COLLECTION>
+        </TDLMESSAGE>
+      </TDL>
+    </DESC>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function buildVouchersIncrementalQuery(
+  minAlterId: number = 0,
+  companyName?: string,
+  fromDate?: string,
+  toDate?: string
+): string {
+  const companyTag = companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const fromDateTag = fromDate ? `\n        <SVFROMDATE>${fromDate}</SVFROMDATE>` : '';
+  const toDateTag = toDate ? `\n        <SVTODATE>${toDate}</SVTODATE>` : '';
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Export</TALLYREQUEST>
+    <TYPE>Collection</TYPE>
+    <ID>IncrementalVouchersCollection</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}${fromDateTag}${toDateTag}
+      </STATICVARIABLES>
+      <TDL>
+        <TDLMESSAGE>
+          <COLLECTION NAME="IncrementalVouchersCollection" ISMODIFY="No">
+            <TYPE>Voucher</TYPE>
+            <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ISCANCELLED, ISOPTIONAL, ALLINVENTORYENTRIES.LIST, LEDGERENTRIES.LIST</FETCH>
+            <FILTER>IsChallanFilter, VoucherAlterFilter</FILTER>
+          </COLLECTION>
+          <SYSTEM TYPE="Formulae" NAME="IsChallanFilter">$$IsDeliveryNote:$VoucherTypeName or $$IsReceiptNote:$VoucherTypeName or $VoucherTypeName contains "Delivery" or $VoucherTypeName contains "Receipt Note" or $VoucherTypeName contains "Challan"</SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="VoucherAlterFilter">$$Number:$AlterId &gt; ${minAlterId}</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -228,12 +298,11 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
   const isAddition = params.qty > 0;
   const absQty = Math.abs(params.qty);
   const amount = (absQty * params.rateRupees).toFixed(2);
-  const staticVars = params.companyName
-    ? `<STATICVARIABLES>
-        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>
-      </STATICVARIABLES>`
-    : `<STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+  const companyTag = params.companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const staticVars = `<STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>`;
 
   const godown = escapeXml(params.godownName || 'Main Location');
@@ -325,12 +394,11 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
   const partySignPrefix = isPurchase ? '' : '-';
   const defaultLedger = params.salesLedgerName || (isPurchase ? 'Purchase Account' : 'Sales Account');
 
-  const staticVars = params.companyName
-    ? `<STATICVARIABLES>
-        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>
-      </STATICVARIABLES>`
-    : `<STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+  const companyTag = params.companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const staticVars = `<STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>`;
 
   const totalAmountNum = params.items.reduce((sum, item) => sum + item.qty * item.rateRupees, 0);

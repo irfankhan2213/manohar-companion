@@ -6,6 +6,7 @@ import {
   parseVouchersResponse,
   parseStockItemsResponse,
   parseVoucherImportResponse,
+  parseVoucherManifestResponse,
   parseTallyAmount,
 } from '../src/tally/parser.js';
 import {
@@ -15,6 +16,7 @@ import {
   getMockVouchersXml,
   getMockStockItemsXml,
   getMockVoucherImportResponseXml,
+  getMockVoucherManifestXml,
 } from '../src/tally/mock.js';
 
 describe('Tally Parser', () => {
@@ -229,5 +231,21 @@ describe('Tally Parser', () => {
     expect(bills[0]?.partyName).toBe('Real Tally Debtor');
     expect(bills[0]?.billNo).toBe('INV/101/26-27');
     expect(bills[0]?.pendingAmount).toBe(1250000);
+  });
+
+  it('parses VoucherManifestCollection XML into lightweight manifest items with masterId and alterId', () => {
+    const xml = getMockVoucherManifestXml();
+    const manifest = parseVoucherManifestResponse(xml);
+
+    expect(manifest.length).toBe(3);
+    expect(manifest[0]?.masterId).toBe('9001');
+    expect(manifest[0]?.alterId).toBe(1471);
+    expect(manifest[0]?.voucherNumber).toBe('DC/001/26-27');
+    expect(manifest[0]?.voucherTypeName).toBe('Delivery Note');
+    expect(manifest[0]?.guid).toBe('guid-9001');
+
+    expect(manifest[1]?.masterId).toBe('9002');
+    expect(manifest[1]?.alterId).toBe(1473);
+    expect(manifest[1]?.voucherNumber).toBe('RN/001/26-27');
   });
 });

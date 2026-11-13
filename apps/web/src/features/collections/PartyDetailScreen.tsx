@@ -59,6 +59,7 @@ export const PartyDetailScreen: React.FC = () => {
   // R4: Bills date range filter state
   const [billStartDate, setBillStartDate] = useState('');
   const [billEndDate, setBillEndDate] = useState('');
+  const [billStatusFilter, setBillStatusFilter] = useState<'all' | 'pending' | 'settled'>('all');
 
   // Challans date range filter state
   const [challanStartDate, setChallanStartDate] = useState('');
@@ -437,17 +438,48 @@ export const PartyDetailScreen: React.FC = () => {
                 />
               </div>
             </div>
+            {/* Status Segmented Filter */}
+            <div className="flex items-center gap-1.5 pt-1">
+              {(['all', 'pending', 'settled'] as const).map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setBillStatusFilter(filter)}
+                  className={`px-3 py-1 rounded-lg text-caption font-semibold transition-all ${
+                    billStatusFilter === filter
+                      ? 'bg-accent text-accent-contrast shadow-xs'
+                      : 'bg-fill/40 text-label-2 hover:bg-fill/60'
+                  }`}
+                >
+                  {filter === 'all' ? 'All' : filter === 'pending' ? 'Pending Dues' : 'Settled (Paid)'}
+                </button>
+              ))}
+            </div>
           </div>
 
           <InsetGroup>
-            {bills.length === 0 ? (
+            {bills.filter((b) => {
+              const isPartySettled = (party?.closingBalance ?? 0) <= 0 && Boolean(party?.notes?.includes('Imported from Tally'));
+              const effPending = isPartySettled ? 0 : b.pending;
+              if (billStatusFilter === 'pending') return effPending !== 0;
+              if (billStatusFilter === 'settled') return effPending === 0;
+              return true;
+            }).length === 0 ? (
               <div className="p-6 text-center text-label-2 text-subhead">
                 {billStartDate || billEndDate
                   ? 'No bills match the selected date range.'
-                  : 'No open bills for this customer.'}
+                  : billStatusFilter === 'pending'
+                    ? 'No pending dues for this customer.'
+                    : 'No bills found.'}
               </div>
             ) : (
-              bills.map((bill) => {
+              bills.filter((b) => {
+                const isPartySettled = (party?.closingBalance ?? 0) <= 0 && Boolean(party?.notes?.includes('Imported from Tally'));
+                const effPending = isPartySettled ? 0 : b.pending;
+                if (billStatusFilter === 'pending') return effPending !== 0;
+                if (billStatusFilter === 'settled') return effPending === 0;
+                return true;
+              }).map((bill) => {
                 const isPartySettled = (party?.closingBalance ?? 0) <= 0 && Boolean(party?.notes?.includes('Imported from Tally'));
                 const effPending = isPartySettled ? 0 : bill.pending;
                 const daysLate = effPending > 0 ? getDaysOverdue(bill.dueDate, FIXED_TODAY) : 0;

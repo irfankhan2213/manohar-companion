@@ -27,6 +27,7 @@ import { ChallanDetailScreen } from '../features/challans/ChallanDetailScreen.js
 import { TasksScreen } from '../features/tasks/TasksScreen.js';
 import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
 import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
+import { BalanceSheetScreen } from '../features/reports/BalanceSheetScreen.js';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -261,6 +262,14 @@ export const App: React.FC = () => {
                 element={
                   <RequirePermission perm="activity.view">
                     <ActivityScreen />
+                  </RequirePermission>
+                }
+              />
+              <Route
+                path="/reports/balance-sheet"
+                element={
+                  <RequirePermission perm="ledgers.view">
+                    <BalanceSheetScreen />
                   </RequirePermission>
                 }
               />

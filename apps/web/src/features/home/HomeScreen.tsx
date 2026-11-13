@@ -119,6 +119,11 @@ export const HomeScreen: React.FC = () => {
                   </>
                 )}
               </div>
+              {!isLoading && (summary as any)?.advanceCredit > 0 && (
+                <span className="text-[11px] text-label-3 mt-0.5">
+                  Gross: {formatINR((summary as any)?.grossDebit ?? 0)} · Advances: {formatINR((summary as any)?.advanceCredit ?? 0)} Cr
+                </span>
+              )}
             </div>
 
             {/* Total Credit (Below) */}

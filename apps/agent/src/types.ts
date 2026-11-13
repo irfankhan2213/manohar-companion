@@ -62,6 +62,18 @@ export interface TallyChallanSync {
   notes?: string;
   vehicleNo?: string;
   roundOff?: number;
+  masterId?: string;
+  alterId?: number;
+  guid?: string;
+}
+
+export interface VoucherManifestItem {
+  masterId: string;
+  alterId: number;
+  voucherNumber: string;
+  voucherTypeName?: string;
+  date?: string;
+  guid?: string;
 }
 
 export interface TallySyncPayload {
@@ -70,6 +82,7 @@ export interface TallySyncPayload {
   bills: TallyBill[];
   stockItems: TallyStockItem[];
   challans?: TallyChallanSync[];
+  deletedVoucherMasterIds?: string[];
   maxAlterId: number;
   syncedAt: string;
   durationMs: number;
@@ -81,6 +94,7 @@ export interface CompanySyncConfig {
   tallyName?: string;
   lastAlterId?: number;
   lastSyncedAt?: string;
+  activeVoucherMasterIds?: string[];
 }
 
 export interface AgentConfig {
@@ -115,6 +129,7 @@ export interface AgentState {
     billsUpdated: number;
     stockUpdated: number;
   };
+  activeVoucherMasterIds?: string[];
 }
 
 export interface VoucherImportResult {

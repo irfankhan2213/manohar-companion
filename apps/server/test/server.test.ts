@@ -1033,4 +1033,111 @@ describe('Manohar Backend API & Sync Server', () => {
     expect(challansByDateRes.status).toBe(200);
     expect(challansByDateRes.body.every((c: any) => c.date >= '2026-10-01' && c.date <= '2026-10-31')).toBe(true);
   });
+
+  it('purges deleted vouchers in database when /api/sync/push receives deletedVoucherMasterIds (R1)', async () => {
+    // 1. Seed challans and bills for a company
+    const compName = 'Purge Test Company';
+    const initialPush = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyName: compName,
+        parties: [{ id: 'p-purge-1', name: 'Purge Party', parentGroup: 'Sundry Debtors', partyType: 'debtor' }],
+        bills: [
+          { id: 'b-keep-1', billNo: 'INV/KEEP/1', date: '2026-10-01', dueDate: '2026-10-31', amount: 50000, pending: 50000, partyId: 'p-purge-1' },
+          { id: 'b-del-1', billNo: 'INV/DEL/1', date: '2026-10-02', dueDate: '2026-10-31', amount: 30000, pending: 30000, partyId: 'p-purge-1' },
+        ],
+        challans: [
+          { id: 'ch-keep-1', number: 'DC/KEEP/1', date: '2026-10-01', partyId: 'p-purge-1', lines: [] },
+          { id: 'ch-del-1', number: 'DC/DEL/1', date: '2026-10-02', partyId: 'p-purge-1', lines: [] },
+        ],
+      });
+    expect(initialPush.status).toBe(200);
+    const compId = initialPush.body.companyId;
+
+    // Verify both exist
+    const preChallans = await request(app).get(`/api/challans?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(preChallans.body.some((c: any) => c.number === 'DC/DEL/1')).toBe(true);
+    expect(preChallans.body.some((c: any) => c.number === 'DC/KEEP/1')).toBe(true);
+
+    const preBills = await request(app).get(`/api/bills?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(preBills.body.some((b: any) => b.billNo === 'INV/DEL/1')).toBe(true);
+    expect(preBills.body.some((b: any) => b.billNo === 'INV/KEEP/1')).toBe(true);
+
+    // 2. Push with deletedVoucherMasterIds containing the deleted voucher numbers/IDs
+    const purgePush = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: compId,
+        companyName: compName,
+        deletedVoucherMasterIds: ['DC/DEL/1', 'INV/DEL/1'],
+      });
+    expect(purgePush.status).toBe(200);
+
+    // 3. Verify deleted records are purged while kept records remain
+    const postChallans = await request(app).get(`/api/challans?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(postChallans.body.some((c: any) => c.number === 'DC/DEL/1')).toBe(false);
+    expect(postChallans.body.some((c: any) => c.number === 'DC/KEEP/1')).toBe(true);
+
+    const postBills = await request(app).get(`/api/bills?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(postBills.body.some((b: any) => b.billNo === 'INV/DEL/1')).toBe(false);
+    expect(postBills.body.some((b: any) => b.billNo === 'INV/KEEP/1')).toBe(true);
+  });
+
+  it('purges deleted vouchers in database when /api/sync/push receives paired voucherNumber and masterId (R1 Polish)', async () => {
+    const compName = 'Purge Test Company Paired';
+    const initialPush = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyName: compName,
+        parties: [{ id: 'p-paired-1', name: 'Paired Party', parentGroup: 'Sundry Debtors', partyType: 'debtor' }],
+        bills: [
+          { id: 'b-pair-keep', billNo: 'INV/KEEP/2', date: '2026-10-01', dueDate: '2026-10-31', amount: 40000, pending: 40000, partyId: 'p-paired-1' },
+          { id: 'b-pair-del', billNo: 'INV/DEL/2', date: '2026-10-02', dueDate: '2026-10-31', amount: 20000, pending: 20000, partyId: 'p-paired-1' },
+        ],
+        challans: [
+          { id: 'ch-pair-keep', number: 'DC/KEEP/2', date: '2026-10-01', partyId: 'p-paired-1', lines: [] },
+          { id: 'ch-pair-del', number: 'DC/DEL/2', date: '2026-10-02', partyId: 'p-paired-1', lines: [] },
+        ],
+      });
+    expect(initialPush.status).toBe(200);
+    const compId = initialPush.body.companyId;
+
+    // Both voucherNumber and masterId sent by agent manifest diffing:
+    const purgePush = await request(app)
+      .post('/api/sync/push')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: compId,
+        companyName: compName,
+        deletedVoucherMasterIds: ['DC/DEL/2', '9002', 'INV/DEL/2', '9003'],
+      });
+    expect(purgePush.status).toBe(200);
+
+    const postChallans = await request(app).get(`/api/challans?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(postChallans.body.some((c: any) => c.number === 'DC/DEL/2')).toBe(false);
+    expect(postChallans.body.some((c: any) => c.number === 'DC/KEEP/2')).toBe(true);
+
+    const postBills = await request(app).get(`/api/bills?companyId=${compId}`).set('Authorization', `Bearer ${authToken}`);
+    expect(postBills.body.some((b: any) => b.billNo === 'INV/DEL/2')).toBe(false);
+    expect(postBills.body.some((b: any) => b.billNo === 'INV/KEEP/2')).toBe(true);
+  });
+
+  it('preserves reported port 9999 without resetting to 25853 in /api/agent/sync (R1)', async () => {
+    const syncRes = await request(app)
+      .post('/api/agent/sync')
+      .set('x-agent-key', 'dev-agent-secret-key')
+      .send({
+        tallyPort: 9999,
+        tallyStatus: 'online',
+        companyName: 'Manohar Traders',
+      });
+    expect(syncRes.status).toBe(200);
+
+    const db = getDB();
+    const stateRow = db.prepare("SELECT value FROM agent_state WHERE key LIKE 'tallyPort_%' LIMIT 1").get() as any;
+    expect(stateRow?.value).toBe('9999');
+  });
 });

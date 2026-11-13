@@ -9,6 +9,7 @@ import {
   Languages,
   ShieldCheck,
   Smartphone,
+  Scale,
 } from 'lucide-react';
 import { can } from '@saas/shared';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -68,6 +69,14 @@ export const MoreScreen: React.FC = () => {
             title="Activity Log"
             chevron
             onClick={() => navigate('/activity')}
+          />
+        )}
+        {can(actor, 'ledgers.view') && (
+          <Row
+            leading={<Scale className="w-5 h-5 text-accent" />}
+            title="Balance Sheet"
+            chevron
+            onClick={() => navigate('/reports/balance-sheet')}
           />
         )}
       </InsetGroup>

@@ -288,6 +288,8 @@ export function getMockVouchersXml(): string {
     <DATA>
       <TALLYMESSAGE>
         <VOUCHER VCHTYPE="Delivery Note">
+          <MASTERID>9001</MASTERID>
+          <ALTERID>1471</ALTERID>
           <DATE>20261015</DATE>
           <VOUCHERTYPENAME>Delivery Note</VOUCHERTYPENAME>
           <VOUCHERNUMBER>DC/001/26-27</VOUCHERNUMBER>
@@ -303,6 +305,8 @@ export function getMockVouchersXml(): string {
       </TALLYMESSAGE>
       <TALLYMESSAGE>
         <VOUCHER VCHTYPE="Receipt Note">
+          <MASTERID>9002</MASTERID>
+          <ALTERID>1473</ALTERID>
           <DATE>20261016</DATE>
           <VOUCHERTYPENAME>Receipt Note</VOUCHERTYPENAME>
           <VOUCHERNUMBER>RN/001/26-27</VOUCHERNUMBER>
@@ -318,6 +322,8 @@ export function getMockVouchersXml(): string {
       </TALLYMESSAGE>
       <TALLYMESSAGE>
         <VOUCHER VCHTYPE="Sales">
+          <MASTERID>9003</MASTERID>
+          <ALTERID>1475</ALTERID>
           <DATE>20261010</DATE>
           <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
           <VOUCHERNUMBER>INV/MOCK/101</VOUCHERNUMBER>
@@ -331,6 +337,114 @@ export function getMockVouchersXml(): string {
           </ALLINVENTORYENTRIES.LIST>
         </VOUCHER>
       </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function getMockVoucherManifestXml(activeMasterIds?: string[]): string {
+  const allManifest = [
+    { masterId: '9001', alterId: 1471, voucherNumber: 'DC/001/26-27', type: 'Delivery Note', date: '20261015' },
+    { masterId: '9002', alterId: 1473, voucherNumber: 'RN/001/26-27', type: 'Receipt Note', date: '20261016' },
+    { masterId: '9003', alterId: 1475, voucherNumber: 'INV/MOCK/101', type: 'Sales', date: '20261010' },
+  ];
+  const items = activeMasterIds
+    ? allManifest.filter((m) => activeMasterIds.includes(m.masterId))
+    : allManifest;
+
+  const vchXml = items
+    .map(
+      (m) => `
+        <VOUCHER>
+          <MASTERID>${m.masterId}</MASTERID>
+          <ALTERID>${m.alterId}</ALTERID>
+          <VOUCHERNUMBER>${m.voucherNumber}</VOUCHERNUMBER>
+          <VOUCHERTYPENAME>${m.type}</VOUCHERTYPENAME>
+          <DATE>${m.date}</DATE>
+          <GUID>guid-${m.masterId}</GUID>
+        </VOUCHER>`
+    )
+    .join('');
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <STATUS>1</STATUS>
+  </HEADER>
+  <BODY>
+    <DATA>
+      <COLLECTION NAME="VoucherManifestCollection">
+        ${vchXml}
+      </COLLECTION>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+export function getMockIncrementalVouchersXml(minAlterId: number = 0): string {
+  const allVouchers = [
+    {
+      masterId: '9001',
+      alterId: 1471,
+      vchType: 'Delivery Note',
+      date: '20261015',
+      number: 'DC/001/26-27',
+      party: 'Sample Garments Pvt Ltd',
+      narration: 'Delivery of motors',
+      item: 'Servo Motor (550W)',
+      qty: '2 pcs',
+      rate: '4200.00/pcs',
+      amount: '-8400.00',
+    },
+    {
+      masterId: '9002',
+      alterId: 1473,
+      vchType: 'Receipt Note',
+      date: '20261016',
+      number: 'RN/001/26-27',
+      party: 'Standard Sewing Machines Ltd',
+      narration: 'Goods received at main godown',
+      item: 'Hook Assembly - Heavy Duty',
+      qty: '5 pcs',
+      rate: '1450.00/pcs',
+      amount: '7250.00',
+    },
+  ];
+
+  const filtered = allVouchers.filter((v) => v.alterId > minAlterId);
+  const vchXml = filtered
+    .map(
+      (v) => `
+      <TALLYMESSAGE>
+        <VOUCHER VCHTYPE="${v.vchType}">
+          <MASTERID>${v.masterId}</MASTERID>
+          <ALTERID>${v.alterId}</ALTERID>
+          <DATE>${v.date}</DATE>
+          <VOUCHERTYPENAME>${v.vchType}</VOUCHERTYPENAME>
+          <VOUCHERNUMBER>${v.number}</VOUCHERNUMBER>
+          <PARTYLEDGERNAME>${v.party}</PARTYLEDGERNAME>
+          <NARRATION>${v.narration}</NARRATION>
+          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>${v.item}</STOCKITEMNAME>
+            <BILLEDQTY>${v.qty}</BILLEDQTY>
+            <RATE>${v.rate}</RATE>
+            <AMOUNT>${v.amount}</AMOUNT>
+          </ALLINVENTORYENTRIES.LIST>
+        </VOUCHER>
+      </TALLYMESSAGE>`
+    )
+    .join('');
+
+  return `<?xml version="1.0" encoding="utf-8"?>
+<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <STATUS>1</STATUS>
+  </HEADER>
+  <BODY>
+    <DATA>
+      ${vchXml}
     </DATA>
   </BODY>
 </ENVELOPE>`;

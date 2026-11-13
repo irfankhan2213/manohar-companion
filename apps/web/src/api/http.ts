@@ -343,4 +343,8 @@ export const httpApiClient: ApiClient = {
         ),
     },
   },
+  reports: {
+    balanceSheet: (companyId?: string) =>
+      fetchJSON<any>(`/reports/balance-sheet${companyId ? `?companyId=${companyId}` : ''}`),
+  },
 };

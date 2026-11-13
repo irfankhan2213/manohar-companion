@@ -26,16 +26,9 @@ const savedState = store.get();
 const cloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
 const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || '');
 const agentSecretKey = keyArg ? keyArg.split('=')[1] : (process.env.AGENT_KEY || savedState.agentSecretKey || 'dev-agent-secret-key');
-const rawTallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:25853');
+const rawTallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:9000');
 let customPort = (savedState as any)?.tallyPort || (savedState as any)?.port;
-if (customPort === 9999) {
-  // 9999 was an invalid legacy auto-scan target; force reset to 25853
-  customPort = 25853;
-}
-let tallyUrl = rawTallyUrl || 'http://127.0.0.1:25853';
-if (tallyUrl.includes(':9999')) {
-  tallyUrl = tallyUrl.replace(':9999', ':25853');
-}
+let tallyUrl = rawTallyUrl || 'http://127.0.0.1:9000';
 if (customPort && !tallyArg) {
   try {
     const u = new URL(tallyUrl);
@@ -44,9 +37,6 @@ if (customPort && !tallyArg) {
   } catch {
     tallyUrl = `http://127.0.0.1:${customPort}`;
   }
-}
-if ((savedState as any)?.tallyPort === 9999 || (savedState as any)?.tallyUrl?.includes('9999')) {
-  store.update({ tallyPort: 25853, tallyUrl: 'http://127.0.0.1:25853' });
 }
 
 const client = new TallyClient({

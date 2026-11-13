@@ -7,6 +7,8 @@ import {
   buildStockItemsQuery,
   buildStockJournalVoucherXml,
   buildDeliveryChallanVoucherXml,
+  buildVoucherManifestQuery,
+  buildVouchersIncrementalQuery,
 } from '../src/tally/templates.js';
 
 describe('Tally XML Templates', () => {
@@ -99,5 +101,60 @@ describe('Tally XML Templates', () => {
     expect(escapeXml(0)).toBe('0');
     expect(escapeXml(123)).toBe('123');
     expect(escapeXml('A & B < C > "D" \'E\'')).toBe('A &amp; B &lt; C &gt; &quot;D&quot; &apos;E&apos;');
+  });
+
+  it('generates voucher manifest query XML with company scoping and export format', () => {
+    const xml = buildVoucherManifestQuery('Manohar Traders');
+    expect(xml).toContain('<ID>VoucherManifestCollection</ID>');
+    expect(xml).toContain('<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>');
+    expect(xml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+    expect(xml).toContain('<FETCH>MASTERID, ALTERID, VOUCHERNUMBER, VOUCHERTYPENAME, DATE, GUID</FETCH>');
+  });
+
+  it('generates incremental vouchers query with numeric AlterId formula and date range', () => {
+    const xml = buildVouchersIncrementalQuery(1500, 'Manohar Traders', '20260401', '20261031');
+    expect(xml).toContain('<ID>IncrementalVouchersCollection</ID>');
+    expect(xml).toContain('<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>');
+    expect(xml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+    expect(xml).toContain('<SVFROMDATE>20260401</SVFROMDATE>');
+    expect(xml).toContain('<SVTODATE>20261031</SVTODATE>');
+    expect(xml).toContain('<FILTER>IsChallanFilter, VoucherAlterFilter</FILTER>');
+    expect(xml).toContain('NAME="IsChallanFilter"');
+    expect(xml).toContain('$$Number:$AlterId &gt; 1500');
+  });
+
+  it('retains SVEXPORTFORMAT along with SVCURRENTCOMPANY in voucher mutation XML templates', () => {
+    const journalXml = buildStockJournalVoucherXml({
+      date: '20261017',
+      voucherNumber: 'ADJ/001',
+      narration: 'Damaged stock',
+      itemName: 'Servo Motor 550W (Direct Drive)',
+      godownName: 'Shop Godown',
+      qty: -1,
+      unit: 'pcs',
+      rateRupees: 4200,
+      companyName: 'Manohar Traders',
+    });
+    expect(journalXml).toContain('<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>');
+    expect(journalXml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+
+    const challanXml = buildDeliveryChallanVoucherXml({
+      date: '20261017',
+      voucherNumber: 'DC/001/26-27',
+      partyName: 'Sample Garments Pvt Ltd',
+      narration: 'Delivery note',
+      companyName: 'Manohar Traders',
+      items: [
+        {
+          itemName: 'Servo Motor 550W (Direct Drive)',
+          godownName: 'Shop Godown',
+          qty: 2,
+          unit: 'pcs',
+          rateRupees: 4200,
+        },
+      ],
+    });
+    expect(challanXml).toContain('<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>');
+    expect(challanXml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
   });
 });
