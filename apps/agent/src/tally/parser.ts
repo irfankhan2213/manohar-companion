@@ -412,6 +412,22 @@ export function parseVouchersResponse(
       vchTypeLower.includes('goods receipt') ||
       (vchTypeLower.includes('challan') && (vchTypeLower.includes('purchase') || vchTypeLower.includes('receipt')));
 
+    // Check for Round Off ledger entries in voucher
+    const rawLedgersList = toArray(
+      v['ALLLEDGERENTRIES.LIST'] ||
+      v['LEDGERENTRIES.LIST'] ||
+      v.ALLLEDGERENTRIES ||
+      v.LEDGERENTRIES
+    );
+    let roundOffPaise = 0;
+    for (const le of rawLedgersList) {
+      if (!le || typeof le !== 'object') continue;
+      const lName = extractXmlText(le.LEDGERNAME || le.NAME).toLowerCase();
+      if (lName.includes('round off') || lName.includes('round-off') || lName.includes('rounding')) {
+        roundOffPaise = parseTallyAmount(le.AMOUNT);
+      }
+    }
+
     const masterId = extractXmlText(v.MASTERID || v['@_MASTERID'] || v.GUID) || undefined;
     const alterId = parseInt(extractXmlText(v.ALTERID || v['@_ALTERID']) || '0', 10) || undefined;
     const guid = extractXmlText(v.GUID || v['@_GUID']) || undefined;
@@ -425,7 +441,7 @@ export function parseVouchersResponse(
         status: 'delivered',
         lines,
         notes: narration || undefined,
-        roundOff: 0,
+        roundOff: roundOffPaise,
         masterId,
         alterId,
         guid,

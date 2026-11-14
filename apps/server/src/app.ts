@@ -907,6 +907,9 @@ export function createApp(dbPath?: string): express.Express {
       } else {
         query += " AND (partyType = 'debtor' OR partyType IS NULL OR parentGroup LIKE '%Debtor%' OR notes LIKE '%debtor%') AND NOT (parentGroup LIKE '%Creditor%' OR notes LIKE '%creditor%')";
       }
+    } else if (req.query.type !== 'all_ledgers' && req.query.includeAllLedgers !== 'true') {
+      // By default, list only trade parties (Sundry Debtors & Sundry Creditors) for customer/vendor views
+      query += " AND (partyType IN ('debtor', 'creditor') OR parentGroup LIKE '%Debtor%' OR parentGroup LIKE '%Creditor%' OR notes LIKE '%debtor%' OR notes LIKE '%creditor%')";
     }
     const rows = db.prepare(query).all(...params) as any[];
     let parties: Party[] = rows.map(p => {
@@ -2133,9 +2136,9 @@ export function createApp(dbPath?: string): express.Express {
       } else if (parent.includes('bank')) {
         bankAccounts += bal;
       } else if (parent.includes('capital')) {
-        capitalAccount += bal;
+        capitalAccount += Math.abs(bal);
       } else if (parent.includes('loan')) {
-        loansLiability += bal;
+        loansLiability += Math.abs(bal);
       } else if (parent.includes('profit') || parent.includes('loss')) {
         profitAndLoss += bal;
       } else if (type === 'creditor' || parent.includes('creditor')) {
@@ -5264,17 +5267,36 @@ export function createApp(dbPath?: string): express.Express {
               : p.id;
         partyIdRemap.set(p.id, safePartyId);
         const notesStr = String(p.notes || existing?.notes || '');
+        const parentLower = (p.parentGroup || existing?.parentGroup || '').toLowerCase();
         const isCreditor = p.partyType === 'creditor'
-          || (p.parentGroup && p.parentGroup.toLowerCase().includes('creditor'))
-          || (existing?.parentGroup && existing.parentGroup.toLowerCase().includes('creditor'))
+          || parentLower.includes('creditor')
+          || parentLower.includes('supplier')
           || notesStr.toLowerCase().includes('creditor')
           || notesStr.toLowerCase().includes('supplier');
         const isDebtor = p.partyType === 'debtor'
-          || (p.parentGroup && p.parentGroup.toLowerCase().includes('debtor'))
-          || (existing?.parentGroup && existing.parentGroup.toLowerCase().includes('debtor'))
-          || (!p.parentGroup && !isCreditor && (!p.partyType || p.partyType === 'debtor'));
-        const partyType = isCreditor ? 'creditor' : (isDebtor ? 'debtor' : (p.partyType || 'other'));
-        const parentGroup = isCreditor ? 'Sundry Creditors' : (p.parentGroup || existing?.parentGroup || (isDebtor ? 'Sundry Debtors' : 'Other'));
+          || parentLower.includes('debtor')
+          || parentLower.includes('customer')
+          || (!parentLower && !isCreditor && (!p.partyType || p.partyType === 'debtor'));
+        const isCash = p.partyType === 'cash' || parentLower.includes('cash');
+        const isBank = p.partyType === 'bank' || parentLower.includes('bank');
+        const isTax = p.partyType === 'tax' || parentLower.includes('duties') || parentLower.includes('tax');
+        const isCapital = p.partyType === 'capital' || parentLower.includes('capital');
+        const isLoan = p.partyType === 'loan' || parentLower.includes('loan');
+        const isExpense = p.partyType === 'expense' || parentLower.includes('expense');
+        const isIncome = p.partyType === 'income' || parentLower.includes('income') || parentLower.includes('sales');
+
+        let partyType = p.partyType || 'other';
+        if (isCreditor) partyType = 'creditor';
+        else if (isDebtor) partyType = 'debtor';
+        else if (isCash) partyType = 'cash';
+        else if (isBank) partyType = 'bank';
+        else if (isTax) partyType = 'tax';
+        else if (isCapital) partyType = 'capital';
+        else if (isLoan) partyType = 'loan';
+        else if (isExpense) partyType = 'expense';
+        else if (isIncome) partyType = 'income';
+
+        const parentGroup = p.parentGroup || existing?.parentGroup || (isCreditor ? 'Sundry Creditors' : (isDebtor ? 'Sundry Debtors' : 'Other'));
         const closing = p.closingBalance ?? existing?.closingBalance ?? 0;
         stmt.run(
           safePartyId,

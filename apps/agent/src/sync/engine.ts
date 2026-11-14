@@ -647,31 +647,51 @@ export class SyncEngine {
     const key = this.agentSecretKey || state.agentSecretKey || 'dev-agent-secret-key';
     const companyPrefix = companyId ? `${slugify(companyId)}-` : (companyName ? `${slugify(companyName)}-` : '');
 
-    // Map ledgers (Sundry Debtors & Creditors) to Parties with company-scoped IDs to prevent cross-company collisions
+    // Map ALL ledgers (Sundry Debtors, Creditors, Cash, Bank, Taxes, Capital, etc.) to Parties
+    // with company-scoped IDs to prevent cross-company collisions and enable full Balance Sheet & P&L parity
     for (const l of payload.ledgers) {
-      if (l.isSundryCreditor || l.parent.toLowerCase().includes('creditor') || l.parent.toLowerCase().includes('supplier')) {
+      if (l.isSundryCreditor || (l.parent && (l.parent.toLowerCase().includes('creditor') || l.parent.toLowerCase().includes('supplier')))) {
         this.knownCreditors.add(l.name.toLowerCase().trim());
       }
     }
 
-    const parties = payload.ledgers
-      .filter((l) => l.isSundryDebtor || l.isSundryCreditor || l.parent.toLowerCase().includes('debtor') || l.parent.toLowerCase().includes('creditor'))
-      .map((l) => {
-        const isCreditor = l.isSundryCreditor || l.parent.toLowerCase().includes('creditor') || l.parent.toLowerCase().includes('supplier');
-        return {
-          id: `p-${companyPrefix}${slugify(l.name)}`,
-          name: l.name,
-          city: '',
-          phones: l.phone ? [l.phone] : [],
-          customPhones: [], // Ensure local custom numbers are NEVER pushed back to Tally
-          parentGroup: l.parent || (isCreditor ? 'Sundry Creditors' : 'Sundry Debtors'),
-          partyType: (isCreditor ? 'creditor' : 'debtor') as 'debtor' | 'creditor',
-          gstin: l.gstin || null,
-          creditDays: l.creditDays || 30,
-          notes: `Imported from Tally (${l.parent})`,
-          closingBalance: l.closingBalance || 0,
-        };
-      });
+    const parties = payload.ledgers.map((l) => {
+      const parentLower = (l.parent || '').toLowerCase();
+      const isCreditor = l.isSundryCreditor || parentLower.includes('creditor') || parentLower.includes('supplier');
+      const isDebtor = l.isSundryDebtor || parentLower.includes('debtor') || parentLower.includes('customer');
+      const isCash = parentLower.includes('cash');
+      const isBank = parentLower.includes('bank');
+      const isTax = parentLower.includes('duties') || parentLower.includes('tax');
+      const isCapital = parentLower.includes('capital');
+      const isLoan = parentLower.includes('loan');
+      const isExpense = parentLower.includes('expense');
+      const isIncome = parentLower.includes('income') || parentLower.includes('sales');
+
+      let partyType: string = 'other';
+      if (isCreditor) partyType = 'creditor';
+      else if (isDebtor) partyType = 'debtor';
+      else if (isCash) partyType = 'cash';
+      else if (isBank) partyType = 'bank';
+      else if (isTax) partyType = 'tax';
+      else if (isCapital) partyType = 'capital';
+      else if (isLoan) partyType = 'loan';
+      else if (isExpense) partyType = 'expense';
+      else if (isIncome) partyType = 'income';
+
+      return {
+        id: `p-${companyPrefix}${slugify(l.name)}`,
+        name: l.name,
+        city: '',
+        phones: l.phone ? [l.phone] : [],
+        customPhones: [], // Ensure local custom numbers are NEVER pushed back to Tally
+        parentGroup: l.parent || (isCreditor ? 'Sundry Creditors' : isDebtor ? 'Sundry Debtors' : 'Other'),
+        partyType,
+        gstin: l.gstin || null,
+        creditDays: l.creditDays || 30,
+        notes: `Imported from Tally (${l.parent || 'Ledger'})`,
+        closingBalance: l.closingBalance || 0,
+      };
+    });
 
     // Map bills to Bills with company-scoped IDs and preserved opening invoice amounts,
     // excluding supplier payables (Sundry Creditors) so they are not lumped into customer receivables

@@ -24,10 +24,15 @@ import { StatusText } from '../../components/ui/StatusText.js';
 export const HomeScreen: React.FC = () => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { currentCompanyId, currentRole, currentUser, currentTenant } = useAppStore();
+  const { currentCompanyId, setCompanyId, currentRole, currentUser, currentTenant } = useAppStore();
   const actor = currentUser || currentRole;
   const canViewLedgers = can(actor, 'ledgers.view');
   const canSend = can(actor, 'reminders.send');
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['home-summary', currentTenant?.id || 'default', currentCompanyId],
@@ -64,6 +69,34 @@ export const HomeScreen: React.FC = () => {
         </div>
       }
     >
+      {/* Active Company Context Switcher Bar */}
+      <div className="flex items-center justify-between pb-1.5 px-0.5">
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-bold text-label-3 uppercase tracking-wider">Company:</span>
+          <select
+            value={currentCompanyId}
+            onChange={(e) => setCompanyId(e.target.value as any)}
+            className="bg-surface text-label text-subhead font-semibold px-2.5 py-1 rounded-lg border border-separator/50 shadow-sm focus:outline-none focus:ring-1 focus:ring-accent"
+          >
+            <option value="all">All Companies (Consolidated)</option>
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {canViewLedgers && (
+          <button
+            type="button"
+            onClick={() => navigate('/reports/balance-sheet')}
+            className="text-footnote font-semibold text-accent hover:underline flex items-center gap-1"
+          >
+            <span>Balance Sheet ↗</span>
+          </button>
+        )}
+      </div>
+
       {/* Hero Metric Card: Apple Calm Inset Card */}
       {!canViewLedgers ? (
         <div className="bg-surface rounded-ios-card p-5 border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] flex flex-col gap-3">
@@ -144,14 +177,24 @@ export const HomeScreen: React.FC = () => {
               </span>
             </button>
 
-            <div className="inline-flex items-center gap-1.5 mt-2.5 px-3 py-1 rounded-full bg-danger/10 border border-danger/15 w-fit">
-              <span className="w-1.5 h-1.5 rounded-full bg-danger" />
-              <span className="text-footnote text-danger font-semibold tabular-nums">
-                {t('home.isOverdue', {
-                  amount: formatINR(summary?.totalOverdue ?? 0),
-                  defaultValue: `${formatINR(summary?.totalOverdue ?? 0)} is overdue`,
-                })}
-              </span>
+            <div className="flex items-center gap-2 mt-2.5 flex-wrap">
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-danger/10 border border-danger/15 w-fit">
+                <span className="w-1.5 h-1.5 rounded-full bg-danger" />
+                <span className="text-footnote text-danger font-semibold tabular-nums">
+                  {t('home.isOverdue', {
+                    amount: formatINR(summary?.totalOverdue ?? 0),
+                    defaultValue: `${formatINR(summary?.totalOverdue ?? 0)} is overdue`,
+                  })}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate('/reports/balance-sheet')}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-separator/40 hover:bg-fill/50 text-[11px] font-medium text-label-2 transition-all"
+              >
+                <CheckCircle2 className="w-3 h-3 text-ok" />
+                <span>Tally Balance Sheet Match</span>
+              </button>
             </div>
           </div>
 
