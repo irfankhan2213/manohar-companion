@@ -387,14 +387,60 @@ export class TallyClient {
     return parseStockItemsResponse(xml);
   }
 
+  public static readonly STANDARD_VOUCHER_TYPES: readonly string[] = [
+    'Sales',
+    'Purchase',
+    'Payment',
+    'Receipt',
+    'Journal',
+    'Contra',
+    'Credit Note',
+    'Debit Note',
+    'Delivery Note',
+    'Receipt Note',
+  ];
+
   public async getAllVouchers(
     minAlterId: number = 0,
     companyName?: string,
     fromDate?: string,
-    toDate?: string
+    toDate?: string,
+    voucherType?: string
   ): Promise<{ vouchers: TallySyncVoucher[]; maxAlterId: number }> {
-    const xml = await this.postXml(buildAllVouchersQuery(minAlterId, companyName, fromDate, toDate));
+    const xml = await this.postXml(buildAllVouchersQuery(minAlterId, companyName, fromDate, toDate, voucherType));
     return parseAllVouchersResponse(xml);
+  }
+
+  /**
+   * Fetches vouchers chunked by voucher type to prevent Tally memory exhaustion & freezing on large databases
+   */
+  public async getAllVouchersChunked(
+    minAlterId: number = 0,
+    companyName?: string,
+    voucherTypes?: string[]
+  ): Promise<{ vouchers: TallySyncVoucher[]; maxAlterId: number }> {
+    const typesToFetch = voucherTypes && voucherTypes.length > 0 ? voucherTypes : TallyClient.STANDARD_VOUCHER_TYPES;
+    const allVouchers: TallySyncVoucher[] = [];
+    let maxAlter = minAlterId;
+    const seenIds = new Set<string>();
+
+    for (const vType of typesToFetch) {
+      try {
+        const res = await this.getAllVouchers(minAlterId, companyName, undefined, undefined, vType);
+        if (res.maxAlterId > maxAlter) maxAlter = res.maxAlterId;
+        for (const v of res.vouchers) {
+          const key = v.id || v.masterId || `${v.voucherType}-${v.voucherNumber}-${v.date}`;
+          if (!seenIds.has(key)) {
+            seenIds.add(key);
+            allVouchers.push(v);
+          }
+        }
+      } catch (err: any) {
+        console.warn(`[TallyClient] Notice fetching vouchers for type ${vType}: ${err?.message || err}`);
+      }
+    }
+
+    return { vouchers: allVouchers, maxAlterId: maxAlter };
   }
 
   public async getGroups(companyName?: string): Promise<TallyGroup[]> {

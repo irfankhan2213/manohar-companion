@@ -5346,7 +5346,18 @@ export function createApp(dbPath?: string): express.Express {
             )
             ? `${resolvedCompanyId}_${mappedPartyId}_${b.id}`
             : b.id;
-        stmt.run(safeBillId, resolvedCompanyId, mappedPartyId, b.billNo, b.date, b.dueDate, b.dueDays || 30, b.amount, b.pending, b.source || 'tally_bill');
+        stmt.run(
+          safeBillId,
+          resolvedCompanyId,
+          mappedPartyId,
+          b.billNo,
+          b.date,
+          b.dueDate || null,
+          b.dueDays || 30,
+          b.amount ?? 0,
+          b.pending ?? 0,
+          b.source || 'tally_bill'
+        );
         activeSyncedBillIds.push(safeBillId);
         billsUpdated++;
       }
@@ -5645,6 +5656,37 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    if (Array.isArray(groups)) {
+      const grpStmt = db.prepare(`
+        INSERT INTO tally_groups (id, companyId, name, parent, primaryGroup, isRevenue, isDeemedPositive, alterId)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          companyId = excluded.companyId,
+          name = excluded.name,
+          parent = excluded.parent,
+          primaryGroup = excluded.primaryGroup,
+          isRevenue = excluded.isRevenue,
+          isDeemedPositive = excluded.isDeemedPositive,
+          alterId = excluded.alterId
+      `);
+      for (const g of groups) {
+        if (!g.name) continue;
+        const gSlug = String(g.name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-');
+        const gId = `grp-${resolvedCompanyId}-${gSlug}`;
+        grpStmt.run(
+          gId,
+          resolvedCompanyId,
+          g.name,
+          g.parent || null,
+          (g as any).primaryGroup || null,
+          (g as any).isRevenue ? 1 : 0,
+          (g as any).isDeemedPositive ? 1 : 0,
+          (g as any).alterId || 0
+        );
+        groupsUpdated++;
+      }
+    }
+
     db.prepare(`
       INSERT INTO sync_batches (companyId, syncedAt, alterId, vouchersCount, ledgersCount, stockCount)
       VALUES (?, ?, ?, ?, ?, ?)
@@ -5704,6 +5746,8 @@ export function createApp(dbPath?: string): express.Express {
       billsUpdated,
       challansUpdated,
       stockUpdated,
+      vouchersUpdated,
+      groupsUpdated,
       commands: commandsToSend,
       tenantCompanies,
     });
@@ -5711,6 +5755,13 @@ export function createApp(dbPath?: string): express.Express {
       console.error('PUSH EXCEPTION:', err);
       return res.status(500).json({ error: err.message, stack: err.stack });
     }
+  });
+
+  app.get('/api/groups', (req, res) => {
+    const user = getRequestUser(req);
+    const companyId = (req.query.companyId as string) || 'comp-manohar';
+    const groups = db.prepare('SELECT * FROM tally_groups WHERE companyId = ? ORDER BY name ASC').all(companyId);
+    res.json({ groups });
   });
 
   app.get('/api/sync/pull', (req, res) => {

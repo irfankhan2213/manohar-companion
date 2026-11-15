@@ -300,7 +300,14 @@ export class SyncEngine {
         vouchers = allVchResult.vouchers || [];
         if (allVchResult.maxAlterId > maxAlterId) maxAlterId = allVchResult.maxAlterId;
       } catch (allVchErr: any) {
-        console.warn(`[SyncEngine] All vouchers fetch notice: ${allVchErr?.message || allVchErr}`);
+        console.warn(`[SyncEngine] Direct vouchers fetch notice: ${allVchErr?.message || allVchErr}. Falling back to chunked sync...`);
+        try {
+          const chunkResult = await this.client.getAllVouchersChunked(lastAlterId, queryTarget);
+          vouchers = chunkResult.vouchers || [];
+          if (chunkResult.maxAlterId > maxAlterId) maxAlterId = chunkResult.maxAlterId;
+        } catch (chunkErr: any) {
+          console.warn(`[SyncEngine] Chunked vouchers fetch notice: ${chunkErr?.message || chunkErr}`);
+        }
       }
 
       // 4d. Fetch Groups hierarchy
@@ -443,7 +450,13 @@ export class SyncEngine {
               const allExtraVch = await this.client.getAllVouchers(extra.lastAlterId || 0, extraTarget);
               extraVouchers = allExtraVch.vouchers || [];
               if (allExtraVch.maxAlterId > extraMaxAlter) extraMaxAlter = allExtraVch.maxAlterId;
-            } catch {}
+            } catch {
+              try {
+                const chunkRes = await this.client.getAllVouchersChunked(extra.lastAlterId || 0, extraTarget);
+                extraVouchers = chunkRes.vouchers || [];
+                if (chunkRes.maxAlterId > extraMaxAlter) extraMaxAlter = chunkRes.maxAlterId;
+              } catch {}
+            }
             let extraGroups: TallyGroup[] = [];
             try {
               extraGroups = await this.client.getGroups(extraTarget);

@@ -267,13 +267,21 @@ export function buildAllVouchersQuery(
   minAlterId: number = 0,
   companyName?: string,
   fromDate?: string,
-  toDate?: string
+  toDate?: string,
+  voucherType?: string
 ): string {
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
   const fromDateTag = fromDate ? `\n        <SVFROMDATE>${fromDate}</SVFROMDATE>` : '';
   const toDateTag = toDate ? `\n        <SVTODATE>${toDate}</SVTODATE>` : '';
+  const typeFilter = voucherType
+    ? `\n          <SYSTEM TYPE="Formulae" NAME="VoucherTypeFilter">$$IsSysNameEqual:$VoucherTypeName:"${escapeXml(voucherType)}"</SYSTEM>`
+    : '';
+  const filterTag = voucherType
+    ? `\n            <FILTER>VoucherAlterFilter</FILTER>\n            <FILTER>VoucherTypeFilter</FILTER>`
+    : `\n            <FILTER>VoucherAlterFilter</FILTER>`;
+
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -290,10 +298,9 @@ export function buildAllVouchersQuery(
         <TDLMESSAGE>
           <COLLECTION NAME="AllVouchersCollection" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
-            <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ISCANCELLED, ISOPTIONAL, ALLINVENTORYENTRIES.LIST, LEDGERENTRIES.LIST</FETCH>
-            <FILTER>VoucherAlterFilter</FILTER>
+            <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ISCANCELLED, ISOPTIONAL, ALLINVENTORYENTRIES.LIST, LEDGERENTRIES.LIST</FETCH>${filterTag}
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="VoucherAlterFilter">$$Number:$AlterId &gt; ${minAlterId}</SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="VoucherAlterFilter">$$Number:$AlterId &gt; ${minAlterId}</SYSTEM>${typeFilter}
         </TDLMESSAGE>
       </TDL>
     </DESC>
