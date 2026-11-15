@@ -199,6 +199,22 @@ export class SyncEngine {
         company = openCompanies[0];
       }
 
+      // Robust fallback: if Tally XML still didn't return a company name, fall back to saved state
+      if (!company?.name || !company.name.trim()) {
+        const fallbackName =
+          currentState.companyName ||
+          currentState.companies?.[0]?.companyName ||
+          currentState.companies?.[0]?.tallyName ||
+          '';
+        if (fallbackName) {
+          company = {
+            name: fallbackName,
+            financialYearFrom: company?.financialYearFrom || '2026-04-01',
+            booksFrom: company?.booksFrom || '2026-04-01',
+          };
+        }
+      }
+
       const openNamesSet = new Set<string>();
       const openCompanyNames: string[] = [];
       for (const oc of [company, ...openCompanies]) {

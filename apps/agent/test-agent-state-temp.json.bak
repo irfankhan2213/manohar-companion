@@ -1,0 +1,12 @@
+{
+  "lastAlterId": 0,
+  "status": "offline",
+  "cloudStatus": "connected",
+  "companyName": "Manohar Traders",
+  "lastCloudSyncAt": "2026-11-15T12:46:22.522Z",
+  "lastSyncStats": {
+    "partiesUpdated": 0,
+    "billsUpdated": 0,
+    "stockUpdated": 0
+  }
+}

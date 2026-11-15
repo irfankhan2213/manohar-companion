@@ -138,16 +138,45 @@ export function parseCompanyInfoResponse(xmlString: string): TallyCompanyInfo {
   const body = envelope?.BODY || envelope?.body;
   const data = body?.DATA || body?.data;
 
-  // Prefer exact current company name from Tally
-  const companyName =
+  // Prefer exact current company name from Tally (structured parse)
+  let companyName =
     extractXmlText(data?.COMPNAMEFIELD) ||
+    extractXmlText(data?.COMPANYINFOLINE?.COMPNAMEFIELD) ||
+    extractXmlText(data?.LINE?.COMPNAMEFIELD) ||
+    extractXmlText(data?.COLLECTION?.COMPANYINFOLINE?.COMPNAMEFIELD) ||
     extractXmlText(data?.COMPANYNAME) ||
+    extractXmlText(data?.['COMPANYNAME.LIST']?.COMPANYNAME) ||
+    extractXmlText(envelope?.['COMPANYNAME.LIST']?.COMPANYNAME) ||
     extractXmlText(body?.DESC?.STATICVARIABLES?.SVCURRENTCOMPANY) ||
     extractXmlText(data?.TALLYMESSAGE?.COMPANY?.NAME) ||
+    extractXmlText(data?.COMPANY?.NAME) ||
     '';
 
-  const fromDate = parseTallyDate(extractXmlText(data?.COMPYEARFIELD) || '20260401');
-  const booksFrom = parseTallyDate(extractXmlText(data?.COMPBOOKSFIELD) || fromDate);
+  // Fallback to regex on raw XML string if structured node was nested or wrapped differently
+  if (!companyName && typeof xmlString === 'string') {
+    const fieldMatch = xmlString.match(/<COMPNAMEFIELD[^>]*>([^<]+)<\/COMPNAMEFIELD>/i);
+    if (fieldMatch && fieldMatch[1] && fieldMatch[1].trim()) {
+      companyName = fieldMatch[1].trim();
+    } else {
+      const compNameMatch = xmlString.match(/<COMPANYNAME[^>]*>([^<]+)<\/COMPANYNAME>/i);
+      if (compNameMatch && compNameMatch[1] && compNameMatch[1].trim()) {
+        companyName = compNameMatch[1].trim();
+      } else {
+        const compAttrMatch = xmlString.match(/<COMPANY\s+[^>]*NAME="([^"]+)"/i);
+        if (compAttrMatch && compAttrMatch[1] && compAttrMatch[1].trim()) {
+          companyName = compAttrMatch[1].trim();
+        } else {
+          const svCompMatch = xmlString.match(/<SVCURRENTCOMPANY[^>]*>([^<]+)<\/SVCURRENTCOMPANY>/i);
+          if (svCompMatch && svCompMatch[1] && svCompMatch[1].trim()) {
+            companyName = svCompMatch[1].trim();
+          }
+        }
+      }
+    }
+  }
+
+  const fromDate = parseTallyDate(extractXmlText(data?.COMPYEARFIELD || data?.COMPANYINFOLINE?.COMPYEARFIELD) || '20260401');
+  const booksFrom = parseTallyDate(extractXmlText(data?.COMPBOOKSFIELD || data?.COMPANYINFOLINE?.COMPBOOKSFIELD) || fromDate);
 
   return {
     name: companyName.trim(),
@@ -162,15 +191,23 @@ export function parseOpenCompaniesResponse(xmlString: string): TallyCompanyInfo[
   const body = envelope?.BODY || envelope?.body;
   const data = body?.DATA || body?.data;
 
-  const messages = toArray(data?.TALLYMESSAGE || data?.COLLECTION?.COMPANY || data?.COMPANY);
+  const messages = toArray(
+    data?.TALLYMESSAGE ||
+    data?.COLLECTION?.COMPANY ||
+    data?.COMPANY ||
+    data?.['COMPANYNAME.LIST']?.COMPANYNAME ||
+    envelope?.['COMPANYNAME.LIST']?.COMPANYNAME
+  );
   const companies: TallyCompanyInfo[] = [];
   const seen = new Set<string>();
 
   for (const msg of messages) {
     const rawComp = msg?.COMPANY || msg;
-    if (!rawComp || typeof rawComp !== 'object') continue;
+    if (!rawComp) continue;
 
-    const name = extractXmlText(rawComp['@_NAME'] || rawComp.NAME || rawComp.COMPANYNAME);
+    const name = typeof rawComp === 'string'
+      ? rawComp
+      : extractXmlText(rawComp['@_NAME'] || rawComp.NAME || rawComp.COMPANYNAME);
     if (!name) continue;
     const cleanName = name.trim();
     if (!cleanName || cleanName === '[object Object]' || seen.has(cleanName.toLowerCase())) continue;
@@ -186,6 +223,28 @@ export function parseOpenCompaniesResponse(xmlString: string): TallyCompanyInfo[
       booksFrom,
       guid,
     });
+  }
+
+  // Regex fallback if structured collection parsing did not capture anything
+  if (companies.length === 0 && typeof xmlString === 'string') {
+    const regexList = [
+      /<COMPANY\s+[^>]*NAME="([^"]+)"/gi,
+      /<COMPANYNAME[^>]*>([^<]+)<\/COMPANYNAME>/gi,
+    ];
+    for (const re of regexList) {
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(xmlString)) !== null) {
+        const cName = m[1]?.trim();
+        if (cName && !seen.has(cName.toLowerCase())) {
+          seen.add(cName.toLowerCase());
+          companies.push({
+            name: cName,
+            financialYearFrom: '2026-04-01',
+            booksFrom: '2026-04-01',
+          });
+        }
+      }
+    }
   }
 
   return companies;

@@ -61,8 +61,11 @@ const engine = new SyncEngine({
   agentSecretKey,
   pollIntervalMs,
   onSyncComplete: (p) => {
+    const coName = p.company?.name || store.get().companyName || savedState.companyName || 'Manohar Traders';
+    const vchCount = p.vouchers?.length || 0;
+    const challanCount = p.challans?.length || 0;
     console.log(
-      `[${new Date().toLocaleTimeString()}] Sync OK · Co: "${p.company.name}" · Ledgers: ${p.ledgers.length} · Bills: ${p.bills.length} · Challans: ${p.challans?.length || 0} · Stock: ${p.stockItems.length} · AlterID: ${p.maxAlterId} (${p.durationMs}ms)`
+      `[${new Date().toLocaleTimeString()}] Sync OK · Co: "${coName}" · Ledgers: ${p.ledgers.length} · Bills: ${p.bills.length} · Vouchers: ${vchCount}${challanCount > 0 ? ` · Challans: ${challanCount}` : ''} · Stock: ${p.stockItems.length} · AlterID: ${p.maxAlterId} (${p.durationMs}ms)`
     );
   },
   onSyncError: (e) => {
