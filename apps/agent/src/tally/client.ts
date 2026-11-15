@@ -160,7 +160,7 @@ export class TallyClient {
   private timeoutMs: number;
 
   constructor(options: TallyClientOptions = {}) {
-    this.url = options.url || 'http://127.0.0.1:25853';
+    this.url = options.url || 'http://127.0.0.1:9000';
     this.mock = options.mock ?? false;
     this.timeoutMs = options.timeoutMs || 30000;
   }
@@ -186,9 +186,9 @@ export class TallyClient {
   public getActivePort(): number {
     try {
       const u = new URL(this.url);
-      return parseInt(u.port || '25853', 10) || 25853;
+      return parseInt(u.port || '9000', 10) || 9000;
     } catch {
-      return 25853;
+      return 9000;
     }
   }
 
@@ -306,7 +306,7 @@ export class TallyClient {
           return this.postXml(xmlPayload, false);
         }
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 25853 or 9000.`);
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 9000 (or custom configured port).`);
     }
   }
 

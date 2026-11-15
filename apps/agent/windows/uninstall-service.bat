@@ -3,6 +3,14 @@ title Uninstall Manohar Tally Sync Agent
 color 0C
 cd /d "%~dp0"
 
+:: 0. Check for Administrator privileges and auto-elevate via UAC if needed
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] Requesting Administrator privileges to uninstall system service...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\"\"' -Verb RunAs"
+    exit /b
+)
+
 echo =====================================================================
 echo    Uninstalling Manohar Tally Sync Agent Auto-Start Service
 echo =====================================================================

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { TallyClient, matchFuzzyCompanyName, normalizeTallyCompanyName } from '../tally/client.js';
 import { StateStore } from './state.js';
@@ -744,23 +745,35 @@ export class SyncEngine {
       vehicleNo: c.vehicleNo,
     }));
 
+    const rawPayloadObj = {
+      companyId,
+      companyName,
+      alterId: payload.maxAlterId,
+      reconcilePaidBills: true,
+      parties,
+      bills,
+      stockItems,
+      challans,
+      vouchers: payload.vouchers || [],
+      groups: payload.groups || [],
+      deletedVoucherMasterIds: payload.deletedVoucherMasterIds,
+    };
+    const jsonStr = JSON.stringify(rawPayloadObj);
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'x-agent-key': key,
+    };
+
+    let requestBody: any = jsonStr;
+    if (jsonStr.length > 50 * 1024) {
+      headers['Content-Encoding'] = 'gzip';
+      requestBody = zlib.gzipSync(Buffer.from(jsonStr, 'utf-8'));
+    }
+
     const pushRes = await fetch(`${this.cloudUrl}/api/sync/push`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-agent-key': key,
-      },
-      body: JSON.stringify({
-        companyId,
-        companyName,
-        alterId: payload.maxAlterId,
-        reconcilePaidBills: true,
-        parties,
-        bills,
-        stockItems,
-        challans,
-        deletedVoucherMasterIds: payload.deletedVoucherMasterIds,
-      }),
+      headers,
+      body: requestBody,
     });
 
     if (!pushRes.ok) {

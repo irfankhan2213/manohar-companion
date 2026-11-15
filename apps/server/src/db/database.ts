@@ -391,6 +391,17 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       inventoryEntries TEXT DEFAULT '[]',
       createdAt TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS tally_groups (
+      id TEXT PRIMARY KEY,
+      companyId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      parent TEXT,
+      primaryGroup TEXT,
+      isRevenue INTEGER DEFAULT 0,
+      isDeemedPositive INTEGER DEFAULT 0,
+      alterId INTEGER DEFAULT 0
+    );
   `);
 
   try {
@@ -548,6 +559,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       CREATE INDEX IF NOT EXISTS idx_notebooks_user_comp ON notebooks (userId, companyId);
       CREATE INDEX IF NOT EXISTS idx_sync_batches_company ON sync_batches (companyId, syncedAt);
       CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires ON auth_tokens (expiresAt);
+      CREATE INDEX IF NOT EXISTS idx_tally_groups_company ON tally_groups (companyId);
     `);
   } catch {}
 

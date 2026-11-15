@@ -3,6 +3,14 @@ title Install Manohar Tally Sync Agent - 24/7 Cloud Background Service
 color 0B
 cd /d "%~dp0"
 
+:: 0. Check for Administrator privileges and auto-elevate via UAC if needed
+net session >nul 2>&1
+if %errorlevel% neq 0 (
+    echo [INFO] Requesting Administrator privileges to register system background service...
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process cmd -ArgumentList '/c \"\"%~f0\"\"' -Verb RunAs"
+    exit /b
+)
+
 echo =====================================================================
 echo    Installing Manohar Tally Sync Agent (24/7 Automated Cloud Service)
 echo =====================================================================

@@ -32,7 +32,7 @@ export function createApp(dbPath?: string): express.Express {
   const app = express();
   app.set('trust proxy', 1);
   app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  app.use(express.json({ limit: '100mb' }));
 
   // Security HTTP Headers (HSTS, Anti-Clickjacking, MIME Sniffing protection)
   app.use((req, res, next) => {
@@ -5206,9 +5206,10 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.post('/api/sync/push', (req, res) => {
+    try {
     const user = getRequestUser(req);
     const agentAuth = resolveAgentAuth(req, user);
-    const { companyId, companyName, alterId, parties, bills, stockItems, challans, vouchers, deletedVoucherMasterIds } = req.body;
+    const { companyId, companyName, alterId, parties, bills, stockItems, challans, vouchers, groups, deletedVoucherMasterIds } = req.body;
     const now = new Date().toISOString();
     if (!companyId && !companyName) {
       return res.status(400).json({ error: 'Missing companyId: Tally agent must connect to a specific company/organization' });
@@ -5240,8 +5241,13 @@ export function createApp(dbPath?: string): express.Express {
     let partiesUpdated = 0;
     let billsUpdated = 0;
     let stockUpdated = 0;
+    let challansUpdated = 0;
+    let vouchersUpdated = 0;
+    let groupsUpdated = 0;
     const partyIdRemap = new Map<string, string>();
 
+    db.exec('BEGIN');
+    try {
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
@@ -5491,7 +5497,6 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
-    let challansUpdated = 0;
     if (Array.isArray(challans)) {
       const stmt = db.prepare(`
         INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, vehicleNo, lrNo, transporter, narration, status, createdBy)
@@ -5544,7 +5549,6 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
-    let vouchersUpdated = 0;
     if (Array.isArray(vouchers)) {
       const vchStmt = db.prepare(`
         INSERT INTO tally_vouchers (id, companyId, voucherType, voucherNumber, date, partyName, partyId, amount, narration, alterId, masterId, isCancelled, isOptional, ledgerEntries, inventoryEntries, createdAt)
@@ -5659,6 +5663,11 @@ export function createApp(dbPath?: string): express.Express {
       db.prepare('INSERT OR REPLACE INTO agent_state (key, value) VALUES (?, ?)').run(`status_${defaultTenantId}`, 'online');
     }
     db.prepare("INSERT OR REPLACE INTO agent_state (key, value) VALUES ('lastSeenAt', ?)").run(now);
+    db.exec('COMMIT');
+    } catch (syncTxErr) {
+      try { db.exec('ROLLBACK'); } catch {}
+      throw syncTxErr;
+    }
 
     const commandKeys = [
       `agent_commands_${resolvedCompanyId}`,
@@ -5698,6 +5707,10 @@ export function createApp(dbPath?: string): express.Express {
       commands: commandsToSend,
       tenantCompanies,
     });
+    } catch (err: any) {
+      console.error('PUSH EXCEPTION:', err);
+      return res.status(500).json({ error: err.message, stack: err.stack });
+    }
   });
 
   app.get('/api/sync/pull', (req, res) => {
