@@ -9,6 +9,7 @@ import {
   buildDeliveryChallanVoucherXml,
   buildVoucherManifestQuery,
   buildVouchersIncrementalQuery,
+  buildUniversalVoucherXml,
 } from '../src/tally/templates.js';
 
 describe('Tally XML Templates', () => {
@@ -156,5 +157,91 @@ describe('Tally XML Templates', () => {
     });
     expect(challanXml).toContain('<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>');
     expect(challanXml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+  });
+
+  describe('Universal Accounting Voucher Generation (Livekeeping Parity)', () => {
+    it('generates compliant Receipt voucher XML with double-entry ledgers and BillAllocations', () => {
+      const xml = buildUniversalVoucherXml({
+        companyName: '1234 (M T M)',
+        voucherType: 'Receipt',
+        voucherNumber: 'RCT-2026-001',
+        date: '20261115',
+        partyLedgerName: 'Rahul Textiles',
+        narration: 'Payment received via HDFC Bank NEFT against bill INV-101',
+        ledgerEntries: [
+          {
+            ledgerName: 'HDFC Bank',
+            amount: 15000,
+            isDeemedPositive: true,
+          },
+          {
+            ledgerName: 'Rahul Textiles',
+            amount: 15000,
+            isDeemedPositive: false,
+            isPartyLedger: true,
+            billAllocations: [
+              {
+                billRef: 'INV-101',
+                billType: 'Agst Ref',
+                amount: 15000,
+              },
+            ],
+          },
+        ],
+      });
+
+      expect(xml).toContain('<TALLYREQUEST>Import</TALLYREQUEST>');
+      expect(xml).toContain('<SVCURRENTCOMPANY>1234 (M T M)</SVCURRENTCOMPANY>');
+      expect(xml).toContain('<VOUCHER VCHTYPE="Receipt" ACTION="Create" OBJVIEW="Accounting Voucher View">');
+      expect(xml).toContain('<VOUCHERNUMBER>RCT-2026-001</VOUCHERNUMBER>');
+      expect(xml).toContain('<PARTYLEDGERNAME>Rahul Textiles</PARTYLEDGERNAME>');
+      expect(xml).toContain('<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>');
+      expect(xml).toContain('<AMOUNT>-15000.00</AMOUNT>');
+      expect(xml).toContain('<ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>');
+      expect(xml).toContain('<AMOUNT>15000.00</AMOUNT>');
+      expect(xml).toContain('<BILLALLOCATIONS.LIST>');
+      expect(xml).toContain('<NAME>INV-101</NAME>');
+      expect(xml).toContain('<BILLTYPE>Agst Ref</BILLTYPE>');
+    });
+
+    it('generates compliant Sales voucher XML with inventory allocations', () => {
+      const xml = buildUniversalVoucherXml({
+        companyName: 'Manohar Traders',
+        voucherType: 'Sales',
+        voucherNumber: 'INV-999',
+        date: '20261115',
+        partyLedgerName: 'Shree Krishna Enterprises',
+        narration: 'Direct sales invoice',
+        ledgerEntries: [
+          {
+            ledgerName: 'Shree Krishna Enterprises',
+            amount: 8400,
+            isDeemedPositive: true,
+            isPartyLedger: true,
+          },
+          {
+            ledgerName: 'Sales Account',
+            amount: 8400,
+            isDeemedPositive: false,
+          },
+        ],
+        inventoryEntries: [
+          {
+            itemName: 'Servo Motor 550W',
+            qty: 2,
+            unit: 'pcs',
+            rateRupees: 4200,
+            amountRupees: 8400,
+            godownName: 'Main Location',
+          },
+        ],
+      });
+
+      expect(xml).toContain('<VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">');
+      expect(xml).toContain('<STOCKITEMNAME>Servo Motor 550W</STOCKITEMNAME>');
+      expect(xml).toContain('<RATE>4200.00 / pcs</RATE>');
+      expect(xml).toContain('<ACTUALQTY>2 pcs</ACTUALQTY>');
+      expect(xml).toContain('<GODOWNNAME>Main Location</GODOWNNAME>');
+    });
   });
 });

@@ -4150,6 +4150,64 @@ export function createApp(dbPath?: string): express.Express {
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
   });
 
+  // Universal Vouchers (Receipts, Payments, Invoices, Journal) - Livekeeping Parity
+  app.post('/api/vouchers', (req, res) => {
+    const user = getRequestUser(req);
+    const body = req.body || {};
+    const companyId = body.companyId;
+    if (!companyId) {
+      return res.status(400).json({ error: 'companyId is required' });
+    }
+    if (user && user.role !== 'dev' && !canAccessCompany(user, companyId)) {
+      return res.status(403).json({ error: 'Forbidden: Cross-tenant modification denied' });
+    }
+
+    const id = body.id || `vch-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const outboxId = `out-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const voucherType = body.voucherType || (body.type ? body.type.charAt(0).toUpperCase() + body.type.slice(1).toLowerCase() : 'Receipt');
+    const voucherNumber = body.voucherNumber || body.number || id;
+    const date = body.date || getTodayIST();
+    const amount = typeof body.amount === 'number' ? Math.round(body.amount) : 0;
+    const narration = body.narration || '';
+    const partyName = body.partyName || '';
+
+    const payloadObj = {
+      id,
+      outboxId,
+      kind: 'voucher',
+      companyId,
+      voucherType,
+      voucherNumber,
+      date: String(date).replace(/-/g, ''),
+      partyName,
+      partyLedgerName: partyName,
+      amountRupees: amount > 0 ? (amount / 100) : (body.amountRupees || 0),
+      amount,
+      secondLedger: body.secondLedger || body.bankLedger || 'Cash',
+      narration,
+      billAllocations: body.billAllocations,
+      ledgerEntries: body.ledgerEntries,
+      lines: body.lines,
+      inventoryEntries: body.inventoryEntries,
+    };
+
+    const payloadJson = JSON.stringify(payloadObj);
+    db.prepare(`
+      INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+      VALUES (?, ?, 'voucher', ?, 'queued', 1, NULL, ?)
+    `).run(outboxId, companyId, id, payloadJson);
+
+    try {
+      db.prepare(`
+        INSERT INTO tally_vouchers (id, companyId, voucherType, voucherNumber, date, partyName, amount, narration, createdAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET voucherType = excluded.voucherType, amount = excluded.amount
+      `).run(id, companyId, voucherType, voucherNumber, date, partyName, amount, narration, new Date().toISOString());
+    } catch {}
+
+    res.status(201).json({ success: true, id, outboxId, voucherType, voucherNumber, status: 'queued' });
+  });
+
   // 9. Tasks & Photos
   app.get('/api/tasks', (req, res) => {
     const user = getRequestUser(req);
@@ -5827,6 +5885,42 @@ export function createApp(dbPath?: string): express.Express {
         });
     } catch {}
 
+    // Universal Vouchers (Receipts, Payments, Invoices) queued for Tally XML import
+    let voucherItems: any[] = [];
+    try {
+      let vchOutboxQuery = "SELECT * FROM outbox_items WHERE status = 'queued' AND kind = 'voucher'";
+      const vchParams: any[] = [];
+      if (companyId && companyId !== 'all') {
+        vchOutboxQuery += ' AND companyId = ?';
+        vchParams.push(companyId);
+      } else if (scopedTenantId) {
+        vchOutboxQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+        vchParams.push(scopedTenantId);
+      }
+      const vchRows = db.prepare(vchOutboxQuery).all(...vchParams) as any[];
+      voucherItems = vchRows.map((o) => {
+        const companyName = companyNameMap.get(o.companyId);
+        if (o.payload) {
+          try {
+            const parsed = JSON.parse(o.payload);
+            return {
+              ...parsed,
+              id: o.refId || o.id,
+              outboxId: o.id,
+              kind: 'voucher',
+              companyName: companyName || parsed.companyName,
+            };
+          } catch {}
+        }
+        return {
+          id: o.refId || o.id,
+          outboxId: o.id,
+          kind: 'voucher',
+          companyName,
+        };
+      });
+    } catch {}
+
     // Check for pending remote commands for this company or tenant
     const targetComp = companyId && companyId !== 'all' ? resolveCompanyForAgent(companyId, undefined, scopedTenantId) : null;
     const commandKeys = [
@@ -5853,7 +5947,7 @@ export function createApp(dbPath?: string): express.Express {
       res.setHeader('X-Agent-Commands', JSON.stringify(commandsToSend));
     }
 
-    res.json([...challanItems, ...stockJournalItems]);
+    res.json([...challanItems, ...stockJournalItems, ...voucherItems]);
   });
 
   app.post('/api/sync/ack', (req, res) => {

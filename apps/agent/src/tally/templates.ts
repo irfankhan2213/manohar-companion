@@ -555,3 +555,140 @@ export function escapeXml(str?: string | number | null): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 }
+
+export interface UniversalVoucherLedgerEntry {
+  ledgerName: string;
+  amount: number; // in rupees
+  isDeemedPositive: boolean; // true = Debit, false = Credit
+  isPartyLedger?: boolean;
+  billAllocations?: Array<{
+    billRef: string;
+    billType?: 'Agst Ref' | 'New Ref' | 'On Account' | 'Advance';
+    amount: number; // in rupees
+  }>;
+}
+
+export interface UniversalVoucherInventoryEntry {
+  itemName: string;
+  qty: number;
+  unit?: string;
+  rateRupees: number;
+  amountRupees?: number;
+  godownName?: string;
+  batchName?: string;
+}
+
+export interface UniversalVoucherParams {
+  voucherType: 'Sales' | 'Purchase' | 'Payment' | 'Receipt' | 'Journal' | 'Contra' | 'Credit Note' | 'Debit Note' | 'Delivery Note' | 'Receipt Note';
+  date: string; // YYYYMMDD
+  voucherNumber?: string;
+  partyLedgerName?: string;
+  narration?: string;
+  companyName?: string;
+  ledgerEntries: UniversalVoucherLedgerEntry[];
+  inventoryEntries?: UniversalVoucherInventoryEntry[];
+}
+
+export function buildUniversalVoucherXml(params: UniversalVoucherParams): string {
+  const companyTag = params.companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`
+    : '';
+
+  const staticVars = `<STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>`;
+
+  const hasInventory = Boolean(params.inventoryEntries && params.inventoryEntries.length > 0);
+  const isInvoice = hasInventory || params.voucherType === 'Sales' || params.voucherType === 'Purchase';
+  const objView = isInvoice ? 'Invoice Voucher View' : 'Accounting Voucher View';
+
+  // Format ledger entries
+  const ledgerEntriesXml = (params.ledgerEntries || []).map((entry) => {
+    const isDebit = Boolean(entry.isDeemedPositive);
+    const amountVal = Math.abs(entry.amount);
+    // In Tally XML double-entry: Debit (Yes) has negative amount; Credit (No) has positive amount
+    const tallyAmountStr = isDebit ? `-${amountVal.toFixed(2)}` : amountVal.toFixed(2);
+    const partyTag = entry.isPartyLedger ? '\n            <ISPARTYLEDGER>Yes</ISPARTYLEDGER>' : '';
+
+    let billAllocationsXml = '';
+    if (entry.billAllocations && entry.billAllocations.length > 0) {
+      billAllocationsXml = entry.billAllocations.map((b) => {
+        const bAmount = Math.abs(b.amount);
+        const bAmountStr = isDebit ? `-${bAmount.toFixed(2)}` : bAmount.toFixed(2);
+        return `\n            <BILLALLOCATIONS.LIST>
+              <NAME>${escapeXml(b.billRef)}</NAME>
+              <BILLTYPE>${escapeXml(b.billType || 'Agst Ref')}</BILLTYPE>
+              <AMOUNT>${bAmountStr}</AMOUNT>
+            </BILLALLOCATIONS.LIST>`;
+      }).join('');
+    }
+
+    return `          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>${escapeXml(entry.ledgerName)}</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>${isDebit ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>${partyTag}
+            <AMOUNT>${tallyAmountStr}</AMOUNT>${billAllocationsXml}
+          </ALLLEDGERENTRIES.LIST>`;
+  }).join('\n');
+
+  // Format inventory entries if present
+  let inventoryEntriesXml = '';
+  if (hasInventory) {
+    const isPurchase = params.voucherType === 'Purchase' || params.voucherType === 'Receipt Note';
+    inventoryEntriesXml = (params.inventoryEntries || []).map((inv) => {
+      const lineAmt = inv.amountRupees ?? (inv.qty * inv.rateRupees);
+      const absAmt = Math.abs(lineAmt).toFixed(2);
+      const invAmtStr = isPurchase ? `-${absAmt}` : absAmt;
+      const godown = escapeXml(inv.godownName || 'Main Location');
+      const unitStr = escapeXml(inv.unit || 'pcs');
+
+      return `          <ALLINVENTORYENTRIES.LIST>
+            <STOCKITEMNAME>${escapeXml(inv.itemName)}</STOCKITEMNAME>
+            <ISDEEMEDPOSITIVE>${isPurchase ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+            <RATE>${inv.rateRupees.toFixed(2)} / ${unitStr}</RATE>
+            <AMOUNT>${invAmtStr}</AMOUNT>
+            <ACTUALQTY>${inv.qty} ${unitStr}</ACTUALQTY>
+            <BILLEDQTY>${inv.qty} ${unitStr}</BILLEDQTY>
+            <BATCHALLOCATIONS.LIST>
+              <GODOWNNAME>${godown}</GODOWNNAME>
+              <BATCHNAME>${escapeXml(inv.batchName || 'Primary Batch')}</BATCHNAME>
+              <AMOUNT>${invAmtStr}</AMOUNT>
+              <ACTUALQTY>${inv.qty} ${unitStr}</ACTUALQTY>
+              <BILLEDQTY>${inv.qty} ${unitStr}</BILLEDQTY>
+            </BATCHALLOCATIONS.LIST>
+          </ALLINVENTORYENTRIES.LIST>`;
+    }).join('\n');
+  }
+
+  const vchNumTag = params.voucherNumber
+    ? `\n          <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>`
+    : '';
+  const partyLedgerTag = params.partyLedgerName
+    ? `\n          <PARTYLEDGERNAME>${escapeXml(params.partyLedgerName)}</PARTYLEDGERNAME>`
+    : '';
+
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>Vouchers</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      ${staticVars}
+    </DESC>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <VOUCHER VCHTYPE="${escapeXml(params.voucherType)}" ACTION="Create" OBJVIEW="${objView}">
+          <DATE>${params.date}</DATE>
+          <VOUCHERTYPENAME>${escapeXml(params.voucherType)}</VOUCHERTYPENAME>${vchNumTag}${partyLedgerTag}
+          <PERSISTEDVIEW>${objView}</PERSISTEDVIEW>
+          <ISINVOICE>${isInvoice ? 'Yes' : 'No'}</ISINVOICE>
+          <NARRATION>${escapeXml(params.narration || '')}</NARRATION>
+${ledgerEntriesXml}${inventoryEntriesXml ? '\n' + inventoryEntriesXml : ''}
+        </VOUCHER>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}

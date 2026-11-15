@@ -602,14 +602,30 @@ export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {
 
 export function parseVoucherImportResponse(xmlString: string): VoucherImportResult {
   const parsed = xmlParser.parse(xmlString);
-  const resp = parsed?.RESPONSE || parsed?.ENVELOPE?.BODY?.DATA?.IMPORTRESULT;
+  const resp = parsed?.RESPONSE || parsed?.ENVELOPE?.BODY?.DATA?.IMPORTRESULT || parsed?.ENVELOPE?.BODY?.IMPORTRESULT || parsed?.IMPORTRESULT;
 
-  const created = parseInt(extractXmlText(resp?.CREATED) || '0', 10) || 0;
-  const altered = parseInt(extractXmlText(resp?.ALTERED) || '0', 10) || 0;
-  const errors = parseInt(extractXmlText(resp?.ERRORS) || '0', 10) || 0;
+  let created = parseInt(extractXmlText(resp?.CREATED) || '0', 10) || 0;
+  let altered = parseInt(extractXmlText(resp?.ALTERED) || '0', 10) || 0;
+  let errors = parseInt(extractXmlText(resp?.ERRORS) || '0', 10) || 0;
+
+  // Regex fallback if fast-xml-parser structure differs
+  if (created === 0 && altered === 0 && errors === 0 && typeof xmlString === 'string') {
+    const cMatch = xmlString.match(/<CREATED[^>]*>(\d+)<\/CREATED>/i);
+    const aMatch = xmlString.match(/<ALTERED[^>]*>(\d+)<\/ALTERED>/i);
+    const eMatch = xmlString.match(/<ERRORS[^>]*>(\d+)<\/ERRORS>/i);
+    if (cMatch && cMatch[1]) created = parseInt(cMatch[1], 10);
+    if (aMatch && aMatch[1]) altered = parseInt(aMatch[1], 10);
+    if (eMatch && eMatch[1]) errors = parseInt(eMatch[1], 10);
+  }
 
   // Check for error lines
-  const lineErrors = resp?.LINEERROR ? toArray(resp.LINEERROR).map(extractXmlText).join('; ') : undefined;
+  let lineErrors = resp?.LINEERROR ? toArray(resp.LINEERROR).map(extractXmlText).join('; ') : undefined;
+  if (!lineErrors && typeof xmlString === 'string') {
+    const errMatches = Array.from(xmlString.matchAll(/<LINEERROR[^>]*>([^<]+)<\/LINEERROR>/gi))
+      .map((m) => m[1]?.trim())
+      .filter(Boolean);
+    if (errMatches.length > 0) lineErrors = errMatches.join('; ');
+  }
 
   return {
     success: errors === 0 && (created > 0 || altered > 0),

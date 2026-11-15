@@ -1140,4 +1140,54 @@ describe('Manohar Backend API & Sync Server', () => {
     const stateRow = db.prepare("SELECT value FROM agent_state WHERE key LIKE 'tallyPort_%' LIMIT 1").get() as any;
     expect(stateRow?.value).toBe('9999');
   });
+
+  it('Universal Vouchers: creates Receipt voucher, dispatches via /api/sync/pull and acknowledges sync (Livekeeping Parity)', async () => {
+    const vchRes = await request(app)
+      .post('/api/vouchers')
+      .set('Authorization', `Bearer ${authToken}`)
+      .send({
+        companyId: 'c1',
+        type: 'receipt',
+        number: 'RCT-TEST-001',
+        date: '2026-11-15',
+        amount: 250000,
+        partyName: 'Amritsar Garments',
+        secondLedger: 'HDFC Bank',
+        narration: 'Payment received against bills',
+        billAllocations: [
+          { billRef: 'INV-TEST-100', billType: 'Agst Ref', amount: 250000 },
+        ],
+      });
+    expect(vchRes.status).toBe(201);
+    expect(vchRes.body.status).toBe('queued');
+    expect(vchRes.body.voucherType).toBe('Receipt');
+    const vchId = vchRes.body.id;
+
+    // Agent pulls pending outbox queue
+    const pullRes = await request(app)
+      .get('/api/sync/pull?companyId=c1')
+      .set('x-agent-key', 'dev-agent-secret-key');
+    expect(pullRes.status).toBe(200);
+    const pulledVoucher = pullRes.body.find((item: any) => item.kind === 'voucher' && item.voucherNumber === 'RCT-TEST-001');
+    expect(pulledVoucher).toBeDefined();
+    expect(pulledVoucher.voucherType).toBe('Receipt');
+    expect(pulledVoucher.partyName).toBe('Amritsar Garments');
+    expect(pulledVoucher.billAllocations?.[0]?.billRef).toBe('INV-TEST-100');
+
+    // Agent acknowledges successful Tally import
+    const ackRes = await request(app)
+      .post('/api/sync/ack')
+      .set('x-agent-key', 'dev-agent-secret-key')
+      .send({
+        voucherId: vchId,
+        outboxId: pulledVoucher.outboxId,
+        kind: 'voucher',
+        status: 'synced',
+      });
+    expect(ackRes.status).toBe(200);
+
+    const db = getDB();
+    const outboxRow = db.prepare('SELECT status FROM outbox_items WHERE id = ?').get(pulledVoucher.outboxId) as any;
+    expect(outboxRow?.status).toBe('synced');
+  });
 });

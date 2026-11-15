@@ -24,6 +24,8 @@ import {
   buildVouchersIncrementalQuery,
   buildAllVouchersQuery,
   buildGroupsQuery,
+  buildUniversalVoucherXml,
+  UniversalVoucherParams,
 } from './templates.js';
 import {
   parseCompanyInfoResponse,
@@ -451,5 +453,10 @@ export class TallyClient {
   public async postVoucher(voucherXml: string): Promise<VoucherImportResult> {
     const xml = await this.postXml(voucherXml);
     return parseVoucherImportResponse(xml);
+  }
+
+  public async importUniversalVoucher(params: UniversalVoucherParams): Promise<VoucherImportResult> {
+    const xml = buildUniversalVoucherXml(params);
+    return this.postVoucher(xml);
   }
 }

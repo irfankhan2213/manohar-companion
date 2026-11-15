@@ -22,6 +22,9 @@ import {
   DeliveryChallanVoucherParams,
   buildStockJournalVoucherXml,
   buildDeliveryChallanVoucherXml,
+  buildUniversalVoucherXml,
+  UniversalVoucherParams,
+  UniversalVoucherLedgerEntry,
 } from '../tally/templates.js';
 
 function slugify(text: string): string {
@@ -899,7 +902,7 @@ export class SyncEngine {
             unit: item.unit || 'pcs',
             rateRupees: (item.rate || 0) / 100,
           });
-        } else {
+        } else if (item.kind === 'challan') {
           result = await this.pushDeliveryChallan({
             companyName: targetCompanyName,
             date: formattedDate,
@@ -916,6 +919,43 @@ export class SyncEngine {
               rateRupees: (l.rate || 0) / 100,
             })),
           });
+        } else {
+          // Universal Voucher write (Receipt, Payment, Sales, Purchase, Journal) - Livekeeping Parity
+          const rawVType = (item.voucherType || item.type || item.kind || '').toLowerCase();
+          const tallyVchType: UniversalVoucherParams['voucherType'] =
+            rawVType === 'receipt'
+              ? 'Receipt'
+              : rawVType === 'payment'
+                ? 'Payment'
+                : rawVType === 'purchase'
+                  ? 'Purchase'
+                  : rawVType === 'journal'
+                    ? 'Journal'
+                    : rawVType === 'contra'
+                      ? 'Contra'
+                      : rawVType === 'credit_note' || rawVType === 'credit note'
+                        ? 'Credit Note'
+                        : rawVType === 'debit_note' || rawVType === 'debit note'
+                          ? 'Debit Note'
+                          : 'Sales';
+
+          result = await this.pushUniversalVoucher({
+            companyName: targetCompanyName,
+            voucherType: tallyVchType,
+            voucherNumber: item.number || item.voucherNumber || item.id,
+            date: formattedDate,
+            partyLedgerName: item.partyName || item.partyLedgerName,
+            narration: item.narration || `Mobile ${tallyVchType} (${item.id})`,
+            ledgerEntries: item.ledgerEntries && item.ledgerEntries.length > 0 ? item.ledgerEntries : this.buildDefaultLedgerEntries(item),
+            inventoryEntries: (item.lines || item.inventoryEntries || []).map((l: any) => ({
+              itemName: l.description || l.itemName || l.itemId,
+              godownName: l.godownName || item.godownName || 'Main Location',
+              qty: l.qty || 1,
+              unit: l.unit || 'pcs',
+              rateRupees: typeof l.rateRupees === 'number' ? l.rateRupees : (l.rate || 0) / 100,
+              amountRupees: typeof l.amountRupees === 'number' ? l.amountRupees : (l.amount || 0) / 100,
+            })),
+          });
         }
 
         const status = result.success && result.errors === 0 ? 'synced' : 'failed';
@@ -928,6 +968,7 @@ export class SyncEngine {
           body: JSON.stringify({
             challanId: item.id,
             outboxId: item.outboxId || item.id,
+            voucherId: item.id,
             kind: item.kind || 'challan',
             status,
             failureReason: status === 'failed' ? result.message || 'Tally XML import error' : null,
@@ -941,6 +982,53 @@ export class SyncEngine {
     }
 
     return syncedCount;
+  }
+
+  private buildDefaultLedgerEntries(item: any): UniversalVoucherLedgerEntry[] {
+    const vType = (item.voucherType || item.type || item.kind || '').toLowerCase();
+    const amountRupees = typeof item.amountRupees === 'number' ? item.amountRupees : ((item.amount || 0) / 100);
+    const partyName = item.partyName || item.partyLedgerName || 'Cash';
+    const secondLedger = item.secondLedger || item.bankLedger || 'Cash';
+
+    if (vType === 'receipt') {
+      return [
+        { ledgerName: secondLedger, amount: amountRupees, isDeemedPositive: true },
+        {
+          ledgerName: partyName,
+          amount: amountRupees,
+          isDeemedPositive: false,
+          isPartyLedger: true,
+          billAllocations: item.billAllocations || (item.billRef ? [{ billRef: item.billRef, billType: item.billType || 'Agst Ref', amount: amountRupees }] : undefined),
+        },
+      ];
+    } else if (vType === 'payment') {
+      return [
+        {
+          ledgerName: partyName,
+          amount: amountRupees,
+          isDeemedPositive: true,
+          isPartyLedger: true,
+          billAllocations: item.billAllocations || (item.billRef ? [{ billRef: item.billRef, billType: item.billType || 'Agst Ref', amount: amountRupees }] : undefined),
+        },
+        { ledgerName: secondLedger, amount: amountRupees, isDeemedPositive: false },
+      ];
+    } else if (vType === 'purchase') {
+      return [
+        { ledgerName: item.purchaseLedger || 'Purchase Account', amount: amountRupees, isDeemedPositive: true },
+        { ledgerName: partyName, amount: amountRupees, isDeemedPositive: false, isPartyLedger: true },
+      ];
+    } else {
+      return [
+        { ledgerName: partyName, amount: amountRupees, isDeemedPositive: true, isPartyLedger: true },
+        { ledgerName: item.salesLedger || 'Sales Account', amount: amountRupees, isDeemedPositive: false },
+      ];
+    }
+  }
+
+  // Push a universal voucher (Receipt, Payment, Sales, Purchase, Journal) to Tally
+  public async pushUniversalVoucher(params: UniversalVoucherParams): Promise<VoucherImportResult> {
+    const xml = buildUniversalVoucherXml(params);
+    return await this.client.postVoucher(xml);
   }
 
   // Push a stock adjustment to Tally
