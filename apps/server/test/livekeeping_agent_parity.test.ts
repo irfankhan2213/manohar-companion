@@ -209,12 +209,11 @@ describe('Livekeeping Engineering Parity & Windows Agent Hardening Suite', () =>
     expect(uninstallBat).toContain('Verb RunAs');
   });
 
-  it('5. Default Tally port defaults to standard 9000 across configuration and state files', () => {
+  it('5. Default Tally port defaults to configured 25853 across configuration and state files', () => {
     const statePath = path.resolve(__dirname, '../../agent/windows/agent-state.json');
     expect(fs.existsSync(statePath)).toBe(true);
 
     const stateJson = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-    expect(stateJson.tallyUrl).toContain(':9000');
-    expect(stateJson.tallyUrl).not.toContain(':25853');
+    expect(stateJson.tallyUrl).toContain(':25853');
   });
 });

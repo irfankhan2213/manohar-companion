@@ -38,8 +38,8 @@ describe('R1: Desktop Tally Connector Overhaul', () => {
   });
 
   describe('1. Dynamic Tally Port Discovery & Port 9999 Support', () => {
-    it('defines candidate ports containing 9000, 25853, 9999, 9001, 9002', () => {
-      expect(CANDIDATE_TALLY_PORTS).toEqual([9000, 25853, 9999, 9001, 9002]);
+    it('defines candidate ports containing 25853, 9000, 9999, 9001, 9002', () => {
+      expect(CANDIDATE_TALLY_PORTS).toEqual([25853, 9000, 9999, 9001, 9002]);
     });
 
     it('parses port from mock tally.ini configuration file', async () => {

@@ -44,12 +44,12 @@ describe('CHALLENGER M1-1: Desktop Tally Connector Empirical Verification', () =
   });
 
   describe('1. Empirical Candidate Port Probing Matrix', () => {
-    it('exact candidate ports list matches [9000, 25853, 9999, 9001, 9002]', () => {
-      expect(CANDIDATE_TALLY_PORTS).toEqual([9000, 25853, 9999, 9001, 9002]);
+    it('exact candidate ports list matches [25853, 9000, 9999, 9001, 9002]', () => {
+      expect(CANDIDATE_TALLY_PORTS).toEqual([25853, 9000, 9999, 9001, 9002]);
     });
 
     // Test discovery for each candidate port individually
-    const portsToTest = [9000, 25853, 9999, 9001, 9002];
+    const portsToTest = [25853, 9000, 9999, 9001, 9002];
     for (const port of portsToTest) {
       it(`probes and dynamically discovers Tally when listening on port ${port}`, async () => {
         const client = new TallyClient({ url: 'http://127.0.0.1:18888', timeoutMs: 1500 });

@@ -52,12 +52,12 @@ import {
 const execAsync = promisify(exec);
 
 export interface TallyClientOptions {
-  url?: string; // defaults to http://127.0.0.1:9000
+  url?: string; // defaults to http://127.0.0.1:25853
   mock?: boolean; // force simulator mode
   timeoutMs?: number;
 }
 
-export const CANDIDATE_TALLY_PORTS = [9000, 25853, 9999, 9001, 9002];
+export const CANDIDATE_TALLY_PORTS = [25853, 9000, 9999, 9001, 9002];
 
 export async function parseTallyIniPort(iniPath: string): Promise<number | null> {
   try {
@@ -160,7 +160,7 @@ export class TallyClient {
   private timeoutMs: number;
 
   constructor(options: TallyClientOptions = {}) {
-    this.url = options.url || 'http://127.0.0.1:9000';
+    this.url = options.url || 'http://127.0.0.1:25853';
     this.mock = options.mock ?? false;
     this.timeoutMs = options.timeoutMs || 30000;
   }
@@ -186,14 +186,14 @@ export class TallyClient {
   public getActivePort(): number {
     try {
       const u = new URL(this.url);
-      return parseInt(u.port || '9000', 10) || 9000;
+      return parseInt(u.port || '25853', 10) || 25853;
     } catch {
-      return 9000;
+      return 25853;
     }
   }
 
   /**
-   * Automatically scans candidate ports ([9000, 25853, 9999, 9001, 9002], Windows registry, tally.ini)
+   * Automatically scans candidate ports ([25853, 9000, 9999, 9001, 9002], Windows registry, tally.ini)
    */
   public async discoverActivePort(): Promise<string | null> {
     if (this.mock) return this.url;
@@ -306,13 +306,13 @@ export class TallyClient {
           return this.postXml(xmlPayload, false);
         }
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 9000 (or custom configured port).`);
+      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 25853 (or 9000 / custom configured port).`);
     }
   }
 
   public async ping(): Promise<{ ok: boolean; company?: string; port?: number; error?: string }> {
     if (this.mock) {
-      return { ok: true, company: 'Manohar Traders (Mock Mode)', port: 9000 };
+      return { ok: true, company: 'Manohar Traders (Mock Mode)', port: 25853 };
     }
     try {
       const xml = await this.postXml(buildCompanyInfoQuery());

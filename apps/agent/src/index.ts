@@ -26,13 +26,9 @@ const savedState = store.get();
 const cloudUrl = cloudArg ? cloudArg.split('=')[1] : (process.env.CLOUD_URL || savedState.cloudUrl || 'https://manohar.evolveexpert.com');
 const companyId = companyArg ? companyArg.split('=')[1] : (process.env.COMPANY_ID || savedState.companyId || '');
 const agentSecretKey = keyArg ? keyArg.split('=')[1] : (process.env.AGENT_KEY || savedState.agentSecretKey || 'dev-agent-secret-key');
-const rawTallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:9000');
-let customPort = (savedState as any)?.tallyPort || (savedState as any)?.port;
-if (customPort === 25853) customPort = 9000;
-let tallyUrl = rawTallyUrl || 'http://127.0.0.1:9000';
-if (tallyUrl.includes('25853') && !tallyArg) {
-  tallyUrl = tallyUrl.replace('25853', '9000');
-}
+const rawTallyUrl = tallyArg ? tallyArg.split('=')[1] : (process.env.TALLY_URL || savedState.tallyUrl || 'http://127.0.0.1:25853');
+const customPort = (savedState as any)?.tallyPort || (savedState as any)?.port;
+let tallyUrl = rawTallyUrl || 'http://127.0.0.1:25853';
 if (customPort && !tallyArg) {
   try {
     const u = new URL(tallyUrl);
