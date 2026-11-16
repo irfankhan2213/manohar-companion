@@ -14,6 +14,10 @@ import {
   Plus,
   Trash2,
   X,
+  Printer,
+  FileText,
+  CheckSquare,
+  Square,
 } from 'lucide-react';
 import { can, formatINR, getDaysOverdue, Party } from '@saas/shared';
 import { api } from '../../api/index.js';
@@ -68,6 +72,8 @@ export const PartyDetailScreen: React.FC = () => {
   // Tally-grade detailed statement & invoice inspection modal
   const [statementDetailed, setStatementDetailed] = useState(true);
   const [selectedVoucherDetail, setSelectedVoucherDetail] = useState<any | null>(null);
+  const [selectBillsModalOpen, setSelectBillsModalOpen] = useState(false);
+  const [selectedBillsForPdf, setSelectedBillsForPdf] = useState<string[]>([]);
 
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
@@ -758,10 +764,21 @@ export const PartyDetailScreen: React.FC = () => {
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  setSelectedBillsForPdf(bills.map((b) => b.billNo));
+                  setSelectBillsModalOpen(true);
+                }}
+                className="text-caption font-semibold px-2.5 py-1 rounded-lg bg-surface border border-separator/40 text-label hover:border-accent hover:text-accent transition-all inline-flex items-center gap-1.5 shadow-xs"
+              >
+                <FileText className="w-3.5 h-3.5 text-accent" />
+                <span>Select Bills PDF</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => navigate(`/print/statement/${party.id}`)}
                 className="text-subhead font-semibold text-accent inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
               >
-                <span>View PDF</span>
+                <span>Full PDF</span>
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -1336,6 +1353,17 @@ export const PartyDetailScreen: React.FC = () => {
                 fullWidth
                 onClick={() => {
                   const billNo = selectedVoucherDetail.billNo || selectedVoucherDetail.voucherNo || selectedVoucherDetail.number || '';
+                  navigate(`/print/statement/${party.id}?bills=${billNo}`);
+                }}
+              >
+                <Printer className="w-4 h-4 mr-2" />
+                <span>Print / PDF</span>
+              </Button>
+              <Button
+                variant="tinted"
+                fullWidth
+                onClick={() => {
+                  const billNo = selectedVoucherDetail.billNo || selectedVoucherDetail.voucherNo || selectedVoucherDetail.number || '';
                   const total = formatINR(selectedVoucherDetail.amount || selectedVoucherDetail.debit || 0);
                   const itemsList = (selectedVoucherDetail.items || [])
                     .map((it: any) => `• ${it.item}: ${it.qty} ${it.unit || 'pcs'} × ${formatINR(it.rate)} = ${formatINR(it.amount)}`)
@@ -1346,11 +1374,10 @@ export const PartyDetailScreen: React.FC = () => {
                 }}
               >
                 <MessageSquare className="w-4 h-4 mr-2" />
-                <span>WhatsApp Invoice</span>
+                <span>WhatsApp</span>
               </Button>
               <Button
                 variant="primary"
-                fullWidth
                 onClick={() => setSelectedVoucherDetail(null)}
               >
                 <span>Done</span>
@@ -1358,6 +1385,135 @@ export const PartyDetailScreen: React.FC = () => {
             </div>
           </div>
         )}
+      </Sheet>
+
+      {/* Specific Bills Selection Modal for PDF Statement */}
+      <Sheet
+        open={selectBillsModalOpen}
+        onOpenChange={setSelectBillsModalOpen}
+        title="Select Bills for PDF Statement"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="text-caption text-label-2 pb-1 border-b border-separator/30">
+            Choose specific invoices to combine into a detailed PDF statement with item lines, rates & totals.
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setSelectedBillsForPdf(bills.map((b) => b.billNo))}
+                className="text-caption font-semibold px-2.5 py-1 rounded bg-fill/40 text-label hover:bg-fill/70 transition-colors"
+              >
+                Select All ({bills.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBillsForPdf([])}
+                className="text-caption font-semibold px-2.5 py-1 rounded bg-fill/40 text-label-2 hover:bg-fill/70 transition-colors"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedBillsForPdf(bills.filter((b) => (b.pending ?? b.amount) > 0).map((b) => b.billNo))}
+                className="text-caption font-semibold px-2.5 py-1 rounded bg-fill/40 text-warn hover:bg-fill/70 transition-colors"
+              >
+                Only Pending
+              </button>
+            </div>
+            <span className="text-caption font-semibold text-accent">
+              {selectedBillsForPdf.length} selected
+            </span>
+          </div>
+
+          <div className="max-h-[380px] overflow-y-auto flex flex-col gap-2 pr-1">
+            {bills.length === 0 ? (
+              <div className="p-6 text-center text-label-2 text-subhead">
+                No bills found for this customer.
+              </div>
+            ) : (
+              bills.map((b) => {
+                const isSelected = selectedBillsForPdf.includes(b.billNo);
+                const items = (b as any).items || [];
+                const totalQty = items.reduce((sum: number, it: any) => sum + (it.qty || 0), 0);
+                const isPartySettled = (party?.closingBalance ?? 0) <= 0 && Boolean(party?.notes?.includes('Imported from Tally'));
+                const effPending = isPartySettled ? 0 : (b.pending ?? b.amount);
+
+                return (
+                  <div
+                    key={b.id}
+                    onClick={() => {
+                      if (isSelected) {
+                        setSelectedBillsForPdf(selectedBillsForPdf.filter((no) => no !== b.billNo));
+                      } else {
+                        setSelectedBillsForPdf([...selectedBillsForPdf, b.billNo]);
+                      }
+                    }}
+                    className={`p-3 rounded-xl border transition-all cursor-pointer flex items-start gap-3 ${
+                      isSelected
+                        ? 'bg-accent/5 border-accent shadow-xs'
+                        : 'bg-surface border-separator/40 hover:bg-fill/20'
+                    }`}
+                  >
+                    <div className="mt-0.5 text-accent">
+                      {isSelected ? (
+                        <CheckSquare className="w-5 h-5 text-accent fill-accent/20" />
+                      ) : (
+                        <Square className="w-5 h-5 text-label-3" />
+                      )}
+                    </div>
+                    <div className="flex-1 flex flex-col gap-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-headline text-label">
+                          Bill #{b.billNo}
+                        </span>
+                        <span className="font-bold text-headline tabular-nums text-label">
+                          {formatINR(b.amount)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-caption text-label-2">
+                        <span>Inv Date: {b.date} · Due: {b.dueDate}</span>
+                        <span className={`font-semibold ${effPending === 0 ? 'text-ok' : 'text-danger'}`}>
+                          {effPending === 0 ? 'Paid' : `Due: ${formatINR(effPending)}`}
+                        </span>
+                      </div>
+                      {items.length > 0 && (
+                        <div className="text-[11px] text-label-2 bg-fill/40 px-2 py-1 rounded truncate mt-0.5">
+                          {items.length} items ({totalQty} pcs): {items.map((it: any) => it.item).join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          <div className="pt-2 flex flex-col gap-2 border-t border-separator/30">
+            <Button
+              variant="primary"
+              fullWidth
+              disabled={selectedBillsForPdf.length === 0}
+              onClick={() => {
+                setSelectBillsModalOpen(false);
+                navigate(`/print/statement/${party.id}?bills=${selectedBillsForPdf.join(',')}`);
+              }}
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              <span>
+                Generate PDF ({selectedBillsForPdf.length} {selectedBillsForPdf.length === 1 ? 'Bill' : 'Bills'})
+              </span>
+            </Button>
+            <Button
+              variant="plain"
+              fullWidth
+              onClick={() => setSelectBillsModalOpen(false)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
       </Sheet>
     </LargeTitleScreen>
   );
