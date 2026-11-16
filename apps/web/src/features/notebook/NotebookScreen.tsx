@@ -35,6 +35,7 @@ import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { Badge } from '../../components/ui/badge.js';
 
 function createDefaultColumns(): NotebookColumn[] {
   return [
@@ -724,12 +725,14 @@ export const NotebookScreen: React.FC = () => {
   ) => (
     <div
       key={tableId}
-      className="bg-surface rounded-ios-card border border-separator/50 shadow-sm overflow-hidden flex flex-col"
+      className="bg-surface rounded-ios-card border border-separator/40 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden flex flex-col"
     >
       {/* Table Top Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 bg-fill/30 border-b border-separator/40">
-        <div className="flex items-center gap-2">
-          <FileSpreadsheet className="w-4 h-4 text-accent" />
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-fill/25 border-b border-separator/40">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
+            <FileSpreadsheet className="w-4 h-4" />
+          </div>
           {isPrimary ? (
             <span className="text-footnote font-bold text-label">Calculation Table</span>
           ) : (
@@ -749,7 +752,7 @@ export const NotebookScreen: React.FC = () => {
               className="bg-transparent text-footnote font-bold text-label focus:outline-none focus:underline"
             />
           )}
-          <span className="text-caption text-label-3">
+          <span className="text-caption text-label-3 tabular-nums">
             ({rows.length} {rows.length === 1 ? 'row' : 'rows'})
           </span>
         </div>
@@ -759,7 +762,7 @@ export const NotebookScreen: React.FC = () => {
             variant="tinted"
             size="small"
             onClick={() => handleAddRow(tableId)}
-            className="flex items-center gap-1 h-7 px-2 text-caption"
+            className="flex items-center gap-1 h-7 px-2.5 text-caption font-semibold"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.2]" />
             <span>{isPrimary ? 'Add Row' : 'Row'}</span>
@@ -769,7 +772,7 @@ export const NotebookScreen: React.FC = () => {
             variant="tinted"
             size="small"
             onClick={() => openColumnConfig(undefined, tableId)}
-            className="flex items-center gap-1 h-7 px-2 text-caption"
+            className="flex items-center gap-1 h-7 px-2.5 text-caption font-semibold"
           >
             <Plus className="w-3.5 h-3.5 stroke-[2.2]" />
             <span>{isPrimary ? 'Add Column' : 'Column'}</span>
@@ -778,7 +781,7 @@ export const NotebookScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => handleRemoveExtraTable(tableId)}
-            className="p-1.5 text-label-3 hover:text-danger hover:bg-danger/10 rounded-lg transition-colors"
+            className="p-1.5 text-label-3 hover:text-danger hover:bg-danger/10 active:opacity-60 rounded-lg transition-colors"
             title="Remove Table from Note"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -790,7 +793,7 @@ export const NotebookScreen: React.FC = () => {
       <div className="overflow-x-auto max-w-full">
         <table className="w-full border-collapse text-left text-subhead">
           <thead>
-            <tr className="bg-fill/40 border-b border-separator/50 text-footnote font-bold text-label-2">
+            <tr className="bg-fill/25 border-b border-separator/40 text-footnote font-semibold text-label-2">
               <th className="py-2.5 px-3 w-10 text-center border-r border-separator/30">#</th>
               {columns.map((col) => {
                 const isComputed = col.type === 'computed';
@@ -798,15 +801,15 @@ export const NotebookScreen: React.FC = () => {
                   <th
                     key={col.id}
                     onClick={() => openColumnConfig(col, tableId)}
-                    className="py-2.5 px-3 border-r border-separator/30 hover:bg-fill/60 cursor-pointer select-none transition-colors whitespace-nowrap"
+                    className="py-2.5 px-3 border-r border-separator/30 hover:bg-fill/40 cursor-pointer select-none transition-colors whitespace-nowrap"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-label font-semibold">{col.title}</span>
                       <div className="flex items-center gap-1">
                         {isComputed && (
-                          <span className="text-[10px] font-mono font-bold bg-accent-soft text-accent px-1.5 py-0.5 rounded">
+                          <Badge variant="secondary" size="sm" className="font-mono text-[10px] px-1.5 py-0">
                             fx
-                          </span>
+                          </Badge>
                         )}
                         <Settings2 className="w-3.5 h-3.5 text-label-3 hover:text-label" />
                       </div>
@@ -823,15 +826,15 @@ export const NotebookScreen: React.FC = () => {
               <tr>
                 <td
                   colSpan={columns.length + 2}
-                  className="p-6 text-center text-label-2 text-subhead"
+                  className="p-8 text-center text-label-2 text-subhead"
                 >
-                  No rows yet. Click "+ Add Row" above to start calculating.
+                  No calculation rows yet. Tap "+ Add Row" above to start.
                 </td>
               </tr>
             ) : (
               rows.map((row, rowIdx) => (
-                <tr key={row.id} className="hover:bg-fill/15 transition-colors group">
-                  <td className="py-2.5 px-3 text-center text-footnote font-mono text-label-3 border-r border-separator/30 select-none bg-fill/10">
+                <tr key={row.id} className="hover:bg-fill/10 transition-colors group">
+                  <td className="py-2.5 px-3 text-center text-footnote font-mono text-label-3 border-r border-separator/30 select-none bg-fill/5 tabular-nums">
                     {rowIdx + 1}
                   </td>
 
@@ -861,7 +864,7 @@ export const NotebookScreen: React.FC = () => {
                                 if (e.key === 'Escape') setEditingCell(null);
                               }}
                               onBlur={commitCellEdit}
-                              className="w-full bg-surface border border-accent rounded px-2 py-1 text-subhead font-mono text-label focus:outline-none shadow-sm"
+                              className="w-full bg-surface border border-accent rounded-lg px-2 py-1 text-subhead font-mono text-label focus:outline-none shadow-xs"
                             />
                           </div>
                         </td>
@@ -875,11 +878,11 @@ export const NotebookScreen: React.FC = () => {
                         className={`py-2.5 px-3 border-r border-separator/30 transition-colors cursor-pointer select-none whitespace-nowrap ${
                           isComputed
                             ? 'bg-fill/10 font-mono text-label font-semibold cursor-default'
-                            : 'hover:bg-fill/30 text-label'
+                            : 'hover:bg-fill/25 text-label'
                         } ${isNumber ? 'text-right font-mono' : ''}`}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="truncate tabular-nums">
+                          <span className="truncate tabular-nums font-medium">
                             {cell?.value || cell?.raw || '—'}
                           </span>
                           {cell?.raw && cell.raw !== cell.value && !isComputed && (
@@ -909,7 +912,7 @@ export const NotebookScreen: React.FC = () => {
 
           {rows.length > 0 && (
             <tfoot>
-              <tr className="bg-fill/50 border-t-2 border-separator/60 font-bold text-footnote">
+              <tr className="bg-fill/25 border-t border-separator/40 font-semibold text-footnote">
                 <td className="py-3 px-3 text-center text-label-2 border-r border-separator/30">
                   <Sigma className="w-4 h-4 mx-auto text-accent" />
                 </td>
@@ -926,9 +929,9 @@ export const NotebookScreen: React.FC = () => {
                     >
                       {totalVal ? (
                         <div className="flex items-center justify-end gap-1.5">
-                          <span className="text-[10px] uppercase font-bold text-accent bg-accent-soft px-1 rounded">
+                          <Badge variant="secondary" size="sm" className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0">
                             {col.total}
-                          </span>
+                          </Badge>
                           <span className="tabular-nums font-bold text-headline">
                             {totalVal}
                           </span>
@@ -1021,7 +1024,7 @@ export const NotebookScreen: React.FC = () => {
       }
     >
       {/* Top Notes Strip (Google Keep / Google Docs Note Switcher + Search + New Note) */}
-      <div className="flex flex-col gap-3 bg-surface p-3.5 rounded-ios-card border border-separator/40 shadow-sm">
+      <div className="flex flex-col gap-3 bg-surface p-4 rounded-ios-card border border-separator/40 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-label-3 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -1030,7 +1033,7 @@ export const NotebookScreen: React.FC = () => {
               placeholder="Search notes, party calculations, or items..."
               value={noteSearch}
               onChange={(e) => setNoteSearch(e.target.value)}
-              className="w-full h-9 pl-9 pr-3 bg-fill/40 border border-separator/40 rounded-xl text-footnote text-label placeholder:text-label-3 focus:outline-none focus:border-accent"
+              className="w-full h-9 pl-9 pr-3 bg-fill/30 border border-separator/40 rounded-xl text-footnote text-label placeholder:text-label-3 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
             />
           </div>
 
@@ -1038,7 +1041,7 @@ export const NotebookScreen: React.FC = () => {
             <select
               value={activeNotebookId}
               onChange={(e) => setActiveNotebookId(e.target.value)}
-              className="bg-fill/50 border border-separator/40 rounded-xl px-3 py-1.5 text-footnote font-semibold text-label focus:outline-none cursor-pointer max-w-[220px] truncate"
+              className="bg-fill/40 border border-separator/40 rounded-xl px-3 py-1.5 text-footnote font-semibold text-label focus:outline-none cursor-pointer max-w-[220px] truncate"
             >
               {notebooks.map((n) => (
                 <option key={n.id} value={n.id}>
@@ -1050,7 +1053,7 @@ export const NotebookScreen: React.FC = () => {
             <button
               type="button"
               onClick={() => setNewSheetOpen(true)}
-              className="h-9 px-3 rounded-xl bg-accent text-white flex items-center gap-1.5 font-semibold text-footnote hover:opacity-90 active:scale-95 transition-all shrink-0 shadow-xs"
+              className="h-9 px-3 rounded-xl bg-accent text-white flex items-center gap-1.5 font-semibold text-footnote hover:opacity-90 active:scale-[0.98] transition-all shrink-0 shadow-xs"
               title="New Note"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
@@ -1061,7 +1064,7 @@ export const NotebookScreen: React.FC = () => {
 
         {/* Horizontal Note Cards Strip */}
         {filteredNotebooks.length > 1 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
             {filteredNotebooks.map((n) => {
               const isSelected = n.id === notebook.id;
               return (
@@ -1074,12 +1077,12 @@ export const NotebookScreen: React.FC = () => {
                   }}
                   className={`px-3 py-2 rounded-xl border text-left transition-all shrink-0 max-w-[210px] flex flex-col gap-0.5 ${
                     isSelected
-                      ? 'bg-accent-soft/60 border-accent text-label shadow-xs'
-                      : 'bg-fill/30 border-separator/40 text-label-2 hover:bg-fill/60'
+                      ? 'bg-accent-soft/60 border-accent/40 text-label shadow-xs'
+                      : 'bg-fill/25 border-separator/40 text-label-2 hover:bg-fill/50 hover:text-label'
                   }`}
                 >
                   <span className="text-footnote font-bold truncate">{n.title}</span>
-                  <span className="text-[11px] text-label-3 truncate">
+                  <span className="text-[11px] text-label-3 truncate tabular-nums">
                     {n.content
                       ? n.content.slice(0, 35)
                       : `${n.rows.length} rows · ${n.columns.length} cols`}
@@ -1092,11 +1095,11 @@ export const NotebookScreen: React.FC = () => {
       </div>
 
       {/* Main Google Docs / Keep Note Canvas */}
-      <div className="bg-surface rounded-ios-card border border-separator/50 shadow-sm p-4 flex flex-col gap-3">
+      <div className="bg-surface rounded-ios-card border border-separator/40 shadow-[0_1px_3px_rgba(0,0,0,0.04)] p-4 sm:p-5 flex flex-col gap-3.5">
         {/* Editable Note Title Header */}
-        <div className="flex items-center justify-between gap-2 border-b border-separator/40 pb-2.5">
+        <div className="flex items-center justify-between gap-2 border-b border-separator/40 pb-3">
           <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
               <FileText className="w-4 h-4" />
             </div>
             <div className="flex flex-col flex-1 min-w-0">
@@ -1128,12 +1131,12 @@ export const NotebookScreen: React.FC = () => {
         </div>
 
         {/* Rich Note Formatting & Calculation Action Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 bg-fill/30 p-2 rounded-xl border border-separator/30">
+        <div className="flex flex-wrap items-center justify-between gap-2 bg-fill/25 p-2 rounded-xl border border-separator/30">
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               type="button"
               onClick={() => insertIntoNote('• ')}
-              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/50 text-caption font-semibold text-label hover:border-accent flex items-center gap-1 shadow-2xs"
+              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/40 text-caption font-semibold text-label hover:border-accent hover:text-accent flex items-center gap-1 shadow-xs"
             >
               <List className="w-3.5 h-3.5 text-accent" />
               <span>Bullet</span>
@@ -1142,7 +1145,7 @@ export const NotebookScreen: React.FC = () => {
             <button
               type="button"
               onClick={() => insertIntoNote('☐ ')}
-              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/50 text-caption font-semibold text-label hover:border-accent flex items-center gap-1 shadow-2xs"
+              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/40 text-caption font-semibold text-label hover:border-accent hover:text-accent flex items-center gap-1 shadow-xs"
             >
               <ListChecks className="w-3.5 h-3.5 text-accent" />
               <span>Checklist</span>
@@ -1153,7 +1156,7 @@ export const NotebookScreen: React.FC = () => {
               onClick={() =>
                 insertIntoNote(`📅 ${new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}: `)
               }
-              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/50 text-caption font-semibold text-label hover:border-accent flex items-center gap-1 shadow-2xs"
+              className="px-2.5 py-1.5 rounded-lg bg-surface border border-separator/40 text-caption font-semibold text-label hover:border-accent hover:text-accent flex items-center gap-1 shadow-xs"
             >
               <Calendar className="w-3.5 h-3.5 text-accent" />
               <span>Date</span>
@@ -1162,7 +1165,7 @@ export const NotebookScreen: React.FC = () => {
             <button
               type="button"
               onClick={handleEvaluateInlineNoteMath}
-              className="px-2.5 py-1.5 rounded-lg bg-accent-soft text-accent border border-accent/20 text-caption font-bold hover:bg-accent hover:text-white transition-colors flex items-center gap-1 shadow-2xs"
+              className="px-2.5 py-1.5 rounded-lg bg-accent-soft text-accent border border-accent/20 text-caption font-bold hover:bg-accent hover:text-white transition-colors flex items-center gap-1 shadow-xs"
               title="Calculate any math expression ending with = inside your note"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -1172,7 +1175,7 @@ export const NotebookScreen: React.FC = () => {
             <button
               type="button"
               onClick={handleAddTableToNote}
-              className="px-2.5 py-1.5 rounded-lg bg-accent text-white text-caption font-semibold hover:opacity-95 flex items-center gap-1 shadow-2xs"
+              className="px-2.5 py-1.5 rounded-lg bg-accent text-white text-caption font-semibold hover:opacity-90 active:scale-[0.98] flex items-center gap-1 shadow-xs"
             >
               <TableIcon className="w-3.5 h-3.5" />
               <span>+ Add Calculation Table</span>
@@ -1180,7 +1183,7 @@ export const NotebookScreen: React.FC = () => {
           </div>
 
           {/* Inline Instant Calculator Scratchpad */}
-          <div className="flex items-center gap-1.5 bg-surface px-2.5 py-1 rounded-lg border border-separator/50 w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 bg-surface px-2.5 py-1 rounded-lg border border-separator/40 shadow-xs w-full sm:w-auto">
             <Calculator className="w-3.5 h-3.5 text-accent shrink-0" />
             <input
               type="text"
@@ -1220,7 +1223,7 @@ export const NotebookScreen: React.FC = () => {
           value={notebook.content ?? ''}
           onChange={(e) => handleNoteContentChange(e.target.value)}
           placeholder="Write notes here..."
-          className="w-full p-3 bg-fill/15 border border-separator/40 rounded-xl text-body text-label placeholder:text-label-3 leading-relaxed focus:outline-none focus:border-accent focus:bg-surface transition-all resize-y min-h-[120px]"
+          className="w-full p-3.5 bg-fill/15 border border-separator/40 rounded-xl text-body text-label placeholder:text-label-3 leading-relaxed focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent focus:bg-surface transition-all resize-y min-h-[120px]"
         />
       </div>
 
@@ -1235,17 +1238,17 @@ export const NotebookScreen: React.FC = () => {
         )}
 
       {/* Touch-Friendly Math Operator Quick Bar */}
-      <div className="sticky bottom-20 md:bottom-6 z-30 bg-surface/95 backdrop-blur-md p-2.5 rounded-2xl border border-separator/50 shadow-[0_8px_24px_rgba(0,0,0,0.08)] flex items-center justify-between gap-1.5 max-w-lg mx-auto w-full">
-        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
+      <div className="sticky bottom-20 md:bottom-6 z-30 bg-surface/90 backdrop-blur-md p-2 rounded-ios-card border border-separator/40 shadow-[0_4px_16px_rgba(0,0,0,0.08)] flex items-center justify-between gap-1.5 max-w-lg mx-auto w-full">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 no-scrollbar">
           {['+', '-', '×', '÷', '(', ')', '.', 'C'].map((op) => (
             <button
               key={op}
               type="button"
               onClick={() => handleOperatorClick(op)}
-              className={`h-10 min-w-10 px-2.5 rounded-xl font-bold font-mono text-headline transition-all active:scale-95 shadow-sm border ${
+              className={`h-10 min-w-10 px-2.5 rounded-xl font-bold font-mono text-headline transition-all active:scale-95 shadow-xs border ${
                 op === 'C'
                   ? 'bg-danger/10 text-danger border-danger/20 hover:bg-danger/20'
-                  : 'bg-fill/60 text-label border-separator/40 hover:bg-fill'
+                  : 'bg-fill/40 text-label border-separator/40 hover:bg-fill/80'
               }`}
             >
               {op}
@@ -1257,7 +1260,7 @@ export const NotebookScreen: React.FC = () => {
           <Button
             size="small"
             onClick={commitCellEdit}
-            className="h-10 px-3 shrink-0 flex items-center gap-1"
+            className="h-10 px-3 shrink-0 flex items-center gap-1 font-semibold"
           >
             <Check className="w-4 h-4 stroke-[2.5]" />
             <span>Apply</span>
@@ -1286,7 +1289,7 @@ export const NotebookScreen: React.FC = () => {
               placeholder="e.g. Total Amount"
               value={colTitle}
               onChange={(e) => setColTitle(e.target.value)}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             />
           </div>
 
@@ -1297,7 +1300,7 @@ export const NotebookScreen: React.FC = () => {
             <select
               value={colType}
               onChange={(e) => setColType(e.target.value as NotebookColumn['type'])}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             >
               <option value="number">Number (supports math like 10*2)</option>
               <option value="computed">Computed Formula (e.g. {'{qty} * {rate}'})</option>
@@ -1318,7 +1321,7 @@ export const NotebookScreen: React.FC = () => {
                 placeholder="e.g. {qty} * {rate}"
                 value={colFormula}
                 onChange={(e) => setColFormula(e.target.value)}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl font-mono text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl font-mono text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
               <span className="text-caption text-label-3">Insert column variables:</span>
               <div className="flex flex-wrap gap-1.5">
@@ -1351,7 +1354,7 @@ export const NotebookScreen: React.FC = () => {
                     : (e.target.value as 'sum' | 'avg' | 'count' | 'min' | 'max')
                 )
               }
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             >
               <option value="">None (Don't total this column)</option>
               <option value="sum">Sum (Total)</option>
@@ -1396,7 +1399,7 @@ export const NotebookScreen: React.FC = () => {
               placeholder="e.g. November Party Rates & Dispatch Notes"
               value={newTitle}
               onChange={(e) => setNewTitle(e.target.value)}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             />
           </div>
 

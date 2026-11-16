@@ -98,7 +98,7 @@ export const Sidebar: React.FC = () => {
               end={link.end}
               className={({ isActive }) =>
                 clsx(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-subhead font-semibold transition-colors',
+                  'flex items-center gap-3 px-3 py-2.5 rounded-lg text-subhead font-semibold transition-[color,background-color,transform] duration-150 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:transform-none',
                   isActive
                     ? 'bg-accent-soft text-accent'
                     : 'text-label-2 hover:bg-fill/50 hover:text-label'

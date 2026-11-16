@@ -36,7 +36,7 @@ export function SegmentedControl<T extends string>({
             type="button"
             onClick={() => onChange(opt.value)}
             className={clsx(
-              'flex-1 py-1.5 rounded-lg font-semibold transition-all duration-200 text-center truncate',
+              'flex-1 py-1.5 rounded-lg font-semibold transition-[color,background-color,box-shadow,transform] duration-150 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:transform-none text-center truncate',
               options.length >= 4
                 ? 'px-1 text-footnote tracking-tight'
                 : 'px-3 text-subhead',

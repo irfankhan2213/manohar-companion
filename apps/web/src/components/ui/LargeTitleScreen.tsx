@@ -48,7 +48,7 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
                 type="button"
                 onClick={handleBack}
                 aria-label="Back"
-                className="flex items-center gap-1 text-accent font-semibold text-headline -ml-1 sm:-ml-2.5 px-1.5 sm:px-2 py-1 rounded-lg active:opacity-60 transition-opacity shrink-0"
+                className="flex items-center gap-1 text-accent font-semibold text-headline -ml-1 sm:-ml-2.5 px-1.5 sm:px-2 py-1 rounded-lg active:opacity-60 active:scale-[0.98] transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none shrink-0"
               >
                 <ChevronLeft className="w-6 h-6 stroke-[2.2] shrink-0" />
                 <span className="hidden sm:inline">Back</span>

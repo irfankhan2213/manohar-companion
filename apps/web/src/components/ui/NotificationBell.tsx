@@ -142,7 +142,7 @@ export const NotificationBell: React.FC = () => {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Notifications"
-        className="relative p-2 rounded-xl text-label-2 hover:text-label hover:bg-fill/60 active:scale-95 transition-all shrink-0"
+        className="relative p-2 rounded-xl text-label-2 hover:text-label hover:bg-fill/60 active:scale-95 transition-[transform,color,background-color] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none shrink-0"
       >
         <Bell className="w-5 h-5 stroke-[2]" />
         {unreadCount > 0 && (
@@ -168,7 +168,7 @@ export const NotificationBell: React.FC = () => {
               <button
                 type="button"
                 onClick={handleTestNotification}
-                className="text-footnote font-semibold text-accent flex items-center gap-1 hover:underline"
+                className="text-footnote font-semibold text-accent flex items-center gap-1 hover:underline active:scale-95 transition-transform duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none"
               >
                 <Bell className="w-3.5 h-3.5" />
                 <span>Test Popup</span>
@@ -177,7 +177,7 @@ export const NotificationBell: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => markAllReadMutation.mutate()}
-                  className="text-footnote font-semibold text-label-2 flex items-center gap-1 hover:underline"
+                  className="text-footnote font-semibold text-label-2 flex items-center gap-1 hover:underline active:scale-95 transition-transform duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none"
                 >
                   <CheckCheck className="w-3.5 h-3.5" />
                   <span>Mark all read</span>
@@ -197,7 +197,7 @@ export const NotificationBell: React.FC = () => {
                 <div
                   key={n.id}
                   onClick={() => handleOpenNotification(n)}
-                  className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col gap-2 ${
+                  className={`p-3.5 rounded-xl border text-left cursor-pointer active:scale-[0.99] transition-[transform,background-color,border-color,box-shadow] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none flex flex-col gap-2 ${
                     n.read
                       ? 'bg-surface border-separator/50 text-label-2'
                       : 'bg-accent-soft/40 border-accent/30 text-label shadow-sm'
@@ -236,9 +236,9 @@ export const NotificationBell: React.FC = () => {
                       <img
                         src={n.photoUrl}
                         alt="Task attachment"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200 ease-out motion-reduce:transition-none motion-reduce:transform-none"
                       />
-                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                      <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-150 ease-out flex items-center justify-center text-white motion-reduce:transition-none">
                         <ImageIcon className="w-4 h-4" />
                       </div>
                     </div>
@@ -270,7 +270,7 @@ export const NotificationBell: React.FC = () => {
             <button
               type="button"
               onClick={() => setPreviewPhoto(null)}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 transition-colors z-10"
+              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 active:scale-90 transition-[transform,background-color] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none z-10"
               aria-label="Close photo"
             >
               <X className="w-4 h-4" />

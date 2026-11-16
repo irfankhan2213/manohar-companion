@@ -323,14 +323,14 @@ export const CollectionsScreen: React.FC = () => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search customer or city"
-              className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/50 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-sm"
+              className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/40 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-xs"
             />
             {searchQuery && (
               <button
                 type="button"
                 aria-label="Clear search"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -362,9 +362,9 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
                 partyTypeTab === 'all' && tabFilter === 'all'
-                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
+                  ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
               )}
             >
@@ -378,9 +378,9 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
                 partyTypeTab === 'debtor' && tabFilter === 'all'
-                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
+                  ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
               )}
             >
@@ -395,9 +395,9 @@ export const CollectionsScreen: React.FC = () => {
                 setIsMultiSelect(false);
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
                 partyTypeTab === 'creditor' && tabFilter === 'all'
-                  ? 'bg-fill text-label shadow-xs border border-separator/60 font-bold'
+                  ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
               )}
             >
@@ -410,9 +410,9 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
                 tabFilter === 'late'
-                  ? 'bg-danger/15 text-danger border border-danger/30 font-bold'
+                  ? 'bg-danger/10 text-danger border border-danger/20 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
               )}
             >
@@ -423,18 +423,18 @@ export const CollectionsScreen: React.FC = () => {
           {/* Parties List */}
           <InsetGroup>
             {partiesLoading || billsLoading ? (
-              <div className="p-8 text-center text-label-2 animate-pulse">
+              <div className="p-8 text-center text-label-2 text-subhead animate-pulse">
                 Loading receivables...
               </div>
             ) : filteredList.length === 0 ? (
-              <div className="p-8 text-center text-label-2 text-subhead">
-                No{' '}
-                {partyTypeTab === 'creditor'
-                  ? 'suppliers'
-                  : partyTypeTab === 'debtor'
-                  ? 'customers'
-                  : 'parties'}{' '}
-                match the current filter.
+              <div className="p-10 text-center flex flex-col items-center justify-center gap-2">
+                <Search className="w-8 h-8 text-label-3 opacity-50" />
+                <span className="text-subhead font-semibold text-label">
+                  No {partyTypeTab === 'creditor' ? 'suppliers' : partyTypeTab === 'debtor' ? 'customers' : 'parties'} found
+                </span>
+                <span className="text-footnote text-label-2">
+                  Try adjusting search term or overdue filter.
+                </span>
               </div>
             ) : (
               filteredList.map((item) => {
@@ -470,8 +470,8 @@ export const CollectionsScreen: React.FC = () => {
                           <div
                             className={`w-6 h-6 rounded-md border flex items-center justify-center transition-all ${
                               isSelected
-                                ? 'bg-accent border-accent text-white'
-                                : 'border-separator/80 bg-surface'
+                                ? 'bg-accent border-accent text-white shadow-xs'
+                                : 'border-separator/60 bg-surface'
                             }`}
                           >
                             {isSelected && <Check className="w-4 h-4 stroke-[2.5]" />}
@@ -485,6 +485,7 @@ export const CollectionsScreen: React.FC = () => {
                         <Badge
                           variant={item.isCreditor ? 'warning' : 'secondary'}
                           size="sm"
+                          className="font-semibold"
                         >
                           {item.isCreditor ? 'Supplier' : 'Customer'}
                         </Badge>
@@ -544,14 +545,14 @@ export const CollectionsScreen: React.FC = () => {
               value={billSearchQuery}
               onChange={(e) => setBillSearchQuery(e.target.value)}
               placeholder="Search bill # or party name..."
-              className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/50 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-sm"
+              className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/40 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-xs"
             />
             {billSearchQuery && (
               <button
                 type="button"
                 aria-label="Clear bill search"
                 onClick={() => setBillSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label p-1"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -576,7 +577,7 @@ export const CollectionsScreen: React.FC = () => {
                 </span>
               )}
               {(billStartDate || billEndDate) && (
-                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-fill border border-separator/50 text-label font-medium text-caption">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-fill border border-separator/40 text-label font-medium text-caption">
                   <span>{billStartDate || 'Any'} → {billEndDate || 'Any'}</span>
                   <button
                     type="button"
@@ -608,7 +609,7 @@ export const CollectionsScreen: React.FC = () => {
           {/* Bills List InsetGroup */}
           <InsetGroup>
             {historyBillsLoading ? (
-              <div className="p-8 text-center text-label-2 animate-pulse">
+              <div className="p-8 text-center text-label-2 text-subhead animate-pulse">
                 Loading bills history...
               </div>
             ) : historyBills.length === 0 ? (
@@ -630,9 +631,9 @@ export const CollectionsScreen: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <span className="font-semibold text-label">{bill.billNo}</span>
                         {bill.source === 'estimated' && (
-                          <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-fill text-label-2 border border-separator/40">
+                          <Badge variant="muted" size="sm" className="text-[10px] uppercase font-bold tracking-wider">
                             Estimated
-                          </span>
+                          </Badge>
                         )}
                       </div>
                     }
@@ -742,7 +743,7 @@ export const CollectionsScreen: React.FC = () => {
               aria-label="Filter Bills by Party"
               value={billPartyId}
               onChange={(e) => setBillPartyId(e.target.value)}
-              className="w-full h-11 px-3 bg-surface rounded-xl border border-separator/60 text-body text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="w-full h-11 px-3 bg-surface rounded-xl border border-separator/40 text-body text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             >
               <option value="">All Parties</option>
               {parties.map((p) => (
@@ -769,7 +770,7 @@ export const CollectionsScreen: React.FC = () => {
                   aria-label="From Date"
                   value={billStartDate}
                   onChange={(e) => setBillStartDate(e.target.value)}
-                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/60 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/40 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
                 />
               </div>
               <div>
@@ -782,7 +783,7 @@ export const CollectionsScreen: React.FC = () => {
                   aria-label="To Date"
                   value={billEndDate}
                   onChange={(e) => setBillEndDate(e.target.value)}
-                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/60 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/40 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
                 />
               </div>
             </div>

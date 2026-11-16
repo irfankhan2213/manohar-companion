@@ -43,7 +43,7 @@ export const TabBar: React.FC = () => {
               end={tab.end}
               className={({ isActive }) =>
                 clsx(
-                  'flex flex-col items-center justify-center flex-1 h-full py-1 transition-colors select-none active:scale-95',
+                  'flex flex-col items-center justify-center flex-1 h-full py-1 transition-[color,transform] duration-150 ease-out select-none active:scale-95 motion-reduce:transition-none motion-reduce:transform-none',
                   isActive ? 'text-accent font-semibold' : 'text-label-3 hover:text-label-2'
                 )
               }

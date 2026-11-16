@@ -54,7 +54,7 @@ export const UserAuthMenu: React.FC = () => {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Staff account menu"
-        className="flex items-center gap-1.5 h-9 px-2 rounded-xl bg-surface/80 border border-separator/40 shadow-sm active:scale-95 transition-all text-left shrink-0"
+        className="flex items-center gap-1.5 h-9 px-2 rounded-xl bg-surface/80 border border-separator/40 shadow-sm active:scale-95 transition-[transform,background-color,border-color,box-shadow] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none text-left shrink-0"
       >
         <div className="w-6 h-6 rounded-full bg-accent-soft text-accent flex items-center justify-center font-bold text-caption shrink-0">
           {currentUser.name.charAt(0)}
@@ -106,7 +106,7 @@ export const UserAuthMenu: React.FC = () => {
                 setOpen(false);
                 navigate('/settings');
               }}
-              className="p-3 bg-surface hover:bg-fill/50 active:bg-fill/80 rounded-xl border border-separator/40 flex items-center justify-between transition-colors text-left"
+              className="p-3 bg-surface hover:bg-fill/50 active:bg-fill/80 active:scale-[0.99] rounded-xl border border-separator/40 flex items-center justify-between transition-[transform,background-color] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none text-left"
             >
               <div className="flex items-center gap-2.5 text-subhead font-semibold text-label">
                 <Settings className="w-4 h-4 text-accent" />
@@ -122,7 +122,7 @@ export const UserAuthMenu: React.FC = () => {
                   setOpen(false);
                   navigate('/dev/clients');
                 }}
-                className="p-3 bg-surface hover:bg-fill/50 active:bg-fill/80 rounded-xl border border-separator/40 flex items-center justify-between transition-colors text-left"
+                className="p-3 bg-surface hover:bg-fill/50 active:bg-fill/80 active:scale-[0.99] rounded-xl border border-separator/40 flex items-center justify-between transition-[transform,background-color] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none text-left"
               >
                 <div className="flex items-center gap-2.5 text-subhead font-semibold text-label">
                   <ShieldCheck className="w-4 h-4 text-accent" />

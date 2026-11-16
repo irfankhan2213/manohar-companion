@@ -19,6 +19,7 @@ import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
+import { Badge } from '../../components/ui/badge.js';
 
 type ActivityFilter = 'all' | 'sync' | 'challans' | 'reminders' | 'stock' | 'logins';
 type DeviceFilter = 'all' | 'iPhone' | 'Android' | 'Desktop' | 'Agent';
@@ -71,48 +72,48 @@ export const ActivityScreen: React.FC = () => {
   const getActionIcon = (action: string) => {
     if (action.includes('sync')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-ok/10 text-ok flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-ok/10 text-ok flex items-center justify-center shrink-0">
           <RefreshCw className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     if (action.includes('challan')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
           <FileSpreadsheet className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     if (action.includes('reply')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-700 flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
           <CornerDownLeft className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     if (action.includes('reminder')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
           <MessageSquare className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     if (action.includes('stock')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-700 flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-warn/10 text-warn flex items-center justify-center shrink-0">
           <Package className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     if (action.includes('login')) {
       return (
-        <div className="w-8 h-8 rounded-lg bg-ok/10 text-ok flex items-center justify-center shrink-0">
+        <div className="w-9 h-9 rounded-xl bg-ok/10 text-ok flex items-center justify-center shrink-0">
           <LogIn className="w-4 h-4 stroke-[2.2]" />
         </div>
       );
     }
     return (
-      <div className="w-8 h-8 rounded-lg bg-fill text-label-2 flex items-center justify-center shrink-0">
+      <div className="w-9 h-9 rounded-xl bg-fill text-label-2 flex items-center justify-center shrink-0">
         <Activity className="w-4 h-4 stroke-[2.2]" />
       </div>
     );
@@ -161,16 +162,16 @@ export const ActivityScreen: React.FC = () => {
       />
 
       {/* Device Filter Quick Badges */}
-      <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 -mt-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto py-1 -mt-2 no-scrollbar">
         {(['all', 'iPhone', 'Android', 'Desktop', 'Agent'] as DeviceFilter[]).map((dev) => (
           <button
             key={dev}
             type="button"
             onClick={() => setDeviceFilter(dev)}
-            className={`px-3 py-1 rounded-full text-caption font-semibold transition-all select-none whitespace-nowrap active:scale-95 ${
+            className={`px-3 py-1 rounded-full text-caption font-semibold transition-all select-none whitespace-nowrap active:scale-[0.98] ${
               deviceFilter === dev
-                ? 'bg-accent text-white shadow-sm'
-                : 'bg-fill text-label-2 hover:bg-fill/80'
+                ? 'bg-accent text-white shadow-xs'
+                : 'bg-surface text-label-2 border border-separator/40 hover:bg-fill/40 hover:text-label'
             }`}
           >
             {dev === 'all' ? 'All Devices' : dev}
@@ -179,21 +180,21 @@ export const ActivityScreen: React.FC = () => {
       </div>
 
       {isLoading ? (
-        <div className="p-8 text-center text-label-2 text-subhead">
+        <div className="p-8 text-center text-label-2 text-subhead animate-pulse">
           Loading audit activities...
         </div>
       ) : filteredActivities.length === 0 ? (
-        <div className="bg-surface rounded-ios-card p-8 border border-separator/50 text-center">
-          <Activity className="w-10 h-10 text-label-3 mx-auto mb-2 opacity-50" />
+        <div className="bg-surface rounded-ios-card p-10 border border-separator/40 text-center shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col items-center justify-center gap-2">
+          <Activity className="w-9 h-9 text-label-3 mx-auto opacity-50" />
           <p className="text-subhead font-semibold text-label">
             {t('activity.empty', 'No activity matching this filter.')}
           </p>
-          <p className="text-footnote text-label-2 mt-1">
+          <p className="text-footnote text-label-2">
             Try switching category or device filters above.
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-6">
           {/* Today Group */}
           {todayActs.length > 0 && (
             <InsetGroup title={t('activity.today', 'Today')}>
@@ -208,14 +209,14 @@ export const ActivityScreen: React.FC = () => {
                         {getUserName(act.actorId)}
                       </span>
                       <span className="text-label-3">·</span>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-fill rounded text-[11px] text-label-2 font-mono">
+                      <Badge variant="muted" size="sm" className="font-mono text-[11px] gap-1 px-1.5 py-0 border-separator/30">
                         {getDeviceIcon(act.device)}
                         {act.device}
-                      </span>
+                      </Badge>
                     </div>
                   }
                   trailing={
-                    <span className="text-caption font-mono text-label-3 whitespace-nowrap">
+                    <span className="text-caption font-mono text-label-3 tabular-nums whitespace-nowrap">
                       {formatTime(act.at)}
                     </span>
                   }
@@ -238,14 +239,14 @@ export const ActivityScreen: React.FC = () => {
                         {getUserName(act.actorId)}
                       </span>
                       <span className="text-label-3">·</span>
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 bg-fill rounded text-[11px] text-label-2 font-mono">
+                      <Badge variant="muted" size="sm" className="font-mono text-[11px] gap-1 px-1.5 py-0 border-separator/30">
                         {getDeviceIcon(act.device)}
                         {act.device}
-                      </span>
+                      </Badge>
                     </div>
                   }
                   trailing={
-                    <span className="text-caption font-mono text-label-3 whitespace-nowrap">
+                    <span className="text-caption font-mono text-label-3 tabular-nums whitespace-nowrap">
                       {formatTime(act.at)}
                     </span>
                   }

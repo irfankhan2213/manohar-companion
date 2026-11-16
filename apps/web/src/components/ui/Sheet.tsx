@@ -36,7 +36,7 @@ export const Sheet: React.FC<SheetProps> = ({
       shouldScaleBackground
     >
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50 transition-opacity backdrop-blur-[2px]" />
+        <Drawer.Overlay className="fixed inset-0 bg-black/40 z-50 transition-opacity duration-200 ease-out backdrop-blur-[2px] motion-reduce:transition-none" />
         <Drawer.Content
           className={clsx(
             'fixed bottom-0 inset-x-0 z-50 bg-surface rounded-t-ios-sheet outline-none flex flex-col max-h-[92vh] max-w-lg mx-auto shadow-2xl',
@@ -66,7 +66,7 @@ export const Sheet: React.FC<SheetProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenChange(false)}
-                className="w-8 h-8 rounded-full bg-fill/60 flex items-center justify-center text-label-2 hover:text-label active:scale-95 transition-all"
+                className="w-8 h-8 rounded-full bg-fill/60 flex items-center justify-center text-label-2 hover:text-label active:scale-95 transition-[transform,color,background-color] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none"
                 aria-label="Close"
               >
                 <X className="w-4 h-4 stroke-[2.2]" />

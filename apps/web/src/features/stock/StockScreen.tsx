@@ -8,7 +8,7 @@ import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
-import { StatusText } from '../../components/ui/StatusText.js';
+import { Badge } from '../../components/ui/badge.js';
 import { StockItemEditorSheet } from './StockItemEditorSheet.js';
 
 interface StockItemWithTotal {
@@ -103,7 +103,7 @@ export const StockScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => setCreateSheetOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white font-semibold text-subhead rounded-xl shadow-xs hover:opacity-95 active:scale-95 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-white font-semibold text-subhead rounded-xl shadow-xs hover:opacity-90 active:scale-[0.98] transition-all"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>New Item</span>
@@ -120,14 +120,14 @@ export const StockScreen: React.FC = () => {
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search item, part number or group"
-          className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/50 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-sm"
+          className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/40 text-body text-label placeholder:text-label-3 outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all shadow-xs"
         />
         {searchQuery && (
           <button
             type="button"
             aria-label="Clear search"
             onClick={() => setSearchQuery('')}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label"
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-label-3 hover:text-label p-1"
           >
             <X className="w-4 h-4" />
           </button>
@@ -136,9 +136,11 @@ export const StockScreen: React.FC = () => {
 
       {/* Combined Switch row if All Companies is active */}
       {currentCompanyId === 'all' && (
-        <div className="flex items-center justify-between p-3.5 bg-surface border border-separator/50 rounded-ios-card shadow-sm">
+        <div className="flex items-center justify-between p-4 bg-surface border border-separator/40 rounded-ios-card shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
           <div className="flex items-center gap-3">
-            <Layers className="w-5 h-5 text-accent" />
+            <div className="w-9 h-9 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
+              <Layers className="w-5 h-5" />
+            </div>
             <div className="flex flex-col">
               <span className="text-headline font-semibold text-label">
                 Combined Stock View
@@ -153,7 +155,7 @@ export const StockScreen: React.FC = () => {
             aria-label="Combined Stock View"
             checked={isCombined}
             onChange={(e) => setIsCombined(e.target.checked)}
-            className="w-6 h-6 accent-accent rounded cursor-pointer"
+            className="w-5 h-5 accent-accent rounded cursor-pointer"
           />
         </div>
       )}
@@ -171,17 +173,23 @@ export const StockScreen: React.FC = () => {
       {/* Stock Items List */}
       <InsetGroup>
         {itemsLoading ? (
-          <div className="p-8 text-center text-label-2 animate-pulse">
+          <div className="p-8 text-center text-label-2 text-subhead animate-pulse">
             Loading inventory...
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className="p-8 text-center flex flex-col items-center justify-center gap-3">
-            <span className="text-subhead text-label-2">No stock items found.</span>
+          <div className="p-10 text-center flex flex-col items-center justify-center gap-2.5">
+            <Layers className="w-8 h-8 text-label-3 opacity-50" />
+            <span className="text-subhead font-semibold text-label">No stock items found</span>
+            <span className="text-footnote text-label-2">
+              {searchQuery || tabFilter === 'low'
+                ? 'Try clearing active search or low stock filter.'
+                : 'No items found in stock records.'}
+            </span>
             {canEditStock && (
               <button
                 type="button"
                 onClick={() => setCreateSheetOpen(true)}
-                className="text-subhead font-semibold text-accent hover:underline flex items-center gap-1"
+                className="mt-1 text-subhead font-semibold text-accent hover:opacity-80 active:opacity-60 transition-opacity flex items-center gap-1.5"
               >
                 <Plus className="w-4 h-4" />
                 <span>Create a new stock item</span>
@@ -202,7 +210,9 @@ export const StockScreen: React.FC = () => {
               }
               trailingSubtitle={
                 isLow ? (
-                  <StatusText text="Low Stock" variant="warn" dot={false} />
+                  <Badge variant="warning" size="sm">
+                    Low Stock
+                  </Badge>
                 ) : (
                   <span className="text-footnote text-label-2 font-medium">In stock</span>
                 )

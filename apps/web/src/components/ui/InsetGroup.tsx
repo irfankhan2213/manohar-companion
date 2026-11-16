@@ -30,7 +30,7 @@ export const InsetGroup: React.FC<InsetGroupProps> = ({
             <button
               type="button"
               onClick={onActionClick}
-              className="text-subhead font-semibold text-accent hover:opacity-80 active:opacity-60 transition-opacity"
+              className="text-subhead font-semibold text-accent hover:opacity-80 active:opacity-60 active:scale-[0.98] transition-[opacity,transform] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none"
             >
               {actionText}
             </button>
@@ -79,8 +79,8 @@ export const Row: React.FC<RowProps> = ({
         }
       }}
       className={clsx(
-        'w-full min-h-[58px] px-3.5 py-3 flex items-center justify-between text-left transition-colors duration-150 select-none gap-3',
-        isClickable && 'hover:bg-fill/40 active:bg-fill cursor-pointer',
+        'w-full min-h-[58px] px-3.5 py-3 flex items-center justify-between text-left transition-[background-color,transform] duration-150 ease-out select-none gap-3 motion-reduce:transition-none motion-reduce:transform-none',
+        isClickable && 'hover:bg-fill/40 active:bg-fill active:scale-[0.99] cursor-pointer',
         className
       )}
     >

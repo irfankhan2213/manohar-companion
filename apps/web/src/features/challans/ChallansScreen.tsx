@@ -182,7 +182,7 @@ export const ChallansScreen: React.FC = () => {
           placeholder="Search voucher #, party, vehicle..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/60 text-body text-label placeholder:text-label-3 focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent transition-all"
+          className="w-full h-11 pl-10 pr-4 bg-surface rounded-xl border border-separator/40 text-body text-label placeholder:text-label-3 focus:outline-none focus:ring-1 focus:ring-accent focus:border-accent transition-all shadow-xs"
         />
       </div>
 
@@ -216,7 +216,7 @@ export const ChallansScreen: React.FC = () => {
             </span>
           )}
           {(startDate || endDate) && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-fill border border-separator/50 text-label font-medium text-caption">
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-fill border border-separator/40 text-label font-medium text-caption">
               <span>{startDate || 'Any'} → {endDate || 'Any'}</span>
               <button
                 type="button"
@@ -246,7 +246,7 @@ export const ChallansScreen: React.FC = () => {
       )}
 
       {/* Item-Specific Filter Chips (TAI MACHINE, SV MACHINE, 130K MACHINE, etc.) */}
-      <div className="flex flex-col gap-2 bg-surface/60 p-3 rounded-2xl border border-separator/40">
+      <div className="flex flex-col gap-2.5 bg-surface p-4 rounded-ios-card border border-separator/40 shadow-[0_1px_3px_rgba(0,0,0,0.04)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-footnote font-semibold text-label">
             <Layers className="w-3.5 h-3.5 text-accent" />
@@ -272,10 +272,10 @@ export const ChallansScreen: React.FC = () => {
                 key={item.id}
                 type="button"
                 onClick={() => toggleItemFilter(item.id)}
-                className={`px-2.5 py-1.5 rounded-lg text-footnote font-semibold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
+                className={`px-2.5 py-1.5 rounded-lg text-footnote font-semibold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap active:scale-[0.98] ${
                   isSelected
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'bg-fill/40 text-label hover:bg-fill/70 border border-separator/40'
+                    ? 'bg-accent text-white shadow-xs'
+                    : 'bg-fill/30 text-label hover:bg-fill/60 border border-separator/40'
                 }`}
               >
                 {isSelected && <Check className="w-3.5 h-3.5 stroke-[2.5]" />}
@@ -295,12 +295,12 @@ export const ChallansScreen: React.FC = () => {
       {/* Challan List */}
       <InsetGroup>
         {isLoading ? (
-          <div className="p-8 text-center text-label-2 text-subhead">
+          <div className="p-8 text-center text-label-2 text-subhead animate-pulse">
             Loading challans...
           </div>
         ) : challans.length === 0 ? (
-          <div className="p-10 text-center flex flex-col items-center justify-center gap-2">
-            <FileSpreadsheet className="w-8 h-8 text-label-3" />
+          <div className="p-10 text-center flex flex-col items-center justify-center gap-2.5">
+            <FileSpreadsheet className="w-8 h-8 text-label-3 opacity-50" />
             <span className="text-subhead font-semibold text-label">
               No challans found
             </span>
@@ -314,7 +314,7 @@ export const ChallansScreen: React.FC = () => {
                 variant="tinted"
                 size="small"
                 onClick={clearAllFilters}
-                className="mt-2"
+                className="mt-1"
               >
                 Clear All Filters
               </Button>
@@ -344,7 +344,7 @@ export const ChallansScreen: React.FC = () => {
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-semibold text-label truncate">{challan.number}</span>
                     {challanTasks.length > 0 && (
-                      <Badge variant="secondary" size="sm" className="gap-1">
+                      <Badge variant="secondary" size="sm" className="gap-1 font-semibold">
                         {hasPhotoTask && <Camera className="w-3 h-3" />}
                         <span>{challanTasks.length} {challanTasks.length === 1 ? 'task' : 'tasks'}</span>
                       </Badge>
@@ -357,7 +357,7 @@ export const ChallansScreen: React.FC = () => {
                       {party?.name ?? 'Unknown Party'}
                     </span>
                     <span className="text-label-3">·</span>
-                    <span className="text-label-3 shrink-0">{challan.date}</span>
+                    <span className="text-label-3 shrink-0 tabular-nums">{challan.date}</span>
                     <span className="text-label-3">·</span>
                     <span className="truncate max-w-[140px] sm:max-w-[220px]" title={challan.lines.map((l) => l.description).join(', ')}>
                       {primaryDesc}
@@ -368,15 +368,15 @@ export const ChallansScreen: React.FC = () => {
                       </Badge>
                     )}
                     <span className="text-label-3">·</span>
-                    <span className="shrink-0 font-mono">
+                    <span className="shrink-0 font-mono tabular-nums">
                       ({totalQty} {totalQty === 1 ? 'unit' : 'units'})
                     </span>
                     {challan.vehicleNo && (
                       <>
                         <span className="text-label-3">·</span>
-                        <span className="font-mono text-caption uppercase bg-fill/60 px-1 py-0.5 rounded text-label-2 shrink-0">
+                        <Badge variant="muted" size="sm" className="font-mono text-caption uppercase px-1.5 py-0 border-separator/30 text-label-2 shrink-0">
                           {challan.vehicleNo}
-                        </span>
+                        </Badge>
                       </>
                     )}
                   </div>
@@ -413,7 +413,7 @@ export const ChallansScreen: React.FC = () => {
               aria-label="Filter by Party"
               value={selectedPartyId}
               onChange={(e) => setSelectedPartyId(e.target.value)}
-              className="w-full h-11 px-3 bg-surface rounded-xl border border-separator/60 text-body text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+              className="w-full h-11 px-3 bg-surface rounded-xl border border-separator/40 text-body text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
             >
               <option value="">All Parties</option>
               {parties.map((p) => (
@@ -440,7 +440,7 @@ export const ChallansScreen: React.FC = () => {
                   aria-label="From Date"
                   value={startDate}
                   onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/60 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/40 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </div>
               <div>
@@ -453,7 +453,7 @@ export const ChallansScreen: React.FC = () => {
                   aria-label="To Date"
                   value={endDate}
                   onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/60 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
+                  className="w-full h-10 px-2.5 bg-surface rounded-xl border border-separator/40 text-footnote text-label focus:outline-none focus:ring-2 focus:ring-accent/30"
                 />
               </div>
             </div>

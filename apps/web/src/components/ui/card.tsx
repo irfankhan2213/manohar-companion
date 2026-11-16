@@ -1,19 +1,26 @@
 import React from 'react';
 import clsx from 'clsx';
 
-export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {}
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  interactive?: boolean;
+}
 
 export const Card = React.forwardRef<HTMLDivElement, CardProps>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={clsx(
-        'rounded-ios-card bg-surface border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] text-label',
-        className
-      )}
-      {...props}
-    />
-  )
+  ({ className, interactive, ...props }, ref) => {
+    const isInteractive = interactive || Boolean(props.onClick);
+    return (
+      <div
+        ref={ref}
+        className={clsx(
+          'rounded-ios-card bg-surface border border-separator/40 shadow-[0_2px_8px_rgba(0,0,0,0.03)] text-label',
+          isInteractive &&
+            'cursor-pointer active:scale-[0.98] transition-transform duration-150 ease-out select-none motion-reduce:transition-none motion-reduce:transform-none',
+          className
+        )}
+        {...props}
+      />
+    );
+  }
 );
 Card.displayName = 'Card';
 

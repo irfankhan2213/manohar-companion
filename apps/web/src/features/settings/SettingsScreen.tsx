@@ -37,6 +37,7 @@ import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
 import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { Badge } from '../../components/ui/badge.js';
 
 export const SettingsScreen: React.FC = () => {
   const { t } = useTranslation();
@@ -612,9 +613,9 @@ export const SettingsScreen: React.FC = () => {
     <LargeTitleScreen title={t('settings.title', 'Settings')}>
       {/* 0. Signed In User Profile */}
       <InsetGroup title="Account & Organization">
-        <div className="p-4 bg-surface rounded-2xl flex items-center justify-between">
+        <div className="p-4 sm:p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-accent text-white flex items-center justify-center font-bold text-title-medium shadow-sm shrink-0">
+            <div className="w-11 h-11 rounded-full bg-accent text-white flex items-center justify-center font-bold text-headline shadow-xs shrink-0">
               {currentUser?.name?.charAt(0) || 'U'}
             </div>
             <div className="flex flex-col">
@@ -622,9 +623,9 @@ export const SettingsScreen: React.FC = () => {
                 <span className="text-headline font-bold text-label">
                   {currentUser?.name || 'Staff User'}
                 </span>
-                <span className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase bg-accent-soft text-accent">
+                <Badge variant="secondary" size="sm" className="uppercase font-bold tracking-wide">
                   {currentUser?.role || currentRole}
-                </span>
+                </Badge>
               </div>
               <span className="text-caption text-label-2">
                 {currentUser?.phone} · {currentTenant?.name || 'Organization'}
@@ -646,7 +647,7 @@ export const SettingsScreen: React.FC = () => {
 
       {/* 1. Office PC & Tally Sync Connection */}
       <InsetGroup title={t('settings.officePcSection', 'Office PC & Tally Sync')}>
-        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">
+        <div className="p-4 sm:p-5 flex flex-col gap-3.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
@@ -657,22 +658,22 @@ export const SettingsScreen: React.FC = () => {
                   <span className="text-headline font-bold text-label">
                     Office PC (Windows Agent)
                   </span>
-                  <span
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      agent?.status === 'online' || activeCompany?.agentStatus === 'online'
-                        ? 'bg-ok/10 text-ok'
-                        : 'bg-label-3/10 text-label-2'
-                    }`}
+                  <Badge
+                    variant={agent?.status === 'online' || activeCompany?.agentStatus === 'online' ? 'success' : 'muted'}
+                    size="sm"
+                    className="gap-1 font-bold"
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
                         agent?.status === 'online' || activeCompany?.agentStatus === 'online' ? 'bg-ok animate-pulse' : 'bg-label-3'
                       }`}
                     />
-                    {agent?.status === 'online' || activeCompany?.agentStatus === 'online'
-                      ? t('settings.online', 'Online')
-                      : t('settings.offline', 'Offline')}
-                  </span>
+                    <span>
+                      {agent?.status === 'online' || activeCompany?.agentStatus === 'online'
+                        ? t('settings.online', 'Online')
+                        : t('settings.offline', 'Offline')}
+                    </span>
+                  </Badge>
                 </div>
               </div>
             </div>
@@ -681,7 +682,7 @@ export const SettingsScreen: React.FC = () => {
           <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
             <span className="text-label-2">
               {t('settings.lastSynced', 'Last synced')}:{' '}
-              <strong className="text-label">
+              <strong className="text-label tabular-nums">
                 {activeCompany?.lastSyncedAt
                   ? new Date(activeCompany.lastSyncedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                   : 'Never'}
@@ -707,28 +708,28 @@ export const SettingsScreen: React.FC = () => {
 
           {/* Live Tally Diagnostic Telemetry */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 border-t border-separator/40 text-caption">
-            <div className="p-2 rounded-xl bg-fill/40 flex flex-col">
+            <div className="p-2.5 rounded-xl bg-fill/30 border border-separator/30 flex flex-col">
               <span className="text-label-3 font-medium">Tally Port</span>
-              <span className="font-mono font-bold text-label">
+              <span className="font-mono font-bold text-label tabular-nums">
                 127.0.0.1:{agent?.tallyPort || 25853} (Auto-Scan)
               </span>
             </div>
-            <div className="p-2 rounded-xl bg-fill/40 flex flex-col">
+            <div className="p-2.5 rounded-xl bg-fill/30 border border-separator/30 flex flex-col">
               <span className="text-label-3 font-medium">Active Tally Co.</span>
               <span className="font-semibold text-label truncate">
                 {agent?.openTallyCompanies?.[0] || activeCompany?.tallyName || activeCompany?.name || 'Auto-Detect'}
               </span>
             </div>
-            <div className="p-2 rounded-xl bg-fill/40 flex flex-col col-span-2 sm:col-span-1">
+            <div className="p-2.5 rounded-xl bg-fill/30 border border-separator/30 flex flex-col col-span-2 sm:col-span-1">
               <span className="text-label-3 font-medium">Agent OTA Engine</span>
-              <span className="font-mono font-semibold text-ok">
+              <span className="font-mono font-semibold text-ok tabular-nums">
                 v{agent?.version || '1.5.0'} · Auto-Update
               </span>
             </div>
           </div>
 
           {agent?.tallyStatus === 'offline' && agent?.tallyError && (
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-caption text-amber-700 font-medium">
+            <div className="p-3 rounded-xl bg-warn/10 border border-warn/20 text-caption text-warn font-medium">
               <strong>Tally Diagnostic:</strong> {agent.tallyError}
             </div>
           )}
@@ -746,7 +747,7 @@ export const SettingsScreen: React.FC = () => {
               size="small"
               onClick={() => resetAlterIdMutation.mutate()}
               disabled={resetAlterIdMutation.isPending}
-              className="flex items-center gap-1.5 h-8 px-3 whitespace-nowrap shrink-0 text-amber-600 dark:text-amber-400"
+              className="flex items-center gap-1.5 h-8 px-3 whitespace-nowrap shrink-0 text-warn"
             >
               <RefreshCw
                 className={`w-3.5 h-3.5 ${resetAlterIdMutation.isPending ? 'animate-spin' : ''}`}
@@ -761,7 +762,7 @@ export const SettingsScreen: React.FC = () => {
             <button
               type="button"
               onClick={handleDownloadPrePairedZip}
-              className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-accent text-white font-semibold rounded-xl text-subhead hover:bg-accent/90 transition-colors shadow-sm"
+              className="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 bg-accent text-white font-semibold rounded-xl text-subhead hover:bg-accent/90 active:scale-[0.98] transition-all shadow-xs"
             >
               <Download className="w-4 h-4" /> Download Pre-Paired Windows Agent (.ZIP)
             </button>
@@ -776,7 +777,7 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {/* Pairing Code Inset */}
-        <div className="p-4 bg-fill/30 rounded-2xl border border-separator/40 flex flex-col gap-2.5">
+        <div className="p-4 sm:p-5 bg-fill/20 border-t border-separator/40 flex flex-col gap-2.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <KeyRound className="w-4 h-4 text-accent" />
@@ -796,9 +797,9 @@ export const SettingsScreen: React.FC = () => {
             </button>
           </div>
 
-          <div className="flex items-center justify-between bg-surface p-3 rounded-xl border border-separator/50">
+          <div className="flex items-center justify-between bg-surface p-3.5 rounded-xl border border-separator/40 shadow-xs">
             <div className="flex items-center gap-3">
-              <span className="font-mono text-title-large font-bold tracking-widest text-label">
+              <span className="font-mono text-title font-bold tracking-widest text-label tabular-nums">
                 {pairingCode}
               </span>
               <span className="text-caption text-label-3">Expires in 10m</span>
@@ -825,7 +826,7 @@ export const SettingsScreen: React.FC = () => {
           </div>
 
           {/* Quick Pairing Command */}
-          <div className="flex items-center justify-between bg-surface/60 px-3 py-2 rounded-xl border border-separator/30 text-footnote">
+          <div className="flex items-center justify-between bg-surface/80 px-3 py-2 rounded-xl border border-separator/30 text-footnote">
             <div className="flex items-center gap-2 overflow-hidden">
               <span className="text-label-3 text-caption shrink-0">Command:</span>
               <code className="font-mono text-label text-caption truncate select-all">
@@ -843,7 +844,7 @@ export const SettingsScreen: React.FC = () => {
         </div>
 
         {/* Organization Company ID for Agent */}
-        <div className="p-3 bg-fill/20 rounded-xl border border-separator/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+        <div className="p-3 bg-fill/20 border-t border-separator/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div className="flex flex-col">
             <span className="text-caption text-label-2 font-medium">Organization Company ID</span>
             <span className="font-mono text-footnote font-bold text-label">{orgCompanyId}</span>
@@ -871,7 +872,7 @@ export const SettingsScreen: React.FC = () => {
 
       {/* 1b. Backend & Database Server */}
       <InsetGroup title={t('settings.backendSection', 'Backend & Cloud Database')}>
-        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">
+        <div className="p-4 sm:p-5 flex flex-col gap-3.5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
@@ -882,12 +883,10 @@ export const SettingsScreen: React.FC = () => {
                   <span className="text-headline font-bold text-label">
                     Live SQLite API Server
                   </span>
-                  <span
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      serverStatus === 'online'
-                        ? 'bg-ok/10 text-ok'
-                        : 'bg-danger/10 text-danger'
-                    }`}
+                  <Badge
+                    variant={serverStatus === 'online' ? 'success' : 'destructive'}
+                    size="sm"
+                    className="gap-1 font-bold"
                   >
                     <span
                       className={`w-1.5 h-1.5 rounded-full ${
@@ -896,13 +895,12 @@ export const SettingsScreen: React.FC = () => {
                           : 'bg-danger'
                       }`}
                     />
-                    {serverStatus === 'online' ? 'Active (:3001)' : 'Offline'}
-                  </span>
+                    <span>{serverStatus === 'online' ? 'Active (:3001)' : 'Offline'}</span>
+                  </Badge>
                 </div>
               </div>
             </div>
           </div>
-
         </div>
       </InsetGroup>
 
@@ -921,7 +919,7 @@ export const SettingsScreen: React.FC = () => {
             : undefined
         }
       >
-        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3.5">
+        <div className="p-4 sm:p-5 flex flex-col gap-3.5">
           <div className="flex items-start justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-accent-soft text-accent flex items-center justify-center shrink-0">
@@ -932,9 +930,9 @@ export const SettingsScreen: React.FC = () => {
                   <span className="text-headline font-bold text-label">
                     {activeCompany?.name || 'Active Company'}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-accent/10 text-accent">
+                  <Badge variant="secondary" size="sm" className="font-bold">
                     Active
-                  </span>
+                  </Badge>
                 </div>
                 <span className="text-caption text-label-2">
                   Tally: {activeCompany?.tallyName || activeCompany?.name || 'Default'} · FY{' '}
@@ -968,7 +966,7 @@ export const SettingsScreen: React.FC = () => {
 
           <div className="flex items-center justify-between pt-2 border-t border-separator/40 text-footnote">
             <span className="text-label-2">Registered Companies:</span>
-            <span className="font-semibold text-label">
+            <span className="font-semibold text-label tabular-nums">
               {companies.length} Active in System
             </span>
           </div>
@@ -1005,11 +1003,11 @@ export const SettingsScreen: React.FC = () => {
             }
             trailing={
               <div className="flex flex-col items-end gap-0.5">
-                <span className="px-2.5 py-0.5 rounded-full text-caption font-bold bg-accent-soft text-accent truncate max-w-[150px]">
+                <Badge variant="secondary" size="sm" className="font-bold max-w-[150px] truncate">
                   {u.customRoleName || t(`roles.${u.role}`, u.role)}
-                </span>
+                </Badge>
                 {u.customRoleName && (
-                  <span className="text-[10px] text-label-3 uppercase tracking-wider">
+                  <span className="text-[10px] text-label-3 uppercase tracking-wider font-medium">
                     {t(`roles.${u.role}`, u.role)}
                   </span>
                 )}
@@ -1027,7 +1025,7 @@ export const SettingsScreen: React.FC = () => {
         actionText={isOwnerUser ? 'Customize Matrix' : undefined}
         onActionClick={isOwnerUser ? () => setPermissionsModalOpen(true) : undefined}
       >
-        <div className="p-4 bg-surface rounded-2xl flex flex-col gap-3">
+        <div className="p-4 sm:p-5 flex flex-col gap-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <ShieldCheck className="w-5 h-5 text-accent" />
@@ -1048,10 +1046,10 @@ export const SettingsScreen: React.FC = () => {
                   setSelectedRoleForPerms(r);
                   setPermissionsModalOpen(true);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-95 capitalize ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all active:scale-[0.98] capitalize ${
                   selectedRoleForPerms === r
-                    ? 'bg-accent text-white shadow-sm'
-                    : 'bg-fill text-label-2 hover:text-label'
+                    ? 'bg-accent text-white shadow-xs'
+                    : 'bg-fill text-label-2 hover:text-label hover:bg-fill/80'
                 }`}
               >
                 {r.replace('_', ' ')}
@@ -1218,7 +1216,7 @@ export const SettingsScreen: React.FC = () => {
                   type="text"
                   value={editStaffName}
                   onChange={(e) => setEditStaffName(e.target.value)}
-                  className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                  className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
                 />
               </div>
 
@@ -1232,7 +1230,7 @@ export const SettingsScreen: React.FC = () => {
                   value={editStaffPhone}
                   onChange={(e) => setEditStaffPhone(e.target.value)}
                   placeholder="+91 98765 00000"
-                  className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                  className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
                 />
               </div>
             </div>
@@ -1253,7 +1251,7 @@ export const SettingsScreen: React.FC = () => {
                 value={editStaffPin}
                 onChange={(e) => setEditStaffPin(e.target.value.replace(/\D/g, ''))}
                 placeholder="Enter new 4-digit PIN (e.g. 5678)"
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead font-mono tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead font-mono tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
             </div>
 
@@ -1348,7 +1346,7 @@ export const SettingsScreen: React.FC = () => {
                 placeholder="e.g. Lead Collection Agent, Warehouse Manager"
                 value={editStaffCustomRoleName}
                 onChange={(e) => setEditStaffCustomRoleName(e.target.value)}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
             </div>
 
@@ -1379,7 +1377,7 @@ export const SettingsScreen: React.FC = () => {
                   const rolePerms = ROLE_PERMISSIONS[newRole] || ROLE_PERMISSIONS.viewer;
                   setEditStaffPermissions(PERMISSION_KEYS.filter((k) => rolePerms[k]));
                 }}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               >
                 <option value="owner">Owner (Full access)</option>
                 <option value="admin">Admin (All operations except billing)</option>
@@ -1520,7 +1518,7 @@ export const SettingsScreen: React.FC = () => {
               placeholder="e.g. Vikas Sharma"
               value={newStaffName}
               onChange={(e) => setNewStaffName(e.target.value)}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             />
           </div>
 
@@ -1535,7 +1533,7 @@ export const SettingsScreen: React.FC = () => {
                 placeholder="+91 98765 00000"
                 value={newStaffPhone}
                 onChange={(e) => setNewStaffPhone(e.target.value)}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label font-mono focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
             </div>
 
@@ -1551,7 +1549,7 @@ export const SettingsScreen: React.FC = () => {
                 placeholder="1234"
                 value={newStaffPin}
                 onChange={(e) => setNewStaffPin(e.target.value.replace(/\D/g, ''))}
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead font-mono font-bold tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead font-mono font-bold tracking-widest text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
               />
             </div>
           </div>
@@ -1646,7 +1644,7 @@ export const SettingsScreen: React.FC = () => {
               placeholder="e.g. Senior Collection Agent, Field Sales Head"
               value={newStaffCustomRoleName}
               onChange={(e) => setNewStaffCustomRoleName(e.target.value)}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             />
           </div>
 
@@ -1666,7 +1664,7 @@ export const SettingsScreen: React.FC = () => {
                 const rolePerms = ROLE_PERMISSIONS[nextRole] || ROLE_PERMISSIONS.viewer;
                 setNewStaffPermissions(PERMISSION_KEYS.filter((k) => rolePerms[k]));
               }}
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent"
             >
               <option value="sales">Sales (Challans & stock lookup)</option>
               <option value="accounts">Accounts (Ledgers, bills & reminders)</option>
@@ -1782,7 +1780,7 @@ export const SettingsScreen: React.FC = () => {
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               placeholder="e.g. Apex Industries"
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
           </div>
 
@@ -1796,7 +1794,7 @@ export const SettingsScreen: React.FC = () => {
               value={tallyName}
               onChange={(e) => setTallyName(e.target.value)}
               placeholder="e.g. Apex Industries (2026-27)"
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
             <span className="text-[11px] text-label-3 mt-1 block">
               Must match the active company name in your office TallyPrime.
@@ -1814,7 +1812,7 @@ export const SettingsScreen: React.FC = () => {
                 value={financialYear}
                 onChange={(e) => setFinancialYear(e.target.value)}
                 placeholder="2026-27"
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
               />
             </div>
             <div>
@@ -1827,7 +1825,7 @@ export const SettingsScreen: React.FC = () => {
                 value={gstin}
                 onChange={(e) => setGstin(e.target.value.toUpperCase())}
                 placeholder="03AABCM1234F1Z1"
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
               />
             </div>
           </div>
@@ -1856,7 +1854,7 @@ export const SettingsScreen: React.FC = () => {
               value={companyName}
               onChange={(e) => setCompanyName(e.target.value)}
               placeholder="e.g. Apex Global Exports Ltd"
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
           </div>
 
@@ -1870,7 +1868,7 @@ export const SettingsScreen: React.FC = () => {
               value={tallyName}
               onChange={(e) => setTallyName(e.target.value)}
               placeholder="Matches TallyPrime company name"
-              className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+              className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
             />
           </div>
 
@@ -1885,7 +1883,7 @@ export const SettingsScreen: React.FC = () => {
                 value={financialYear}
                 onChange={(e) => setFinancialYear(e.target.value)}
                 placeholder="2026-27"
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label focus:outline-none focus:border-accent"
               />
             </div>
             <div>
@@ -1898,7 +1896,7 @@ export const SettingsScreen: React.FC = () => {
                 value={gstin}
                 onChange={(e) => setGstin(e.target.value.toUpperCase())}
                 placeholder="03AABCM5678F1Z2"
-                className="w-full h-11 px-3 bg-surface border border-separator/60 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
+                className="w-full h-11 px-3 bg-surface border border-separator/40 rounded-xl text-subhead text-label font-mono uppercase focus:outline-none focus:border-accent"
               />
             </div>
           </div>

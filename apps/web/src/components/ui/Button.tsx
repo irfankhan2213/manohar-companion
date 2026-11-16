@@ -17,7 +17,7 @@ export const Button: React.FC<ButtonProps> = ({
   ...props
 }) => {
   const baseClasses =
-    'inline-flex items-center justify-center font-headline rounded-ios-card transition-all duration-200 select-none active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none';
+    'inline-flex items-center justify-center font-headline rounded-ios-card transition-[transform,opacity,filter,background-color] duration-150 ease-out select-none active:scale-[0.98] disabled:opacity-50 disabled:pointer-events-none motion-reduce:transition-none motion-reduce:transform-none';
 
   const sizeClasses =
     size === 'default'

@@ -39,7 +39,7 @@ export const CompanyMenu: React.FC = () => {
         <button
           type="button"
           aria-label="Select company"
-          className="flex items-center gap-1.5 sm:gap-2 h-10 px-2 sm:px-2.5 -ml-1 sm:-ml-1.5 rounded-xl text-left bg-surface/80 border border-separator/40 shadow-sm active:scale-[0.98] transition-all min-w-0 max-w-full"
+          className="flex items-center gap-1.5 sm:gap-2 h-10 px-2 sm:px-2.5 -ml-1 sm:-ml-1.5 rounded-xl text-left bg-surface/80 border border-separator/40 shadow-sm active:scale-[0.98] transition-[transform,background-color,border-color,box-shadow] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none min-w-0 max-w-full"
         >
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1 min-w-0">
@@ -72,7 +72,7 @@ export const CompanyMenu: React.FC = () => {
                 <DropdownMenu.Item
                   key={company.id}
                   onClick={() => setCompanyId(company.id)}
-                  className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 cursor-pointer select-none outline-none"
+                  className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 active:bg-fill active:scale-[0.99] transition-[background-color,transform] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none cursor-pointer select-none outline-none"
                 >
                   <div className="flex flex-col">
                     <span>{company.name}</span>
@@ -90,7 +90,7 @@ export const CompanyMenu: React.FC = () => {
             <div className="pt-1">
               <DropdownMenu.Item
                 onClick={() => setCompanyId('all')}
-                className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 cursor-pointer select-none outline-none"
+                className="flex items-center justify-between px-3 py-2.5 rounded-lg text-subhead font-semibold text-label hover:bg-fill/60 active:bg-fill active:scale-[0.99] transition-[background-color,transform] duration-150 ease-out motion-reduce:transition-none motion-reduce:transform-none cursor-pointer select-none outline-none"
               >
                 <div className="flex flex-col">
                   <span>All companies</span>
