@@ -65,6 +65,10 @@ export const PartyDetailScreen: React.FC = () => {
   const [challanStartDate, setChallanStartDate] = useState('');
   const [challanEndDate, setChallanEndDate] = useState('');
 
+  // Tally-grade detailed statement & invoice inspection modal
+  const [statementDetailed, setStatementDetailed] = useState(true);
+  const [selectedVoucherDetail, setSelectedVoucherDetail] = useState<any | null>(null);
+
   // Fetch party data
   const { data: party, isLoading: partyLoading } = useQuery({
     queryKey: ['party', partyId],
@@ -484,56 +488,127 @@ export const PartyDetailScreen: React.FC = () => {
                 const effPending = isPartySettled ? 0 : bill.pending;
                 const daysLate = effPending > 0 ? getDaysOverdue(bill.dueDate, FIXED_TODAY) : 0;
                 const isEstimated = bill.source === 'estimated';
+                const items = (bill as any).items || [];
+                const totalQty = items.reduce((sum: number, it: any) => sum + (it.qty || 0), 0);
+                const billTotal = bill.amount || effPending || 0;
 
                 return (
                   <Row
                     key={bill.id}
-                    title={bill.billNo}
-                    subtitle={
-                      <span className="inline-flex items-center gap-1.5 flex-wrap">
-                        <span className="text-label-2">Inv: {bill.date}</span>
-                        <span className="text-label-3">·</span>
-                        <span className="font-semibold text-label">Due: {bill.dueDate}</span>
-                        <span className="text-caption text-label-3">
-                          ({party.creditDays}d terms)
+                    onClick={() =>
+                      setSelectedVoucherDetail({
+                        ...bill,
+                        voucherType: (bill as any).voucherType || 'Sales Invoice',
+                        billNo: bill.billNo,
+                        items,
+                      })
+                    }
+                    chevron
+                    title={
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-headline text-label">
+                          {bill.billNo}
                         </span>
-                        {isEstimated && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEstimatedInfoOpen(true);
-                            }}
-                            className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-0.5"
-                          >
-                            <span>· Estimated</span>
-                            <Info className="w-3.5 h-3.5" />
-                          </button>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                            effPending === 0
+                              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : effPending > 0
+                                ? daysLate > 0
+                                  ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                                : 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                          }`}
+                        >
+                          {effPending === 0 ? 'Settled (Paid)' : effPending > 0 ? (daysLate > 0 ? `${daysLate}d Overdue` : 'Pending Dues') : 'Advance'}
+                        </span>
+                      </div>
+                    }
+                    subtitle={
+                      <div className="flex flex-col gap-1.5 mt-1 w-full">
+                        <div className="inline-flex items-center gap-1.5 flex-wrap text-caption text-label-2">
+                          <span>Inv: {bill.date}</span>
+                          <span className="text-label-3">·</span>
+                          <span className="font-semibold text-label">Due: {bill.dueDate}</span>
+                          <span className="text-caption text-label-3">
+                            ({party.creditDays}d terms)
+                          </span>
+                          {isEstimated && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEstimatedInfoOpen(true);
+                              }}
+                              className="inline-flex items-center gap-0.5 text-label-3 hover:text-accent ml-0.5"
+                            >
+                              <span>· Estimated</span>
+                              <Info className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Inventory items sent in this bill (Tally parity) */}
+                        {items.length > 0 && (
+                          <div className="flex flex-col gap-1 bg-fill/30 p-2 rounded-lg text-footnote border border-separator/20 mt-0.5">
+                            <div className="flex items-center justify-between text-[11px] font-semibold text-label-2 uppercase tracking-wider">
+                              <span>Items Sent ({items.length} {items.length === 1 ? 'item' : 'items'}{totalQty > 0 ? ` · ${totalQty} pcs` : ''})</span>
+                              <span className="text-accent text-[11px] font-medium lowercase">details →</span>
+                            </div>
+                            {items.slice(0, 3).map((it: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between gap-2 text-label">
+                                <span className="truncate font-medium">{it.item}</span>
+                                <span className="tabular-nums text-label-2 shrink-0">
+                                  {it.qty} {it.unit || 'pcs'} × {formatINR(it.rate)} = <strong className="text-label font-semibold">{formatINR(it.amount)}</strong>
+                                </span>
+                              </div>
+                            ))}
+                            {items.length > 3 && (
+                              <span className="text-[11px] text-accent font-medium mt-0.5">
+                                +{items.length - 3} more items...
+                              </span>
+                            )}
+                          </div>
                         )}
-                      </span>
+
+                        {(bill as any).narration && (
+                          <div className="text-[11px] text-label-3 italic truncate">
+                            Note: {(bill as any).narration}
+                          </div>
+                        )}
+                      </div>
                     }
                     trailing={
-                      <span className="tabular-nums font-semibold">
-                        {effPending < 0
-                          ? `${formatINR(Math.abs(effPending))} Cr`
-                          : effPending === 0
-                            ? <span className="text-label-3">₹0 (Paid)</span>
-                            : formatINR(effPending)}
+                      <span className="tabular-nums font-semibold text-headline">
+                        {formatINR(billTotal)}
                       </span>
                     }
                     trailingSubtitle={
-                      effPending > 0 ? (
-                        daysLate > 0 ? (
-                          <span className="text-danger font-semibold">
-                            {daysLate} days late
-                          </span>
+                      effPending === 0 ? (
+                        <span className="text-ok font-semibold inline-flex items-center gap-0.5">
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Fully Paid</span>
+                        </span>
+                      ) : effPending > 0 ? (
+                        effPending === billTotal ? (
+                          daysLate > 0 ? (
+                            <span className="text-danger font-semibold">
+                              {daysLate} days late
+                            </span>
+                          ) : (
+                            <span className="text-danger font-semibold">
+                              Unpaid (Pending)
+                            </span>
+                          )
                         ) : (
-                          <span className="text-ok font-medium">Within terms</span>
+                          <span className="text-warn font-semibold">
+                            Due: {formatINR(effPending)}
+                          </span>
                         )
-                      ) : effPending < 0 ? (
-                        <span className="text-ok font-medium">Credit / Advance</span>
                       ) : (
-                        <span className="text-label-3 font-medium">Settled</span>
+                        <span className="text-ok font-medium">
+                          {formatINR(Math.abs(effPending))} Advance
+                        </span>
                       )
                     }
                   />
@@ -665,18 +740,31 @@ export const PartyDetailScreen: React.FC = () => {
       {/* Tab 2: Statement (Tally Ledger with running balance) */}
       {activeTab === 'statement' && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between px-1">
+          <div className="flex items-center justify-between px-1 flex-wrap gap-2">
             <span className="text-footnote font-semibold uppercase tracking-wider text-label-2">
               FY 2026-27 (1-Apr to 31-Mar)
             </span>
-            <button
-              type="button"
-              onClick={() => navigate(`/print/statement/${party.id}`)}
-              className="text-subhead font-semibold text-accent inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
-            >
-              <span>View PDF</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setStatementDetailed(!statementDetailed)}
+                className={`text-caption px-2.5 py-1 rounded-lg font-semibold border transition-all ${
+                  statementDetailed
+                    ? 'bg-accent text-accent-contrast border-accent shadow-xs'
+                    : 'bg-fill/40 text-label-2 border-separator/40 hover:bg-fill/60'
+                }`}
+              >
+                {statementDetailed ? 'Tally Detailed (Alt+F1)' : 'Compact View'}
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate(`/print/statement/${party.id}`)}
+                className="text-subhead font-semibold text-accent inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
+              >
+                <span>View PDF</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
 
           <div className="bg-surface rounded-ios-card overflow-hidden border border-separator/40 shadow-sm">
@@ -685,31 +773,73 @@ export const PartyDetailScreen: React.FC = () => {
                 <thead>
                   <tr className="border-b border-separator/50 bg-fill/30 text-footnote font-semibold text-label-2">
                     <th className="py-2.5 px-3 whitespace-nowrap">Date</th>
-                    <th className="py-2.5 px-3">Particulars</th>
+                    <th className="py-2.5 px-3">Particulars & Items</th>
                     <th className="py-2.5 px-3 text-right whitespace-nowrap">Debit (₹)</th>
                     <th className="py-2.5 px-3 text-right whitespace-nowrap">Credit (₹)</th>
                     <th className="py-2.5 px-3 text-right whitespace-nowrap">Balance</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-separator/30 text-body">
-                  {ledgerWithBalance.map((line, idx) => (
-                    <tr key={idx} className="hover:bg-fill/20 transition-colors">
-                      <td className="py-3 px-3 text-footnote text-label-2 whitespace-nowrap">
+                  {ledgerWithBalance.map((line: any, idx) => (
+                    <tr
+                      key={idx}
+                      onClick={() =>
+                        setSelectedVoucherDetail({
+                          voucherType: line.voucherType,
+                          voucherNo: line.voucherNo,
+                          billNo: line.voucherNo,
+                          date: line.date,
+                          amount: line.debit || line.credit || 0,
+                          debit: line.debit,
+                          credit: line.credit,
+                          items: line.items || [],
+                          narration: line.narration,
+                        })
+                      }
+                      className="hover:bg-fill/30 cursor-pointer transition-colors"
+                    >
+                      <td className="py-3 px-3 text-footnote text-label-2 whitespace-nowrap align-top">
                         {line.date}
                       </td>
-                      <td className="py-3 px-3 text-label font-medium min-w-[180px]">
-                        <div>{line.particulars}</div>
-                        <div className="text-caption text-label-2">
-                          {line.voucherType} · {line.voucherNo}
+                      <td className="py-3 px-3 text-label font-medium min-w-[200px] align-top">
+                        <div className="font-semibold text-label">{line.particulars}</div>
+                        <div className="text-caption text-label-2 flex items-center gap-1.5 mt-0.5">
+                          <span className="font-mono bg-fill/50 px-1.5 py-0.5 rounded text-[11px]">
+                            {line.voucherType} · {line.voucherNo}
+                          </span>
                         </div>
+
+                        {/* Detailed items sent in this transaction (Tally Alt+F1 parity) */}
+                        {statementDetailed && line.items && line.items.length > 0 && (
+                          <div className="mt-2 flex flex-col gap-1 bg-fill/30 p-2 rounded-lg text-[11px] border border-separator/20">
+                            <div className="flex items-center justify-between text-[10px] font-bold uppercase text-label-2 tracking-wider">
+                              <span>Items Sent ({line.items.length}):</span>
+                              <span className="text-accent font-medium lowercase">details →</span>
+                            </div>
+                            {line.items.map((it: any, i: number) => (
+                              <div key={i} className="flex items-center justify-between gap-2">
+                                <span className="text-label truncate font-medium">↳ {it.item}</span>
+                                <span className="text-label-2 tabular-nums shrink-0">
+                                  {it.qty} {it.unit || 'pcs'} × {formatINR(it.rate)} = <strong className="text-label font-semibold">{formatINR(it.amount)}</strong>
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {line.narration && (
+                          <div className="text-[11px] text-label-3 italic mt-1">
+                            Note: {line.narration}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-3 text-right font-semibold text-label whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-3 text-right font-semibold text-label whitespace-nowrap tabular-nums align-top">
                         {line.debit > 0 ? formatINR(line.debit, { symbol: false }) : '—'}
                       </td>
-                      <td className="py-3 px-3 text-right font-semibold text-ok whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-3 text-right font-semibold text-ok whitespace-nowrap tabular-nums align-top">
                         {line.credit > 0 ? formatINR(line.credit, { symbol: false }) : '—'}
                       </td>
-                      <td className="py-3 px-3 text-right font-semibold text-label whitespace-nowrap tabular-nums">
+                      <td className="py-3 px-3 text-right font-semibold text-label whitespace-nowrap tabular-nums align-top">
                         {formatINR(line.balance, { drCr: true })}
                       </td>
                     </tr>
@@ -1095,6 +1225,139 @@ export const PartyDetailScreen: React.FC = () => {
             Got it
           </Button>
         </div>
+      </Sheet>
+
+      {/* Tally Voucher / Invoice Complete Details Sheet */}
+      <Sheet
+        open={Boolean(selectedVoucherDetail)}
+        onOpenChange={(open) => !open && setSelectedVoucherDetail(null)}
+        title={selectedVoucherDetail?.voucherType || 'Invoice Details'}
+        description={`Voucher #${selectedVoucherDetail?.billNo || selectedVoucherDetail?.voucherNo || selectedVoucherDetail?.number || '—'} · ${selectedVoucherDetail?.date || ''}`}
+      >
+        {selectedVoucherDetail && (
+          <div className="flex flex-col gap-4 py-1">
+            {/* Header info */}
+            <div className="bg-fill/30 p-3.5 rounded-xl border border-separator/30 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="text-caption font-semibold uppercase text-label-2">Customer / Party</span>
+                <span className="text-subhead font-semibold text-label">{party.name}</span>
+              </div>
+              {party.gstin && (
+                <div className="flex items-center justify-between">
+                  <span className="text-caption text-label-2">GSTIN</span>
+                  <span className="text-caption font-mono text-label">{party.gstin}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-caption text-label-2">Voucher Date</span>
+                <span className="text-caption font-semibold text-label">{selectedVoucherDetail.date}</span>
+              </div>
+              {selectedVoucherDetail.dueDate && (
+                <div className="flex items-center justify-between">
+                  <span className="text-caption text-label-2">Payment Due Date</span>
+                  <span className="text-caption font-semibold text-label">{selectedVoucherDetail.dueDate}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Items Table */}
+            {selectedVoucherDetail.items && selectedVoucherDetail.items.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-caption font-semibold uppercase tracking-wider text-label-2">
+                    Items Sent / Stock Dispatched ({selectedVoucherDetail.items.length})
+                  </span>
+                  <span className="text-caption font-medium text-label-3">
+                    {selectedVoucherDetail.items.reduce((s: number, it: any) => s + (it.qty || 0), 0)} total pcs
+                  </span>
+                </div>
+                <div className="bg-surface rounded-xl border border-separator/40 overflow-hidden divide-y divide-separator/30">
+                  {selectedVoucherDetail.items.map((it: any, idx: number) => (
+                    <div key={idx} className="p-3 flex flex-col gap-1 hover:bg-fill/20">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-body text-label">{it.item}</span>
+                        <span className="font-semibold text-body text-label tabular-nums">{formatINR(it.amount)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-caption text-label-2">
+                        <span>Qty: <strong className="text-label">{it.qty} {it.unit || 'pcs'}</strong> × {formatINR(it.rate)}</span>
+                        {it.godown && <span>Loc: {it.godown}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 bg-fill/20 rounded-xl text-center text-subhead text-label-2 border border-dashed border-separator/50">
+                Standard accounting voucher entry (No inventory items recorded in this voucher).
+              </div>
+            )}
+
+            {/* Financial Totals */}
+            <div className="bg-surface p-3.5 rounded-xl border border-separator/40 flex flex-col gap-2 shadow-xs">
+              <div className="flex items-center justify-between text-subhead">
+                <span className="text-label-2 font-medium">Invoice Total</span>
+                <span className="font-bold text-headline text-label tabular-nums">
+                  {formatINR(selectedVoucherDetail.amount || selectedVoucherDetail.debit || selectedVoucherDetail.credit || 0)}
+                </span>
+              </div>
+              {selectedVoucherDetail.pending !== undefined && (
+                <>
+                  <div className="flex items-center justify-between text-subhead">
+                    <span className="text-label-2 font-medium">Pending Dues</span>
+                    <span className={`font-semibold tabular-nums ${
+                      selectedVoucherDetail.pending > 0 ? 'text-danger' : 'text-ok'
+                    }`}>
+                      {selectedVoucherDetail.pending > 0 ? formatINR(selectedVoucherDetail.pending) : '₹0 (Settled)'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-caption">
+                    <span className="text-label-2">Payment Status</span>
+                    <span className={`font-semibold ${selectedVoucherDetail.pending === 0 ? 'text-ok' : selectedVoucherDetail.pending < (selectedVoucherDetail.amount || 0) ? 'text-warn' : 'text-danger'}`}>
+                      {selectedVoucherDetail.pending === 0
+                        ? '✓ Fully Paid (Settled)'
+                        : selectedVoucherDetail.pending < (selectedVoucherDetail.amount || 0)
+                          ? `Partially Paid (${formatINR((selectedVoucherDetail.amount || 0) - selectedVoucherDetail.pending)} received)`
+                          : 'Unpaid Dues'}
+                    </span>
+                  </div>
+                </>
+              )}
+              {selectedVoucherDetail.narration && (
+                <div className="pt-2 border-t border-separator/30 text-caption text-label-2 italic">
+                  Narration / Notes: {selectedVoucherDetail.narration}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex items-center gap-2 pt-2">
+              <Button
+                variant="tinted"
+                fullWidth
+                onClick={() => {
+                  const billNo = selectedVoucherDetail.billNo || selectedVoucherDetail.voucherNo || selectedVoucherDetail.number || '';
+                  const total = formatINR(selectedVoucherDetail.amount || selectedVoucherDetail.debit || 0);
+                  const itemsList = (selectedVoucherDetail.items || [])
+                    .map((it: any) => `• ${it.item}: ${it.qty} ${it.unit || 'pcs'} × ${formatINR(it.rate)} = ${formatINR(it.amount)}`)
+                    .join('\n');
+                  const text = `*Invoice: ${party.name}*\nBill No: ${billNo}\nDate: ${selectedVoucherDetail.date}\nTotal: ${total}\n\n*Items Sent:*\n${itemsList || total}\n\nBalance Due: ${formatINR(selectedVoucherDetail.pending ?? selectedVoucherDetail.amount ?? 0)}`;
+                  const url = `https://wa.me/${cleanPhoneForWhatsApp(targetPhone)}?text=${encodeURIComponent(text)}`;
+                  window.open(url, '_blank');
+                }}
+              >
+                <MessageSquare className="w-4 h-4 mr-2" />
+                <span>WhatsApp Invoice</span>
+              </Button>
+              <Button
+                variant="primary"
+                fullWidth
+                onClick={() => setSelectedVoucherDetail(null)}
+              >
+                <span>Done</span>
+              </Button>
+            </div>
+          </div>
+        )}
       </Sheet>
     </LargeTitleScreen>
   );

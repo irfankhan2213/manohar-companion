@@ -1143,6 +1143,108 @@ export function createApp(dbPath?: string): express.Express {
       }
       return b;
     });
+
+    // Reconcile pending dues against party closingBalance:
+    // If party owes money (closingBalance > 0) but bills were marked pending = 0,
+    // allocate the closingBalance to the newest bills in FIFO order so pending matches what is owed.
+    const partyMap = new Map<string, any[]>();
+    for (const b of rows) {
+      if (!partyMap.has(b.partyId)) partyMap.set(b.partyId, []);
+      partyMap.get(b.partyId)!.push(b);
+    }
+
+    for (const [, pBills] of partyMap.entries()) {
+      const closing = pBills[0]?.partyClosingBalance ?? 0;
+      if (closing > 0) {
+        const sumPending = pBills.reduce((acc, b) => acc + (b.pending > 0 ? b.pending : 0), 0);
+        if (sumPending === 0) {
+          let rem = closing;
+          for (const b of pBills) {
+            if (rem > 0) {
+              const alloc = Math.min(b.amount > 0 ? b.amount : rem, rem);
+              b.pending = alloc;
+              rem -= alloc;
+            } else {
+              b.pending = 0;
+            }
+          }
+        }
+      }
+    }
+
+    // Attach inventory items and narration from tally_vouchers matching billNo
+    const billNumbers = [...new Set(rows.map(b => b.billNo).filter(Boolean))];
+    if (billNumbers.length > 0) {
+      const placeholders = billNumbers.map(() => '?').join(',');
+      const vList = db.prepare(
+        `SELECT voucherNumber, companyId, partyId, partyName, narration, voucherType, inventoryEntries 
+         FROM tally_vouchers 
+         WHERE voucherNumber IN (${placeholders})`
+      ).all(...billNumbers) as any[];
+      const vMap = new Map<string, any>();
+      for (const v of vList) {
+        const key = `${v.companyId}_${v.voucherNumber}`;
+        if (!vMap.has(key)) vMap.set(key, v);
+        if (!vMap.has(v.voucherNumber)) vMap.set(v.voucherNumber, v);
+      }
+      for (const b of rows) {
+        const matched = vMap.get(`${b.companyId}_${b.billNo}`) || vMap.get(b.billNo);
+        if (matched) {
+          try {
+            b.items = typeof matched.inventoryEntries === 'string' ? JSON.parse(matched.inventoryEntries || '[]') : (matched.inventoryEntries || []);
+          } catch {
+            b.items = [];
+          }
+          if (matched.narration) b.narration = matched.narration;
+          if (matched.voucherType) b.voucherType = matched.voucherType;
+        } else {
+          b.items = [];
+        }
+      }
+    }
+
+    // Synthesize bills from tally_vouchers if requested for a specific party and no bills were found in bills table
+    if (req.query.partyId && rows.length === 0) {
+      const partyObj = db.prepare('SELECT id, name, companyId, closingBalance, creditDays FROM parties WHERE id = ?').get(req.query.partyId) as any;
+      if (partyObj) {
+        const vBills = db.prepare(
+          `SELECT id, companyId, partyId, partyName, voucherNumber as billNo, date, amount, narration, inventoryEntries, voucherType 
+           FROM tally_vouchers 
+           WHERE (partyId = ? OR LOWER(partyName) = LOWER(?)) AND voucherType = 'Sales' AND isCancelled = 0 
+           ORDER BY date DESC`
+        ).all(partyObj.id, partyObj.name) as any[];
+
+        if (vBills.length > 0) {
+          const closing = partyObj.closingBalance ?? 0;
+          let rem = closing;
+          for (const vb of vBills) {
+            const alloc = rem > 0 ? Math.min(vb.amount, rem) : 0;
+            rem = Math.max(0, rem - alloc);
+            let items: any[] = [];
+            try {
+              items = typeof vb.inventoryEntries === 'string' ? JSON.parse(vb.inventoryEntries || '[]') : (vb.inventoryEntries || []);
+            } catch {}
+            rows.push({
+              id: `b-syn-${vb.id}`,
+              companyId: vb.companyId,
+              partyId: vb.partyId || partyObj.id,
+              partyName: vb.partyName || partyObj.name,
+              billNo: vb.billNo,
+              date: vb.date,
+              dueDate: vb.date,
+              dueDays: partyObj.creditDays || 30,
+              amount: vb.amount,
+              pending: alloc,
+              source: 'tally_bill',
+              items,
+              narration: vb.narration,
+              voucherType: vb.voucherType,
+            });
+          }
+        }
+      }
+    }
+
     res.json(rows);
   });
 
@@ -1162,7 +1264,77 @@ export function createApp(dbPath?: string): express.Express {
     if (party.companyId && !canAccessCompany(user, party.companyId)) {
       return res.status(403).json({ error: 'Forbidden: Access denied to unassigned company branch' });
     }
-    let rows = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
+    // 1. Check real Tally vouchers for this party first
+    const vRows = db.prepare(
+      `SELECT date, voucherType, voucherNumber, amount, narration, inventoryEntries, ledgerEntries 
+       FROM tally_vouchers 
+       WHERE (partyId = ? OR LOWER(partyName) = LOWER(?)) AND isCancelled = 0 
+       ORDER BY date ASC, createdAt ASC`
+    ).all(req.params.partyId, party.name) as any[];
+
+    let rows: any[] = [];
+    if (vRows.length > 0) {
+      rows = vRows.map((v) => {
+        let items: any[] = [];
+        try {
+          items = typeof v.inventoryEntries === 'string' ? JSON.parse(v.inventoryEntries || '[]') : (v.inventoryEntries || []);
+        } catch {
+          items = [];
+        }
+        const vType = v.voucherType || 'Sales';
+        const isSales = vType === 'Sales';
+        const isCreditNote = vType === 'Credit Note';
+        const isReceipt = vType === 'Receipt';
+        const isPayment = vType === 'Payment';
+        const isDebit = isSales || isPayment;
+
+        let particularName = vType;
+        if (isSales) particularName = 'Sales Account';
+        else if (isReceipt) particularName = 'Bank / Cash Receipt';
+        else if (isCreditNote) particularName = 'Credit Note / Sales Return';
+        else if (isPayment) particularName = 'Payment Account';
+
+        return {
+          date: v.date,
+          particulars: particularName,
+          voucherType: vType,
+          voucherNo: v.voucherNumber,
+          debit: isDebit ? v.amount : 0,
+          credit: !isDebit ? v.amount : 0,
+          items: items.length > 0 ? items : undefined,
+          narration: v.narration || undefined,
+        };
+      });
+    }
+
+    if (rows.length === 0) {
+      rows = db.prepare('SELECT date, particulars, voucherType, voucherNo, debit, credit FROM ledger_lines WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
+      if (rows.length > 0) {
+        // Enrich ledger lines with items from tally_vouchers if matching voucherNo
+        const vNos = [...new Set(rows.map(r => r.voucherNo).filter(Boolean))];
+        if (vNos.length > 0) {
+          const ph = vNos.map(() => '?').join(',');
+          const matchedVchs = db.prepare(
+            `SELECT voucherNumber, narration, inventoryEntries FROM tally_vouchers WHERE voucherNumber IN (${ph})`
+          ).all(...vNos) as any[];
+          const vchMap = new Map<string, any>();
+          for (const mv of matchedVchs) {
+            vchMap.set(mv.voucherNumber, mv);
+          }
+          for (const r of rows) {
+            const mv = vchMap.get(r.voucherNo);
+            if (mv) {
+              try {
+                const its = typeof mv.inventoryEntries === 'string' ? JSON.parse(mv.inventoryEntries || '[]') : mv.inventoryEntries;
+                if (Array.isArray(its) && its.length > 0) r.items = its;
+              } catch {}
+              if (mv.narration) r.narration = mv.narration;
+            }
+          }
+        }
+      }
+    }
+
     if (rows.length === 0) {
       const partyBills = db.prepare('SELECT * FROM bills WHERE partyId = ? ORDER BY date ASC').all(req.params.partyId) as any[];
       rows = [];
@@ -5427,10 +5599,6 @@ export function createApp(dbPath?: string): express.Express {
           db.prepare(
             `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending != 0 AND id NOT IN (${placeholders})`
           ).run(resolvedCompanyId, ...activeSyncedBillIds);
-        } else {
-          db.prepare(
-            `UPDATE bills SET pending = 0 WHERE companyId = ? AND source = 'tally_bill' AND pending != 0`
-          ).run(resolvedCompanyId);
         }
       }
 
@@ -5454,20 +5622,16 @@ export function createApp(dbPath?: string): express.Express {
           db.prepare('UPDATE bills SET pending = 0 WHERE companyId = ? AND partyId = ? AND pending < 0').run(resolvedCompanyId, dp.id);
 
           const pBills = db.prepare(
-            'SELECT id, date, amount, pending FROM bills WHERE companyId = ? AND partyId = ? AND pending > 0 ORDER BY date DESC'
+            'SELECT id, date, amount, pending FROM bills WHERE companyId = ? AND partyId = ? ORDER BY date DESC'
           ).all(resolvedCompanyId, dp.id) as any[];
 
           if (pBills.length === 0) continue;
 
-          const sumPos = pBills.reduce((acc, b) => acc + b.pending, 0);
-          if (sumPos <= closing) continue;
-
-          // Positive bills exceed closingBalance: customer has already paid older bills.
-          // Settle backwards (newest bills remain pending up to closing, older bills set to 0).
           let remainingOwed = closing;
           for (const b of pBills) {
             if (remainingOwed > 0) {
-              const assigned = Math.min(b.pending, remainingOwed);
+              const billAmt = b.amount > 0 ? b.amount : remainingOwed;
+              const assigned = Math.min(billAmt, remainingOwed);
               if (b.pending !== assigned) {
                 updatePendingStmt.run(assigned, b.id);
               }

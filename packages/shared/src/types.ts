@@ -79,6 +79,16 @@ export const PartySchema = z.object({
 });
 export type Party = z.input<typeof PartySchema>;
 
+export const BillItemSchema = z.object({
+  item: z.string(),
+  qty: z.number(),
+  rate: z.number(),
+  amount: z.number(),
+  unit: z.string().optional(),
+  godown: z.string().optional(),
+});
+export type BillItem = z.infer<typeof BillItemSchema>;
+
 export const BillSchema = z.object({
   id: z.string(),
   companyId: z.string(),
@@ -91,16 +101,21 @@ export const BillSchema = z.object({
   amount: z.number().int(),
   pending: z.number().int(),
   source: z.enum(['tally_bill', 'estimated']),
+  items: z.array(BillItemSchema).optional(),
+  narration: z.string().optional(),
+  voucherType: z.string().optional(),
 });
 export type Bill = z.infer<typeof BillSchema>;
 
 export const LedgerLineSchema = z.object({
   date: z.string(),
   particulars: z.string(),
-  voucherType: z.enum(['Sales', 'Receipt', 'Journal', 'Credit Note']),
+  voucherType: z.string(),
   voucherNo: z.string(),
   debit: z.number().int(),
   credit: z.number().int(),
+  items: z.array(BillItemSchema).optional(),
+  narration: z.string().optional(),
 });
 export type LedgerLine = z.infer<typeof LedgerLineSchema>;
 
