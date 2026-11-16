@@ -59,7 +59,7 @@ export function buildCompanyInfoQuery(companyName?: string): string {
             <FIELDS>CompNameField, CompYearField, CompBooksField</FIELDS>
           </LINE>
           <FIELD NAME="CompNameField">
-            <SET>if not $$IsEmpty:##SVCURRENTCOMPANY then ##SVCURRENTCOMPANY else if not $$IsEmpty:$$CurrentCompany then $$CurrentCompany else $$CurrentSimpleCompany</SET>
+            <SET>$$If:($$IsEmpty:##SVCURRENTCOMPANY):$$CurrentCompany:##SVCURRENTCOMPANY</SET>
           </FIELD>
           <FIELD NAME="CompYearField">
             <SET>$$String:##SVFROMDATE</SET>
@@ -92,9 +92,7 @@ export function buildOpenCompaniesQuery(): string {
           <COLLECTION NAME="ListOfOpenCompanies" ISMODIFY="No">
             <TYPE>Company</TYPE>
             <FETCH>NAME, STARTINGFROM, BOOKSFROM, PARTYGSTIN, GSTIN, GUID</FETCH>
-            <FILTER>IsLoadedCompany</FILTER>
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="IsLoadedCompany">$$IsSelectedCompany or $$IsSelectedCompany:$Name or not $$IsEmpty:$Name</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>

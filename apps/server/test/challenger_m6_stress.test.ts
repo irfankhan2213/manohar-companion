@@ -169,7 +169,7 @@ describe('Milestone 6 Challenger 1 Adversarial & Stress Verification Suite', () 
       // Debtor A: 3 bills + 1 credit note.
       // Bill 1: 50,000 paise, overdue by 45 days (date: 2026-08-01, dueDate: 2026-09-01)
       // Bill 2: 70,000 paise, overdue by 10 days (date: 2026-09-15, dueDate: 2026-10-07)
-      // Bill 3: 100,000 paise, not due (date: 2026-10-10, dueDate: 2026-11-15)
+      // Bill 3: 100,000 paise, not due (date: 2026-10-10, dueDate: 2026-12-15)
       // Credit note: -30,000 paise
       // Sum positive = 220,000 paise.
       // Tally closing balance = 140,000 paise (Customer paid 50,000 advance + 30,000 credit note = 80,000 reduction).
@@ -189,7 +189,7 @@ describe('Milestone 6 Challenger 1 Adversarial & Stress Verification Suite', () 
         VALUES 
           ('b-m6-a-1', ?, 'p-m6-debtor-a', 'INV-A-1', '2026-08-01', '2026-09-01', 50000, 50000),
           ('b-m6-a-2', ?, 'p-m6-debtor-a', 'INV-A-2', '2026-09-15', '2026-10-07', 70000, 70000),
-          ('b-m6-a-3', ?, 'p-m6-debtor-a', 'INV-A-3', '2026-10-10', '2026-11-15', 100000, 100000),
+          ('b-m6-a-3', ?, 'p-m6-debtor-a', 'INV-A-3', '2026-10-10', '2026-12-15', 100000, 100000),
           ('b-m6-a-cn', ?, 'p-m6-debtor-a', 'CN-A-1', '2026-10-12', '2026-10-12', -30000, -30000)
       `).run(testCompId, testCompId, testCompId, testCompId);
 
