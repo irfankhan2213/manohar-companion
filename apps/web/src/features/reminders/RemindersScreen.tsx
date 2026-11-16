@@ -35,6 +35,7 @@ import { Button } from '../../components/ui/Button.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { Badge } from '../../components/ui/badge.js';
 import { FIXED_TODAY } from '../../mock/seed.js';
 import { openWhatsAppReminderUrl } from './whatsapp.js';
 
@@ -333,24 +334,21 @@ export const RemindersScreen: React.FC = () => {
               <MessageSquare className="w-5 h-5" />
             </div>
             <div className="flex flex-col min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-headline font-semibold text-label">
                   WhatsApp Reminder System
                 </span>
-                <span
-                  className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                    isWhatsAppActive
-                      ? 'bg-ok/10 text-ok border border-ok/20'
-                      : 'bg-fill text-label-2 border border-separator/40'
-                  }`}
+                <Badge
+                  variant={isWhatsAppActive ? 'success' : 'muted'}
+                  size="sm"
                 >
                   {isWhatsAppActive ? 'WhatsApp Active' : 'Internal Mode (Off)'}
-                </span>
+                </Badge>
               </div>
               <span className="text-footnote text-label-2 mt-0.5 leading-snug">
                 {isWhatsAppActive
                   ? 'WhatsApp reminders active. Tap "Send Reminder" on any customer to open WhatsApp with pre-filled message.'
-                  : 'As of now, WhatsApp messaging is off. Showing overdue balances internally for authorized staff follow-up.'}
+                  : 'WhatsApp messaging is off. Showing overdue balances internally for follow-up.'}
               </span>
             </div>
           </div>

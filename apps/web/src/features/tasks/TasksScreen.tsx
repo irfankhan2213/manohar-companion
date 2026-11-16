@@ -21,6 +21,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { Badge } from '../../components/ui/badge.js';
 import { SAMPLE_TASK_PHOTO_1, SAMPLE_TASK_PHOTO_2 } from '../../mock/seed.js';
 import { compressImageFile } from '../../utils/image.js';
 
@@ -342,11 +343,19 @@ export const TasksScreen: React.FC = () => {
                       {assignee?.name.charAt(0) ?? 'U'}
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-subhead font-semibold text-label">
-                        {assignee?.name ?? 'Assigned Staff'}
-                      </span>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-subhead font-semibold text-label">
+                          {assignee?.name ?? 'Assigned Staff'}
+                        </span>
+                        <Badge
+                          variant={task.priority === 'urgent' ? 'destructive' : task.priority === 'high' ? 'warning' : 'muted'}
+                          size="sm"
+                        >
+                          {task.priority.toUpperCase()}
+                        </Badge>
+                      </div>
                       <span className="text-caption text-label-3">
-                        From {assigner?.name ?? 'Management'} · {task.priority.toUpperCase()}
+                        From {assigner?.name ?? 'Management'}
                       </span>
                     </div>
                   </div>
@@ -414,11 +423,11 @@ export const TasksScreen: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => navigate(`/challans/${challan.id}`)}
-                    className="self-start flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-fill/50 hover:bg-fill/80 border border-separator/40 text-footnote font-semibold text-label transition-colors"
+                    className="self-start flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-fill/50 hover:bg-fill/80 border border-separator/40 text-footnote font-semibold text-label transition-colors max-w-full"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-accent" />
-                    <span>Challan: {challan.number}</span>
-                    <span className="text-caption text-label-3">
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="shrink-0">Challan: {challan.number}</span>
+                    <span className="text-caption text-label-3 truncate max-w-[200px] sm:max-w-[320px]">
                       ({challan.lines.map((l) => l.description).join(', ')})
                     </span>
                   </button>

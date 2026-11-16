@@ -79,7 +79,7 @@ export const Row: React.FC<RowProps> = ({
         }
       }}
       className={clsx(
-        'w-full min-h-[58px] px-3.5 py-3 flex items-center justify-between text-left transition-colors duration-150 select-none gap-2',
+        'w-full min-h-[58px] px-3.5 py-3 flex items-center justify-between text-left transition-colors duration-150 select-none gap-3',
         isClickable && 'hover:bg-fill/40 active:bg-fill cursor-pointer',
         className
       )}
@@ -87,22 +87,22 @@ export const Row: React.FC<RowProps> = ({
       <div className="flex items-center gap-3 min-w-0 flex-1">
         {leading && <div className="shrink-0">{leading}</div>}
         <div className="flex flex-col min-w-0 flex-1">
-          <div className="text-headline text-label font-semibold leading-snug break-words">
+          <div className="text-headline text-label font-semibold leading-snug truncate">
             {title}
           </div>
           {subtitle && (
-            <div className="text-subhead text-label-2 leading-tight mt-0.5 break-words">
+            <div className="text-subhead text-label-2 leading-tight mt-0.5 line-clamp-2 text-pretty">
               {subtitle}
             </div>
           )}
         </div>
       </div>
 
-      <div className="flex items-center gap-1.5 shrink-0 ml-1">
+      <div className="flex items-center gap-1.5 shrink-0 ml-2">
         {(trailing || trailingSubtitle) && (
           <div className="flex flex-col items-end text-right">
             {trailing && (
-              <div className="text-headline font-semibold text-label">
+              <div className="text-headline font-semibold text-label tabular-nums">
                 {trailing}
               </div>
             )}

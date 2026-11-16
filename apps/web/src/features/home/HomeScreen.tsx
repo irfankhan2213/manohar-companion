@@ -261,11 +261,11 @@ export const HomeScreen: React.FC = () => {
       )}
 
       {/* Quick Operations Links */}
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <button
           type="button"
           onClick={() => navigate('/stock')}
-          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-xs flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
         >
           <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
             <Package className="w-4 h-4 stroke-[2]" />
@@ -279,7 +279,7 @@ export const HomeScreen: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/challans')}
-          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-xs flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
         >
           <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
             <FileSpreadsheet className="w-4 h-4 stroke-[2]" />
@@ -293,7 +293,7 @@ export const HomeScreen: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/tasks')}
-          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-xs flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
         >
           <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
             <CheckSquare className="w-4 h-4 stroke-[2]" />
@@ -307,7 +307,7 @@ export const HomeScreen: React.FC = () => {
         <button
           type="button"
           onClick={() => navigate('/notebook')}
-          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-sm flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
+          className="p-3.5 bg-surface rounded-ios-card border border-separator/40 shadow-xs flex flex-col gap-1 text-left hover:border-accent active:scale-[0.98] transition-all"
         >
           <div className="w-8 h-8 rounded-lg bg-accent-soft text-accent flex items-center justify-center mb-1">
             <BookOpen className="w-4 h-4 stroke-[2]" />

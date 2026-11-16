@@ -66,11 +66,11 @@ export const LargeTitleScreen: React.FC<LargeTitleScreenProps> = ({
       </header>
 
       {/* Main Content Area */}
-      <main className={clsx('flex-1 w-full mx-auto px-5 pt-3 pb-32', contentClassName ?? 'max-w-xl')}>
+      <main className={clsx('flex-1 w-full mx-auto px-4 sm:px-6 pt-3 pb-32', contentClassName ?? 'max-w-xl md:max-w-3xl lg:max-w-4xl')}>
         {/* Large Title Area */}
         <div className="flex flex-col mb-4">
-          <div className="flex items-center justify-between">
-            <h1 className="text-large-title tracking-tight text-label font-bold">
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-large-title tracking-tight text-label font-bold truncate">
               {title}
             </h1>
             {subtitle && (

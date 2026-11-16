@@ -23,6 +23,7 @@ import { SegmentedControl } from '../../components/ui/SegmentedControl.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
+import { Badge } from '../../components/ui/badge.js';
 
 type ChallanFilter = 'all' | 'sales' | 'purchase' | 'delivery';
 
@@ -263,7 +264,7 @@ export const ChallansScreen: React.FC = () => {
           )}
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
           {machineItems.map((item) => {
             const isSelected = selectedItemIds.includes(item.id);
             return (
@@ -271,7 +272,7 @@ export const ChallansScreen: React.FC = () => {
                 key={item.id}
                 type="button"
                 onClick={() => toggleItemFilter(item.id)}
-                className={`px-2.5 py-1.5 rounded-lg text-footnote font-semibold transition-all flex items-center gap-1.5 ${
+                className={`px-2.5 py-1.5 rounded-lg text-footnote font-semibold transition-all flex items-center gap-1.5 shrink-0 whitespace-nowrap ${
                   isSelected
                     ? 'bg-accent text-white shadow-sm'
                     : 'bg-fill/40 text-label hover:bg-fill/70 border border-separator/40'
@@ -332,48 +333,53 @@ export const ChallansScreen: React.FC = () => {
             );
             const challanTasks = tasks.filter((t) => t.challanId === challan.id);
             const hasPhotoTask = challanTasks.some((t) => !!t.photoUrl);
+            const primaryDesc = challan.lines[0]?.description || 'Material';
+            const extraCount = challan.lines.length - 1;
 
             return (
               <Row
                 key={challan.id}
                 leading={getTypeIcon(challan.type)}
                 title={
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-label">{challan.number}</span>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-semibold text-label truncate">{challan.number}</span>
                     {challanTasks.length > 0 && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-accent-soft text-accent text-[11px] font-semibold">
-                        {hasPhotoTask ? (
-                          <Camera className="w-3 h-3" />
-                        ) : null}
+                      <Badge variant="secondary" size="sm" className="gap-1">
+                        {hasPhotoTask && <Camera className="w-3 h-3" />}
                         <span>{challanTasks.length} {challanTasks.length === 1 ? 'task' : 'tasks'}</span>
-                      </span>
+                      </Badge>
                     )}
                   </div>
                 }
                 subtitle={
-                  <span className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium text-label">
+                  <div className="flex items-center gap-1.5 flex-wrap text-footnote text-label-2">
+                    <span className="font-medium text-label truncate max-w-[130px] sm:max-w-[180px]">
                       {party?.name ?? 'Unknown Party'}
                     </span>
                     <span className="text-label-3">·</span>
-                    <span className="text-label-2">{challan.date}</span>
+                    <span className="text-label-3 shrink-0">{challan.date}</span>
                     <span className="text-label-3">·</span>
-                    <span className="text-label-2">
-                      {challan.lines.map((l) => l.description).join(', ')}
+                    <span className="truncate max-w-[140px] sm:max-w-[220px]" title={challan.lines.map((l) => l.description).join(', ')}>
+                      {primaryDesc}
                     </span>
+                    {extraCount > 0 && (
+                      <Badge variant="muted" size="sm" className="text-[10px]">
+                        +{extraCount} more
+                      </Badge>
+                    )}
                     <span className="text-label-3">·</span>
-                    <span className="text-label-2">
+                    <span className="shrink-0 font-mono">
                       ({totalQty} {totalQty === 1 ? 'unit' : 'units'})
                     </span>
                     {challan.vehicleNo && (
                       <>
                         <span className="text-label-3">·</span>
-                        <span className="text-label-2 font-mono text-caption">
+                        <span className="font-mono text-caption uppercase bg-fill/60 px-1 py-0.5 rounded text-label-2 shrink-0">
                           {challan.vehicleNo}
                         </span>
                       </>
                     )}
-                  </span>
+                  </div>
                 }
                 trailing={
                   <span className="tabular-nums font-semibold text-label">

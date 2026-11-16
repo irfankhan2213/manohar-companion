@@ -556,24 +556,14 @@ export const PartyDetailScreen: React.FC = () => {
 
                         {/* Inventory items sent in this bill (Tally parity) */}
                         {items.length > 0 && (
-                          <div className="flex flex-col gap-1 bg-fill/30 p-2 rounded-lg text-footnote border border-separator/20 mt-0.5">
-                            <div className="flex items-center justify-between text-[11px] font-semibold text-label-2 uppercase tracking-wider">
-                              <span>Items Sent ({items.length} {items.length === 1 ? 'item' : 'items'}{totalQty > 0 ? ` · ${totalQty} pcs` : ''})</span>
-                              <span className="text-accent text-[11px] font-medium lowercase">details →</span>
-                            </div>
-                            {items.slice(0, 3).map((it: any, i: number) => (
-                              <div key={i} className="flex items-center justify-between gap-2 text-label">
-                                <span className="truncate font-medium">{it.item}</span>
-                                <span className="tabular-nums text-label-2 shrink-0">
-                                  {it.qty} {it.unit || 'pcs'} × {formatINR(it.rate)} = <strong className="text-label font-semibold">{formatINR(it.amount)}</strong>
-                                </span>
-                              </div>
-                            ))}
-                            {items.length > 3 && (
-                              <span className="text-[11px] text-accent font-medium mt-0.5">
-                                +{items.length - 3} more items...
-                              </span>
-                            )}
+                          <div className="flex items-center justify-between gap-2 bg-fill/30 px-2.5 py-1.5 rounded-lg text-footnote border border-separator/20 mt-0.5">
+                            <span className="text-caption font-medium text-label truncate">
+                              {items[0].item}
+                              {items.length > 1 && (
+                                <span className="text-label-3 ml-1">+{items.length - 1} more ({totalQty} pcs)</span>
+                              )}
+                            </span>
+                            <span className="text-accent text-[11px] font-medium lowercase shrink-0">details →</span>
                           </div>
                         )}
 

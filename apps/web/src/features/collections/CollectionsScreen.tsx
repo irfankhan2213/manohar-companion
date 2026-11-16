@@ -28,6 +28,7 @@ import { Button } from '../../components/ui/Button.js';
 import { Sheet } from '../../components/ui/Sheet.js';
 import { StatusText } from '../../components/ui/StatusText.js';
 import { useToast } from '../../components/ui/Toast.js';
+import { Badge } from '../../components/ui/badge.js';
 import { FIXED_TODAY } from '../../mock/seed.js';
 
 interface PartyWithAging {
@@ -479,26 +480,27 @@ export const CollectionsScreen: React.FC = () => {
                       ) : undefined
                     }
                     title={
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold text-label">{item.party.name}</span>
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[11px] font-semibold tracking-wide uppercase ${
-                            item.isCreditor
-                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/20'
-                              : 'bg-accent-soft text-accent border border-accent/20'
-                          }`}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-semibold text-label truncate">{item.party.name}</span>
+                        <Badge
+                          variant={item.isCreditor ? 'warning' : 'secondary'}
+                          size="sm"
                         >
                           {item.isCreditor ? 'Supplier' : 'Customer'}
-                        </span>
+                        </Badge>
                       </div>
                     }
-                    subtitle={`${item.party.city} · ${item.isCreditor ? 'Sundry Creditor' : `${item.party.creditDays}d terms`}`}
+                    subtitle={
+                      <span className="text-subhead text-label-2 truncate block">
+                        {item.party.city} · {item.isCreditor ? 'Sundry Creditor' : `${item.party.creditDays}d terms`}
+                      </span>
+                    }
                     trailing={
                       <div className="flex flex-col items-end">
                         <span
                           className={`text-[11px] font-medium ${
                             item.isCreditor
-                              ? 'text-amber-600 dark:text-amber-400'
+                              ? 'text-warn'
                               : 'text-label-2'
                           }`}
                         >
