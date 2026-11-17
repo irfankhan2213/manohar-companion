@@ -25,7 +25,6 @@ import {
   buildUniversalVoucherXml,
   UniversalVoucherParams,
   UniversalVoucherLedgerEntry,
-  escapeXml,
 } from '../tally/templates.js';
 
 function slugify(text: string): string {
@@ -916,15 +915,11 @@ export class SyncEngine {
           const purchaseLedger = item.purchaseLedgerName || this.resolvePurchaseLedger(targetCompanyName);
           const ledgerToUse = isPurchase ? purchaseLedger : salesLedger;
 
-          const partyName = item.partyName || item.partyId;
-          await this.ensureLedgerExists(partyName, isPurchase ? 'Sundry Creditors' : 'Sundry Debtors', targetCompanyName);
-          await this.ensureLedgerExists(ledgerToUse, isPurchase ? 'Purchase Accounts' : 'Sales Accounts', targetCompanyName);
-
           result = await this.pushDeliveryChallan({
             companyName: targetCompanyName,
             date: formattedDate,
             voucherNumber: item.number || item.id,
-            partyName,
+            partyName: item.partyName || item.partyId,
             narration: item.narration || `Mobile Challan (${item.id})`,
             vehicleNo: item.vehicleNo,
             voucherType: item.type || 'delivery',
@@ -1063,47 +1058,6 @@ export class SyncEngine {
     const purchNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'purchase' || l.name.toLowerCase() === 'purchase account' || l.name.toLowerCase() === 'purchase a/c'));
     if (purchNamed) return purchNamed.name;
     return 'PURCHASE';
-  }
-
-  public async ensureLedgerExists(ledgerName: string, parentGroup: string, companyName?: string): Promise<void> {
-    if (!ledgerName) return;
-    const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
-    const cached = this.companyLedgersCache.get(norm);
-    if (cached && cached.some((l) => l.name.toLowerCase() === ledgerName.toLowerCase())) {
-      return; // Already exists in Tally
-    }
-    const companyTag = companyName ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : '';
-    const affectsStock = parentGroup.toLowerCase().includes('sales') || parentGroup.toLowerCase().includes('purchase') ? 'Yes' : 'No';
-    const xml = `<ENVELOPE>
-  <HEADER>
-    <VERSION>1</VERSION>
-    <TALLYREQUEST>Import</TALLYREQUEST>
-    <TYPE>Data</TYPE>
-    <ID>Ledger</ID>
-  </HEADER>
-  <BODY>
-    <DESC>
-      <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
-      </STATICVARIABLES>
-    </DESC>
-    <DATA>
-      <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <LEDGER NAME="${escapeXml(ledgerName)}" ACTION="Create">
-          <NAME>${escapeXml(ledgerName)}</NAME>
-          <PARENT>${escapeXml(parentGroup)}</PARENT>
-          <ISBILLWISEON>Yes</ISBILLWISEON>
-          <AFFECTSSTOCK>${affectsStock}</AFFECTSSTOCK>
-        </LEDGER>
-      </TALLYMESSAGE>
-    </DATA>
-  </BODY>
-</ENVELOPE>`;
-    try {
-      await this.client.postVoucher(xml);
-    } catch (err: any) {
-      console.warn(`[SyncEngine] Notice ensuring ledger '${ledgerName}' exists:`, err?.message || err);
-    }
   }
 
   // Push a universal voucher (Receipt, Payment, Sales, Purchase, Journal) to Tally
