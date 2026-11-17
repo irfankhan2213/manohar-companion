@@ -74,6 +74,16 @@ const engine = new SyncEngine({
 });
 
 async function main() {
+  if (cloudUrl && !isMock && (command === 'start' || command === 'sync' || command === 'status')) {
+    try {
+      const updated = await engine.checkAndApplyOtaUpdate();
+      if (updated) {
+        console.log('[OTA] Agent bundle updated to latest version. Reloading...');
+        process.exit(42);
+      }
+    } catch {}
+  }
+
   switch (command) {
     case 'status': {
       console.log('=== Manohar Traders TallyPrime Sync Agent ===');

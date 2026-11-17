@@ -17,7 +17,7 @@ describe('Tally XML Templates', () => {
     const xml = buildCompanyInfoQuery();
     expect(xml).toContain('<TALLYREQUEST>Export</TALLYREQUEST>');
     expect(xml).toContain('<ID>CompanyInfo</ID>');
-    expect(xml).toContain('##SVCURRENTCOMPANY');
+    expect(xml).toContain('$$CurrentCompany');
   });
 
   it('generates ledgers query with AlterID filter', () => {
@@ -119,7 +119,8 @@ describe('Tally XML Templates', () => {
     expect(xml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
     expect(xml).toContain('<SVFROMDATE>20260401</SVFROMDATE>');
     expect(xml).toContain('<SVTODATE>20261031</SVTODATE>');
-    expect(xml).toContain('<FILTER>IsChallanFilter, VoucherAlterFilter</FILTER>');
+    expect(xml).toContain('<FILTER>IsChallanFilter</FILTER>');
+    expect(xml).toContain('<FILTER>VoucherAlterFilter</FILTER>');
     expect(xml).toContain('NAME="IsChallanFilter"');
     expect(xml).toContain('$$Number:$AlterId &gt; 1500');
   });

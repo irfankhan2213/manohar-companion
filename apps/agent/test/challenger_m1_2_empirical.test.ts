@@ -222,7 +222,8 @@ describe('CHALLENGER M1-2: Empirical Verification Suite (Desktop Tally Connector
 
     it('applies IsChallanFilter alongside VoucherAlterFilter in IncrementalVouchersCollection', () => {
       const xml = buildVouchersIncrementalQuery(100, 'Manohar Traders');
-      expect(xml).toContain('<FILTER>IsChallanFilter, VoucherAlterFilter</FILTER>');
+      expect(xml).toContain('<FILTER>IsChallanFilter</FILTER>');
+      expect(xml).toContain('<FILTER>VoucherAlterFilter</FILTER>');
       expect(xml).toContain('NAME="IsChallanFilter"');
       expect(xml).toContain('$$IsDeliveryNote:$VoucherTypeName');
     });

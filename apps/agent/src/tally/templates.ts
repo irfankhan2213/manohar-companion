@@ -42,7 +42,9 @@ export function buildCompanyInfoQuery(companyName?: string): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -59,7 +61,7 @@ export function buildCompanyInfoQuery(companyName?: string): string {
             <FIELDS>CompNameField, CompYearField, CompBooksField</FIELDS>
           </LINE>
           <FIELD NAME="CompNameField">
-            <SET>$$If:($$IsEmpty:##SVCURRENTCOMPANY):$$CurrentCompany:##SVCURRENTCOMPANY</SET>
+            <SET>$$CurrentCompany</SET>
           </FIELD>
           <FIELD NAME="CompYearField">
             <SET>$$String:##SVFROMDATE</SET>
@@ -152,9 +154,9 @@ export function buildBillsQuery(companyName?: string): string {
           <COLLECTION NAME="BillsCollection" ISMODIFY="No">
             <TYPE>Bills</TYPE>
             <FETCH>PARENT, BILLDATE, BILLREF, BILLDUE, OPENINGBALANCE, CLOSINGBALANCE, ISDEBIT</FETCH>
-            <FILTER>UnclearedBillsOnly</FILTER>
+            <FILTER>ActiveBillsFilter</FILTER>
           </COLLECTION>
-          <SYSTEM TYPE="Formulae" NAME="UnclearedBillsOnly">(NOT $$IsBillCleared) AND ($$Number:$CLOSINGBALANCE != 0)</SYSTEM>
+          <SYSTEM TYPE="Formulae" NAME="ActiveBillsFilter">NOT $$IsEmpty:$BILLREF</SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -250,7 +252,8 @@ export function buildVouchersIncrementalQuery(
           <COLLECTION NAME="IncrementalVouchersCollection" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <FETCH>MASTERID, ALTERID, GUID, VOUCHERNUMBER, DATE, VOUCHERTYPENAME, PARTYLEDGERNAME, PARTYNAME, BASICBUYERNAME, NARRATION, ISCANCELLED, ISOPTIONAL, ALLINVENTORYENTRIES.LIST, LEDGERENTRIES.LIST</FETCH>
-            <FILTER>IsChallanFilter, VoucherAlterFilter</FILTER>
+            <FILTER>IsChallanFilter</FILTER>
+            <FILTER>VoucherAlterFilter</FILTER>
           </COLLECTION>
           <SYSTEM TYPE="Formulae" NAME="IsChallanFilter">$$IsDeliveryNote:$VoucherTypeName or $$IsReceiptNote:$VoucherTypeName or $VoucherTypeName contains "Delivery" or $VoucherTypeName contains "Receipt Note" or $VoucherTypeName contains "Challan"</SYSTEM>
           <SYSTEM TYPE="Formulae" NAME="VoucherAlterFilter">$$Number:$AlterId &gt; ${minAlterId}</SYSTEM>
