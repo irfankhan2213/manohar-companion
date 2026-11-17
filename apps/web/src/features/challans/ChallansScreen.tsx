@@ -352,33 +352,34 @@ export const ChallansScreen: React.FC = () => {
                   </div>
                 }
                 subtitle={
-                  <div className="flex items-center gap-1.5 flex-wrap text-footnote text-label-2">
-                    <span className="font-medium text-label truncate max-w-[130px] sm:max-w-[180px]">
+                  <div className="flex flex-col gap-0.5 text-footnote text-label-2 min-w-0">
+                    <div className="font-medium text-label truncate max-w-[200px] sm:max-w-md">
                       {party?.name ?? 'Unknown Party'}
-                    </span>
-                    <span className="text-label-3">·</span>
-                    <span className="text-label-3 shrink-0 tabular-nums">{challan.date}</span>
-                    <span className="text-label-3">·</span>
-                    <span className="truncate max-w-[140px] sm:max-w-[220px]" title={challan.lines.map((l) => l.description).join(', ')}>
-                      {primaryDesc}
-                    </span>
-                    {extraCount > 0 && (
-                      <Badge variant="muted" size="sm" className="text-[10px]">
-                        +{extraCount} more
-                      </Badge>
-                    )}
-                    <span className="text-label-3">·</span>
-                    <span className="shrink-0 font-mono tabular-nums">
-                      ({totalQty} {totalQty === 1 ? 'unit' : 'units'})
-                    </span>
-                    {challan.vehicleNo && (
-                      <>
-                        <span className="text-label-3">·</span>
-                        <Badge variant="muted" size="sm" className="font-mono text-caption uppercase px-1.5 py-0 border-separator/30 text-label-2 shrink-0">
-                          {challan.vehicleNo}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-footnote text-label-2 truncate">
+                      <span className="text-label-3 shrink-0 tabular-nums">{challan.date}</span>
+                      <span className="text-label-3">·</span>
+                      <span className="truncate" title={challan.lines.map((l) => l.description).join(', ')}>
+                        {primaryDesc}
+                      </span>
+                      {extraCount > 0 && (
+                        <Badge variant="muted" size="sm" className="text-[10px] shrink-0">
+                          +{extraCount} more
                         </Badge>
-                      </>
-                    )}
+                      )}
+                      <span className="text-label-3">·</span>
+                      <span className="shrink-0 font-mono tabular-nums">
+                        ({totalQty} {totalQty === 1 ? 'unit' : 'units'})
+                      </span>
+                      {challan.vehicleNo && (
+                        <>
+                          <span className="text-label-3">·</span>
+                          <Badge variant="muted" size="sm" className="font-mono text-caption uppercase px-1.5 py-0 border-separator/30 text-label-2 shrink-0">
+                            {challan.vehicleNo}
+                          </Badge>
+                        </>
+                      )}
+                    </div>
                   </div>
                 }
                 trailing={

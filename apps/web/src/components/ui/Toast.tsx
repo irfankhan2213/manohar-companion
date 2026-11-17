@@ -40,6 +40,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         position="top-right"
         richColors
         closeButton
+        offset="68px"
         toastOptions={{
           style: {
             borderRadius: '14px',

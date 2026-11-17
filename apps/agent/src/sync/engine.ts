@@ -25,6 +25,7 @@ import {
   buildUniversalVoucherXml,
   UniversalVoucherParams,
   UniversalVoucherLedgerEntry,
+  escapeXml,
 } from '../tally/templates.js';
 
 function slugify(text: string): string {
@@ -64,6 +65,7 @@ export class SyncEngine {
   private syncCount: number = 0;
   private pendingAlterIdReset: boolean = false;
   private knownCreditors: Set<string> = new Set();
+  private companyLedgersCache: Map<string, TallyLedger[]> = new Map();
   private onSyncComplete?: (payload: TallySyncPayload) => void;
   private onSyncError?: (error: Error) => void;
 
@@ -292,6 +294,9 @@ export class SyncEngine {
 
       // 3. Always fetch all Ledgers (from AlterID 0) for targetCompany
       const ledgers: TallyLedger[] = await this.client.getLedgers(0, queryTarget);
+      if (queryTarget) {
+        this.companyLedgersCache.set(normalizeTallyCompanyName(queryTarget), ledgers);
+      }
 
       // 4. Fetch Bills Outstanding for targetCompany
       let bills: TallyBill[] = await this.client.getBills(undefined, queryTarget);
@@ -451,6 +456,9 @@ export class SyncEngine {
             } catch {}
 
             const extraLedgers = await this.client.getLedgers(0, extraTarget);
+            if (extraTarget) {
+              this.companyLedgersCache.set(normalizeTallyCompanyName(extraTarget), extraLedgers);
+            }
             let extraBills = await this.client.getBills(undefined, extraTarget);
             let extraMaxAlter = extra.lastAlterId || 0;
             let extraChallans: TallyChallanSync[] = [];
@@ -903,14 +911,24 @@ export class SyncEngine {
             rateRupees: (item.rate || 0) / 100,
           });
         } else if (item.kind === 'challan') {
+          const isPurchase = item.type === 'receipt_note' || item.type === 'purchase';
+          const salesLedger = item.salesLedgerName || this.resolveSalesLedger(targetCompanyName);
+          const purchaseLedger = item.purchaseLedgerName || this.resolvePurchaseLedger(targetCompanyName);
+          const ledgerToUse = isPurchase ? purchaseLedger : salesLedger;
+
+          const partyName = item.partyName || item.partyId;
+          await this.ensureLedgerExists(partyName, isPurchase ? 'Sundry Creditors' : 'Sundry Debtors', targetCompanyName);
+          await this.ensureLedgerExists(ledgerToUse, isPurchase ? 'Purchase Accounts' : 'Sales Accounts', targetCompanyName);
+
           result = await this.pushDeliveryChallan({
             companyName: targetCompanyName,
             date: formattedDate,
             voucherNumber: item.number || item.id,
-            partyName: item.partyName || item.partyId,
+            partyName,
             narration: item.narration || `Mobile Challan (${item.id})`,
             vehicleNo: item.vehicleNo,
             voucherType: item.type || 'delivery',
+            salesLedgerName: ledgerToUse,
             items: (item.lines || []).map((l: any) => ({
               itemName: l.description || l.itemId,
               godownName: item.godownName,
@@ -1013,15 +1031,78 @@ export class SyncEngine {
         { ledgerName: secondLedger, amount: amountRupees, isDeemedPositive: false },
       ];
     } else if (vType === 'purchase') {
+      const purchLedger = item.purchaseLedger || item.purchaseLedgerName || this.resolvePurchaseLedger(item.companyName);
       return [
-        { ledgerName: item.purchaseLedger || 'Purchase Account', amount: amountRupees, isDeemedPositive: true },
+        { ledgerName: purchLedger, amount: amountRupees, isDeemedPositive: true },
         { ledgerName: partyName, amount: amountRupees, isDeemedPositive: false, isPartyLedger: true },
       ];
     } else {
+      const sLedger = item.salesLedger || item.salesLedgerName || this.resolveSalesLedger(item.companyName);
       return [
         { ledgerName: partyName, amount: amountRupees, isDeemedPositive: true, isPartyLedger: true },
-        { ledgerName: item.salesLedger || 'Sales Account', amount: amountRupees, isDeemedPositive: false },
+        { ledgerName: sLedger, amount: amountRupees, isDeemedPositive: false },
       ];
+    }
+  }
+
+  public resolveSalesLedger(companyName?: string): string {
+    const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
+    const cached = this.companyLedgersCache.get(norm) || [];
+    const salesAcc = cached.find((l) => l.parent && l.parent.toLowerCase().includes('sales account'));
+    if (salesAcc) return salesAcc.name;
+    const salesNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'sales' || l.name.toLowerCase() === 'sales account' || l.name.toLowerCase() === 'sales a/c'));
+    if (salesNamed) return salesNamed.name;
+    return 'Sales';
+  }
+
+  public resolvePurchaseLedger(companyName?: string): string {
+    const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
+    const cached = this.companyLedgersCache.get(norm) || [];
+    const purchAcc = cached.find((l) => l.parent && l.parent.toLowerCase().includes('purchase account'));
+    if (purchAcc) return purchAcc.name;
+    const purchNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'purchase' || l.name.toLowerCase() === 'purchase account' || l.name.toLowerCase() === 'purchase a/c'));
+    if (purchNamed) return purchNamed.name;
+    return 'PURCHASE';
+  }
+
+  public async ensureLedgerExists(ledgerName: string, parentGroup: string, companyName?: string): Promise<void> {
+    if (!ledgerName) return;
+    const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
+    const cached = this.companyLedgersCache.get(norm);
+    if (cached && cached.some((l) => l.name.toLowerCase() === ledgerName.toLowerCase())) {
+      return; // Already exists in Tally
+    }
+    const companyTag = companyName ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>` : '';
+    const affectsStock = parentGroup.toLowerCase().includes('sales') || parentGroup.toLowerCase().includes('purchase') ? 'Yes' : 'No';
+    const xml = `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>Ledger</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <LEDGER NAME="${escapeXml(ledgerName)}" ACTION="Create">
+          <NAME>${escapeXml(ledgerName)}</NAME>
+          <PARENT>${escapeXml(parentGroup)}</PARENT>
+          <ISBILLWISEON>Yes</ISBILLWISEON>
+          <AFFECTSSTOCK>${affectsStock}</AFFECTSSTOCK>
+        </LEDGER>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+    try {
+      await this.client.postVoucher(xml);
+    } catch (err: any) {
+      console.warn(`[SyncEngine] Notice ensuring ledger '${ledgerName}' exists:`, err?.message || err);
     }
   }
 

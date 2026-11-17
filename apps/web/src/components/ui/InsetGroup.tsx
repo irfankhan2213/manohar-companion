@@ -37,7 +37,7 @@ export const InsetGroup: React.FC<InsetGroupProps> = ({
           )}
         </div>
       )}
-      <div className="bg-surface rounded-ios-card shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden divide-y divide-separator/40">
+      <div className="bg-surface rounded-ios-card border border-separator/40 shadow-[0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden divide-y divide-separator/40">
         {children}
       </div>
     </div>

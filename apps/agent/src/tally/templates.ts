@@ -16,7 +16,7 @@ export interface DeliveryChallanVoucherParams {
   partyName: string;
   narration: string;
   vehicleNo?: string;
-  voucherType?: 'sales' | 'purchase' | 'delivery';
+  voucherType?: 'sales' | 'purchase' | 'delivery' | 'receipt_note';
   companyName?: string;
   salesLedgerName?: string;
   items: Array<{
@@ -459,16 +459,18 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
 }
 
 export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherParams): string {
-  const isPurchase = params.voucherType === 'purchase';
+  const isPurchase = params.voucherType === 'purchase' || params.voucherType === 'receipt_note';
   const tallyVchType =
     params.voucherType === 'sales'
       ? 'Sales'
-      : isPurchase
+      : params.voucherType === 'purchase'
         ? 'Purchase'
-        : 'Delivery Note';
+        : params.voucherType === 'receipt_note'
+          ? 'Receipt Note'
+          : 'Delivery Note';
   const signPrefix = isPurchase ? '-' : '';
   const partySignPrefix = isPurchase ? '' : '-';
-  const defaultLedger = params.salesLedgerName || (isPurchase ? 'Purchase Account' : 'Sales Account');
+  const defaultLedger = params.salesLedgerName || (isPurchase ? 'PURCHASE' : 'Sales');
 
   const companyTag = params.companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`

@@ -353,7 +353,7 @@ export const CollectionsScreen: React.FC = () => {
           />
 
           {/* Quick Filter: All Customers | Debtors | Creditors | Overdue Only */}
-          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1 scroll-smooth">
             <button
               type="button"
               onClick={() => {
@@ -362,7 +362,7 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.98]',
                 partyTypeTab === 'all' && tabFilter === 'all'
                   ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
@@ -378,7 +378,7 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.98]',
                 partyTypeTab === 'debtor' && tabFilter === 'all'
                   ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
@@ -395,7 +395,7 @@ export const CollectionsScreen: React.FC = () => {
                 setIsMultiSelect(false);
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.98]',
                 partyTypeTab === 'creditor' && tabFilter === 'all'
                   ? 'bg-surface text-label shadow-xs border border-separator/40 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
@@ -410,7 +410,7 @@ export const CollectionsScreen: React.FC = () => {
                 setSelectedPartyIds(new Set());
               }}
               className={clsx(
-                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap transition-all active:scale-[0.98]',
+                'px-3.5 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap shrink-0 transition-all active:scale-[0.98]',
                 tabFilter === 'late'
                   ? 'bg-danger/10 text-danger border border-danger/20 font-bold'
                   : 'text-label-2 hover:text-label hover:bg-fill/40'
@@ -485,7 +485,7 @@ export const CollectionsScreen: React.FC = () => {
                         <Badge
                           variant={item.isCreditor ? 'warning' : 'secondary'}
                           size="sm"
-                          className="font-semibold"
+                          className="font-semibold shrink-0"
                         >
                           {item.isCreditor ? 'Supplier' : 'Customer'}
                         </Badge>
@@ -497,33 +497,26 @@ export const CollectionsScreen: React.FC = () => {
                       </span>
                     }
                     trailing={
-                      <div className="flex flex-col items-end">
-                        <span
-                          className={`text-[11px] font-medium ${
-                            item.isCreditor
-                              ? 'text-warn'
-                              : 'text-label-2'
-                          }`}
-                        >
-                          {item.isCreditor ? 'You owe' : 'Owes you'}
-                        </span>
-                        <span className="tabular-nums font-semibold text-label">
-                          {formatINR(item.totalPending)}
-                        </span>
-                      </div>
+                      <span className="tabular-nums font-semibold text-label">
+                        {formatINR(item.totalPending)}
+                      </span>
                     }
                     trailingSubtitle={
-                      item.isCreditor ? (
-                        <span className="text-footnote text-label-3 font-medium">Creditor</span>
-                      ) : item.maxDaysLate > 0 ? (
-                        <StatusText
-                          text={`${item.maxDaysLate} days late`}
-                          variant={item.maxDaysLate > 30 ? 'danger' : 'warn'}
-                          dot={false}
-                        />
-                      ) : (
-                        <span className="text-label-2 font-medium">Not due</span>
-                      )
+                      <span className="text-footnote font-medium flex items-center gap-1 justify-end">
+                        <span className={item.isCreditor ? 'text-warn' : 'text-label-3'}>
+                          {item.isCreditor ? 'You owe' : 'Owes you'}
+                        </span>
+                        <span className="text-label-3">·</span>
+                        {item.isCreditor ? (
+                          <span className="text-label-3">Creditor</span>
+                        ) : item.maxDaysLate > 0 ? (
+                          <span className={item.maxDaysLate > 30 ? 'text-danger font-semibold' : 'text-warn font-semibold'}>
+                            {item.maxDaysLate} days late
+                          </span>
+                        ) : (
+                          <span className="text-label-2">Not due</span>
+                        )}
+                      </span>
                     }
                   />
                 );

@@ -92,6 +92,34 @@ describe('Tally XML Templates', () => {
     expect(xml).toContain('<BATCHALLOCATIONS.LIST>');
     expect(xml).toContain('<GODOWNNAME>Ludhiana Main Godown</GODOWNNAME>');
     expect(xml).toContain('<BATCHNAME>Primary Batch</BATCHNAME>');
+    expect(xml).toContain('<LEDGERNAME>Sales</LEDGERNAME>');
+  });
+
+  it('generates delivery challan voucher XML with custom sales ledger or purchase ledger', () => {
+    const salesXml = buildDeliveryChallanVoucherXml({
+      date: '20261117',
+      voucherNumber: 'DC/046/26-27',
+      partyName: 'Anam Delhi',
+      narration: 'Dispatched to Delhi',
+      voucherType: 'delivery',
+      salesLedgerName: 'Sales',
+      items: [{ itemName: '300 L PILY', qty: 10, unit: 'pcs', rateRupees: 105 }],
+    });
+    expect(salesXml).toContain('<VOUCHER VCHTYPE="Delivery Note" ACTION="Create"');
+    expect(salesXml).toContain('<PARTYLEDGERNAME>Anam Delhi</PARTYLEDGERNAME>');
+    expect(salesXml).toContain('<LEDGERNAME>Sales</LEDGERNAME>');
+    expect(salesXml).not.toContain('<LEDGERNAME>Sales Account</LEDGERNAME>');
+
+    const purchaseXml = buildDeliveryChallanVoucherXml({
+      date: '20261117',
+      voucherNumber: 'RC/001/26-27',
+      partyName: 'Supplier ABC',
+      narration: 'Received from supplier',
+      voucherType: 'purchase',
+      items: [{ itemName: 'Raw Material', qty: 5, unit: 'pcs', rateRupees: 200 }],
+    });
+    expect(purchaseXml).toContain('<LEDGERNAME>PURCHASE</LEDGERNAME>');
+    expect(purchaseXml).not.toContain('<LEDGERNAME>Purchase Account</LEDGERNAME>');
   });
 
   it('escapeXml safely handles undefined, null and special XML characters', async () => {

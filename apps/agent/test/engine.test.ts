@@ -499,4 +499,20 @@ describe('Sync Engine', () => {
       if (fs.existsSync(bakPath)) fs.unlinkSync(bakPath);
     }
   });
+
+  it('dynamically resolves sales and purchase ledgers from chart of accounts', async () => {
+    const store = new StateStore(testStatePath);
+    const client = new TallyClient({ mock: true });
+    const engine = new SyncEngine({ client, store });
+
+    // Fallback when no cache yet
+    expect(engine.resolveSalesLedger('Chinese Parts(M T M)')).toBe('Sales');
+    expect(engine.resolvePurchaseLedger('Chinese Parts(M T M)')).toBe('PURCHASE');
+
+    // Run sync to populate cache from mock
+    await engine.runSyncOnce();
+
+    expect(engine.resolveSalesLedger('Manohar Traders')).toBe('Sales');
+    expect(engine.resolvePurchaseLedger('Manohar Traders')).toBe('PURCHASE');
+  });
 });

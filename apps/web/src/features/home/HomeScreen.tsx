@@ -70,13 +70,13 @@ export const HomeScreen: React.FC = () => {
       }
     >
       {/* Active Company Context Switcher Bar */}
-      <div className="flex items-center justify-between pb-1.5 px-0.5">
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-bold text-label-3 uppercase tracking-wider">Company:</span>
+      <div className="flex items-center justify-between pb-1.5 px-0.5 gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="text-[11px] font-bold text-label-3 uppercase tracking-wider shrink-0">Company:</span>
           <select
             value={currentCompanyId}
             onChange={(e) => setCompanyId(e.target.value as any)}
-            className="bg-surface text-label text-subhead font-semibold px-2.5 py-1 rounded-lg border border-separator/50 shadow-sm focus:outline-none focus:ring-1 focus:ring-accent"
+            className="bg-surface text-label text-subhead font-semibold px-2.5 py-1 rounded-lg border border-separator/50 shadow-sm focus:outline-none focus:ring-1 focus:ring-accent max-w-[200px] sm:max-w-xs truncate"
           >
             <option value="all">All Companies (Consolidated)</option>
             {companies.map((c) => (
@@ -90,7 +90,7 @@ export const HomeScreen: React.FC = () => {
           <button
             type="button"
             onClick={() => navigate('/reports/balance-sheet')}
-            className="text-footnote font-semibold text-accent hover:underline flex items-center gap-1"
+            className="text-footnote font-semibold text-accent hover:underline flex items-center gap-1 shrink-0 whitespace-nowrap"
           >
             <span>Balance Sheet ↗</span>
           </button>

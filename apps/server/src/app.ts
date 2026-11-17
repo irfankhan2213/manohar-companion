@@ -6012,14 +6012,20 @@ export function createApp(dbPath?: string): express.Express {
     const partyNameMap = new Map(partyRows.map(p => [p.id, p.name]));
     const godownNameMap = new Map(godownRows.map(g => [g.id, g.name]));
 
-    const challanItems = challanRows.map(r => ({
-      ...r,
-      kind: 'challan',
-      companyName: companyNameMap.get(r.companyId),
-      partyName: partyNameMap.get(r.partyId) || r.partyId,
-      godownName: r.godownId ? godownNameMap.get(r.godownId) : undefined,
-      lines: JSON.parse(r.lines || '[]'),
-    }));
+    const challanItems = challanRows.map(r => {
+      const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Sales Account%' OR name = 'Sales' OR name = 'Sales Account') ORDER BY CASE WHEN parentGroup LIKE 'Sales Account%' THEN 0 ELSE 1 END LIMIT 1").get(r.companyId) as any;
+      const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Purchase Account%' OR name = 'PURCHASE' OR name = 'Purchase' OR name = 'Purchase Account') ORDER BY CASE WHEN parentGroup LIKE 'Purchase Account%' THEN 0 ELSE 1 END LIMIT 1").get(r.companyId) as any;
+      return {
+        ...r,
+        kind: 'challan',
+        companyName: companyNameMap.get(r.companyId),
+        partyName: partyNameMap.get(r.partyId) || r.partyId,
+        godownName: r.godownId ? godownNameMap.get(r.godownId) : undefined,
+        salesLedgerName: salesLedgerRow?.name || 'Sales',
+        purchaseLedgerName: purchaseLedgerRow?.name || 'PURCHASE',
+        lines: JSON.parse(r.lines || '[]'),
+      };
+    });
 
     let stockJournalItems: any[] = [];
     try {
@@ -6064,10 +6070,16 @@ export function createApp(dbPath?: string): express.Express {
       const vchRows = db.prepare(vchOutboxQuery).all(...vchParams) as any[];
       voucherItems = vchRows.map((o) => {
         const companyName = companyNameMap.get(o.companyId);
+        const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Sales Account%' OR name = 'Sales' OR name = 'Sales Account') ORDER BY CASE WHEN parentGroup LIKE 'Sales Account%' THEN 0 ELSE 1 END LIMIT 1").get(o.companyId) as any;
+        const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Purchase Account%' OR name = 'PURCHASE' OR name = 'Purchase' OR name = 'Purchase Account') ORDER BY CASE WHEN parentGroup LIKE 'Purchase Account%' THEN 0 ELSE 1 END LIMIT 1").get(o.companyId) as any;
+        const defaultSalesLedger = salesLedgerRow?.name || 'Sales';
+        const defaultPurchaseLedger = purchaseLedgerRow?.name || 'PURCHASE';
         if (o.payload) {
           try {
             const parsed = JSON.parse(o.payload);
             return {
+              salesLedger: parsed.salesLedger || defaultSalesLedger,
+              purchaseLedger: parsed.purchaseLedger || defaultPurchaseLedger,
               ...parsed,
               id: o.refId || o.id,
               outboxId: o.id,
@@ -6081,6 +6093,8 @@ export function createApp(dbPath?: string): express.Express {
           outboxId: o.id,
           kind: 'voucher',
           companyName,
+          salesLedger: defaultSalesLedger,
+          purchaseLedger: defaultPurchaseLedger,
         };
       });
     } catch {}
