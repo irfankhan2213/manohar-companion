@@ -6,6 +6,7 @@ import { formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
+import { triggerNativePrint } from '../../utils/printUtils.js';
 
 export const CashBankScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export const CashBankScreen: React.FC = () => {
   const currentCompany = companies.find((c) => c.id === currentCompanyId);
 
   const handlePrint = () => {
-    window.print();
+    triggerNativePrint(`Cash & Bank - ${currentCompany?.name || 'Company'}`);
   };
 
   const cashAccounts = (cb?.accounts || []).filter((a: any) => a.type === 'cash');

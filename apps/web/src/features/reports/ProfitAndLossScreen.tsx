@@ -6,6 +6,7 @@ import { formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
+import { triggerNativePrint } from '../../utils/printUtils.js';
 
 export const ProfitAndLossScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -23,7 +24,7 @@ export const ProfitAndLossScreen: React.FC = () => {
   const currentCompany = companies.find((c) => c.id === currentCompanyId);
 
   const handlePrint = () => {
-    window.print();
+    triggerNativePrint(`Profit & Loss - ${currentCompany?.name || 'Company'}`);
   };
 
   const isNetProfitPositive = (pnl?.incomeStatement?.netProfit ?? 0) >= 0;

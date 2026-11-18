@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Printer, Check, FileText } from 'lucide-react';
+import { ArrowLeft, Printer, Check, FileText, Download, Loader2 } from 'lucide-react';
 import { formatINR, numberToIndianWords, getTodayIST } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
+import { triggerNativePrint, downloadElementAsPdf } from '../../utils/printUtils.js';
 
 export const StatementPrintScreen: React.FC = () => {
   const { partyId = '' } = useParams<{ partyId: string }>();
@@ -12,6 +13,8 @@ export const StatementPrintScreen: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [detailedMode, setDetailedMode] = useState(true);
+  const printRef = React.useRef<HTMLDivElement>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   const { data: party, isLoading: partyLoading } = useQuery({
     queryKey: ['party', partyId],
@@ -112,6 +115,23 @@ export const StatementPrintScreen: React.FC = () => {
 
   const isSpecificBillsMode = selectedBillNos.length > 0;
 
+  const handlePrint = () => {
+    triggerNativePrint(`Statement-${party?.name || 'Party'}`);
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!printRef.current || isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    try {
+      await downloadElementAsPdf(printRef.current, `Statement-${party?.name || 'Party'}`);
+    } catch (err) {
+      console.error('Statement PDF export failed:', err);
+      handlePrint();
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-bg print:bg-white flex flex-col items-center py-6 px-4 print:p-0">
       {/* Top Action Toolbar (Hidden in print) */}
@@ -141,12 +161,27 @@ export const StatementPrintScreen: React.FC = () => {
             </button>
 
             <Button
+              variant="tinted"
               size="small"
-              onClick={() => window.print()}
+              disabled={isGeneratingPdf}
+              onClick={handleDownloadPdf}
+              className="flex items-center gap-1.5"
+            >
+              {isGeneratingPdf ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              <span>Save PDF</span>
+            </Button>
+
+            <Button
+              size="small"
+              onClick={handlePrint}
               className="flex items-center gap-1.5"
             >
               <Printer className="w-4 h-4" />
-              <span>Print / Save PDF</span>
+              <span>Print</span>
             </Button>
           </div>
         </div>
@@ -224,7 +259,10 @@ export const StatementPrintScreen: React.FC = () => {
       </div>
 
       {/* A4 Printable Canvas */}
-      <div className="w-full max-w-4xl bg-white text-black p-8 rounded-2xl shadow-sm border border-separator/60 print:shadow-none print:border-none print:p-0 print:m-0 text-[13px] leading-tight font-sans">
+      <div
+        ref={printRef}
+        className="w-full max-w-4xl bg-white text-black p-8 rounded-2xl shadow-sm border border-separator/60 print:shadow-none print:border-none print:p-0 print:m-0 text-[13px] leading-tight font-sans"
+      >
         {/* Document Border Box */}
         <div className="border border-black flex flex-col">
           {/* Header */}

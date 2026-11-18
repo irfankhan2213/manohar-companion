@@ -1,10 +1,11 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Printer, Download } from 'lucide-react';
+import { ArrowLeft, Printer, Download, Share2, Loader2 } from 'lucide-react';
 import { formatINR, numberToIndianWords } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
+import { triggerNativePrint, downloadElementAsPdf, shareElementAsPdf } from '../../utils/printUtils.js';
 
 export const ChallanPrintScreen: React.FC = () => {
   const { id = '' } = useParams<{ id: string }>();
@@ -82,68 +83,50 @@ export const ChallanPrintScreen: React.FC = () => {
       ? 'PURCHASE VOUCHER'
       : 'DELIVERY CHALLAN';
 
-  // Standalone A4 PDF generator that prints cleanly without any app navigation or mobile layout chrome
-  const handlePrintOrDownloadPdf = () => {
-    const safeFileName = `${challan.number.replace(/[^a-zA-Z0-9-_]/g, '-')}-${challan.date}`;
-    const originalTitle = document.title;
-    document.title = safeFileName;
+  const [isGeneratingPdf, setIsGeneratingPdf] = React.useState(false);
+  const safeFileName = `${challan.number.replace(/[^a-zA-Z0-9-_]/g, '-')}-${challan.date}`;
 
-    if (printRef.current) {
-      const iframe = document.createElement('iframe');
-      iframe.style.position = 'fixed';
-      iframe.style.right = '0';
-      iframe.style.bottom = '0';
-      iframe.style.width = '0';
-      iframe.style.height = '0';
-      iframe.style.border = '0';
-      document.body.appendChild(iframe);
+  // Print via Android Native PrintManager or browser window.print()
+  const handlePrint = () => {
+    triggerNativePrint(safeFileName);
+  };
 
-      const doc = iframe.contentWindow?.document;
-      if (doc) {
-        const styleLinks = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
-          .map((el) => el.outerHTML)
-          .join('\n');
-        doc.open();
-        doc.write(`<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>${safeFileName}</title>
-    ${styleLinks}
-    <style>
-      @page { size: A4 portrait; margin: 10mm; }
-      html, body { background: #fff !important; color: #000 !important; margin: 0 !important; padding: 0 !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-    </style>
-  </head>
-  <body>
-    ${printRef.current.outerHTML}
-  </body>
-</html>`);
-        doc.close();
-        setTimeout(() => {
-          iframe.contentWindow?.focus();
-          iframe.contentWindow?.print();
-          setTimeout(() => {
-            document.title = originalTitle;
-            if (document.body.contains(iframe)) {
-              document.body.removeChild(iframe);
-            }
-          }, 1000);
-        }, 250);
-        return;
-      }
+  // Generate & download clean A4 PDF file directly to device
+  const handleDownloadPdf = async () => {
+    if (!printRef.current || isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    try {
+      await downloadElementAsPdf(printRef.current, safeFileName);
+    } catch (err) {
+      console.error('PDF export failed:', err);
+      triggerNativePrint(safeFileName);
+    } finally {
+      setIsGeneratingPdf(false);
     }
+  };
 
-    window.print();
-    setTimeout(() => {
-      document.title = originalTitle;
-    }, 500);
+  // Share PDF via Native Share Sheet (WhatsApp, Drive, Email, etc.)
+  const handleSharePdf = async () => {
+    if (!printRef.current || isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    try {
+      await shareElementAsPdf(
+        printRef.current,
+        safeFileName,
+        `Delivery Challan - ${challan.number}`,
+        `Delivery Challan ${challan.number} from Manohar Traders`
+      );
+    } catch (err) {
+      console.error('PDF share failed:', err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
   };
 
   return (
     <div className="min-h-screen bg-bg print:bg-white flex flex-col items-center py-6 px-4 print:p-0">
       {/* Top Action Toolbar (Hidden in print) */}
-      <div className="w-full max-w-4xl flex items-center justify-between mb-4 no-print">
+      <div className="w-full max-w-4xl flex items-center justify-between mb-4 no-print flex-wrap gap-2">
         <Button
           variant="tinted"
           size="small"
@@ -154,26 +137,48 @@ export const ChallanPrintScreen: React.FC = () => {
           <span>Back to Challan</span>
         </Button>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-footnote text-label-2 hidden sm:inline">
             A4 Portrait · {challan.number}
           </span>
+
           <Button
             variant="tinted"
             size="small"
-            onClick={handlePrintOrDownloadPdf}
+            disabled={isGeneratingPdf}
+            onClick={handleSharePdf}
+            className="flex items-center gap-1.5 text-[#1B5E20] border-[#C5E1A5] bg-[#E8F5E9] hover:bg-[#C8E6C9]"
+          >
+            {isGeneratingPdf ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Share2 className="w-4 h-4" />
+            )}
+            <span>Share PDF</span>
+          </Button>
+
+          <Button
+            variant="tinted"
+            size="small"
+            disabled={isGeneratingPdf}
+            onClick={handleDownloadPdf}
             className="flex items-center gap-1.5"
           >
-            <Download className="w-4 h-4" />
+            {isGeneratingPdf ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Download className="w-4 h-4" />
+            )}
             <span>Save PDF</span>
           </Button>
+
           <Button
             size="small"
-            onClick={handlePrintOrDownloadPdf}
+            onClick={handlePrint}
             className="flex items-center gap-1.5"
           >
             <Printer className="w-4 h-4" />
-            <span>Print / Save PDF</span>
+            <span>Print</span>
           </Button>
         </div>
       </div>

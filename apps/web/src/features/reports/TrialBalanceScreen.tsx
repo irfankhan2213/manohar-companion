@@ -5,6 +5,7 @@ import { ArrowLeft, Printer, RefreshCw, ChevronDown, ChevronRight } from 'lucide
 import { formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
+import { triggerNativePrint } from '../../utils/printUtils.js';
 
 export const TrialBalanceScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ export const TrialBalanceScreen: React.FC = () => {
   };
 
   const handlePrint = () => {
-    window.print();
+    triggerNativePrint(`Trial Balance - ${currentCompany?.name || 'Company'}`);
   };
 
   return (

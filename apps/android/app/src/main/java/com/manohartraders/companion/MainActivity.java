@@ -15,6 +15,9 @@ import android.net.NetworkInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
@@ -22,6 +25,7 @@ import android.view.ViewGroup;
 import android.view.Window;
 import android.view.WindowManager;
 import android.webkit.CookieManager;
+import android.webkit.DownloadListener;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -138,8 +142,22 @@ public class MainActivity extends Activity {
         cookieManager.setAcceptCookie(true);
         cookieManager.setAcceptThirdPartyCookies(webView, true);
 
-        // Native notification bridge for actual Android popups
+        // Native notification and print bridge for Android
         webView.addJavascriptInterface(new NotificationBridge(this), "AndroidBridge");
+
+        // Handle file downloads (PDFs, APKs, exports)
+        webView.setDownloadListener(new DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setData(Uri.parse(url));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Download error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
@@ -220,6 +238,10 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 progressBar.setVisibility(View.GONE);
+                view.evaluateJavascript(
+                    "if (!window.__printPatched) { window.__printPatched = true; const _orig = window.print; window.print = function() { if (window.AndroidBridge && window.AndroidBridge.print) { window.AndroidBridge.print(); } else if (_orig) { _orig(); } }; }",
+                    null
+                );
             }
 
             @Override
@@ -407,6 +429,25 @@ public class MainActivity extends Activity {
             } catch (Exception e) {
                 e.printStackTrace();
             }
+        }
+
+        @JavascriptInterface
+        public void print() {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+                        String jobName = getString(R.string.app_name) + " " + System.currentTimeMillis();
+                        PrintDocumentAdapter printAdapter = webView.createPrintDocumentAdapter(jobName);
+                        if (printManager != null) {
+                            printManager.print(jobName, printAdapter, new PrintAttributes.Builder().build());
+                        }
+                    } catch (Exception e) {
+                        Toast.makeText(MainActivity.this, "Print error: " + e.getMessage(), Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
         }
     }
 }

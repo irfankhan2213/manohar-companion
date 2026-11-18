@@ -6011,8 +6011,8 @@ export function createApp(dbPath?: string): express.Express {
     const godownNameMap = new Map(godownRows.map(g => [g.id, g.name]));
 
     const challanItems = challanRows.map(r => {
-      const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Sales Account%' OR name = 'Sales' OR name = 'Sales Account') ORDER BY CASE WHEN parentGroup LIKE 'Sales Account%' THEN 0 ELSE 1 END LIMIT 1").get(r.companyId) as any;
-      const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Purchase Account%' OR name = 'PURCHASE' OR name = 'Purchase' OR name = 'Purchase Account') ORDER BY CASE WHEN parentGroup LIKE 'Purchase Account%' THEN 0 ELSE 1 END LIMIT 1").get(r.companyId) as any;
+      const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
+      const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
       return {
         ...r,
         kind: 'challan',
@@ -6068,8 +6068,8 @@ export function createApp(dbPath?: string): express.Express {
       const vchRows = db.prepare(vchOutboxQuery).all(...vchParams) as any[];
       voucherItems = vchRows.map((o) => {
         const companyName = companyNameMap.get(o.companyId);
-        const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Sales Account%' OR name = 'Sales' OR name = 'Sales Account') ORDER BY CASE WHEN parentGroup LIKE 'Sales Account%' THEN 0 ELSE 1 END LIMIT 1").get(o.companyId) as any;
-        const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (parentGroup LIKE 'Purchase Account%' OR name = 'PURCHASE' OR name = 'Purchase' OR name = 'Purchase Account') ORDER BY CASE WHEN parentGroup LIKE 'Purchase Account%' THEN 0 ELSE 1 END LIMIT 1").get(o.companyId) as any;
+        const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(o.companyId) as any;
+        const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(o.companyId) as any;
         const defaultSalesLedger = salesLedgerRow?.name || 'Sales';
         const defaultPurchaseLedger = purchaseLedgerRow?.name || 'PURCHASE';
         if (o.payload) {

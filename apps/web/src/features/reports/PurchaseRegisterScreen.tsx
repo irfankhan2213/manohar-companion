@@ -6,6 +6,7 @@ import { formatINR } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { InsetGroup, Row } from '../../components/ui/InsetGroup.js';
+import { triggerNativePrint } from '../../utils/printUtils.js';
 
 export const PurchaseRegisterScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -24,7 +25,7 @@ export const PurchaseRegisterScreen: React.FC = () => {
   const currentCompany = companies.find((c) => c.id === currentCompanyId);
 
   const handlePrint = () => {
-    window.print();
+    triggerNativePrint(`Purchase Register - ${currentCompany?.name || 'Company'}`);
   };
 
   return (

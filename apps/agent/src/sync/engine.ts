@@ -921,8 +921,14 @@ export class SyncEngine {
           });
         } else if (item.kind === 'challan') {
           const isPurchase = item.type === 'receipt_note' || item.type === 'purchase';
-          const salesLedger = item.salesLedgerName || this.resolveSalesLedger(targetCompanyName);
-          const purchaseLedger = item.purchaseLedgerName || this.resolvePurchaseLedger(targetCompanyName);
+          const rawSalesLedger = item.salesLedgerName || item.salesLedger;
+          const salesLedger = (rawSalesLedger && this.hasLedger(targetCompanyName, rawSalesLedger))
+            ? rawSalesLedger
+            : this.resolveSalesLedger(targetCompanyName);
+          const rawPurchLedger = item.purchaseLedgerName || item.purchaseLedger;
+          const purchaseLedger = (rawPurchLedger && this.hasLedger(targetCompanyName, rawPurchLedger))
+            ? rawPurchLedger
+            : this.resolvePurchaseLedger(targetCompanyName);
           const ledgerToUse = isPurchase ? purchaseLedger : salesLedger;
 
           result = await this.pushDeliveryChallan({
@@ -1050,12 +1056,23 @@ export class SyncEngine {
     }
   }
 
+  public hasLedger(companyName: string | undefined, ledgerName: string): boolean {
+    if (!ledgerName) return false;
+    const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
+    const cached = this.companyLedgersCache.get(norm) || [];
+    if (cached.length === 0) return true;
+    const lower = ledgerName.trim().toLowerCase();
+    return cached.some((l) => l.name && l.name.trim().toLowerCase() === lower);
+  }
+
   public resolveSalesLedger(companyName?: string): string {
     const norm = companyName ? normalizeTallyCompanyName(companyName) : '';
     const cached = this.companyLedgersCache.get(norm) || [];
     const salesAcc = cached.find((l) => l.parent && l.parent.toLowerCase().includes('sales account'));
     if (salesAcc) return salesAcc.name;
-    const salesNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'sales' || l.name.toLowerCase() === 'sales account' || l.name.toLowerCase() === 'sales a/c'));
+    const salesExact = cached.find((l) => l.name && l.name.toLowerCase() === 'sales');
+    if (salesExact) return salesExact.name;
+    const salesNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'sales account' || l.name.toLowerCase() === 'sales a/c'));
     if (salesNamed) return salesNamed.name;
     return 'Sales';
   }
