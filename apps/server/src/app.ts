@@ -1940,11 +1940,6 @@ export function createApp(dbPath?: string): express.Express {
       ? (db.prepare('SELECT count(*) as cnt FROM stock_items WHERE companyId = ?').get(targetComp.id) as any).cnt
       : (db.prepare('SELECT count(*) as cnt FROM stock_items').get() as any).cnt;
 
-    db.prepare(`
-      INSERT INTO sync_batches (companyId, syncedAt, alterId, vouchersCount, ledgersCount, stockCount)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(companyId, now, 10542, vouchersCount, ledgersCount, stockCount);
-
     // Check for pending remote commands for this company or tenant
     const commandKeys = [
       `agent_commands_${companyId}`,
@@ -2272,8 +2267,8 @@ export function createApp(dbPath?: string): express.Express {
 
     const parties = db.prepare(partiesQuery).all(...partiesParams) as any[];
 
-    // Compute Closing Stock from stock_items and stock_balances
-    let stockQuery = 'SELECT s.rate, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId WHERE 1=1';
+    // Compute Closing Stock from stock_items (exact Tally closingValue or stock_balances fallback)
+    let stockQuery = 'SELECT s.rate, COALESCE(s.closingValue, 0) as closingValue, SUM(b.qty) as totalQty FROM stock_items s LEFT JOIN stock_balances b ON s.id = b.itemId WHERE 1=1';
     const stockParams: any[] = [];
     if (companyId && companyId !== 'all') {
       stockQuery += ' AND s.companyId = ? GROUP BY s.id';
@@ -2285,7 +2280,9 @@ export function createApp(dbPath?: string): express.Express {
       stockQuery += ' GROUP BY s.id';
     }
     const stockRows = db.prepare(stockQuery).all(...stockParams) as any[];
-    const closingStock = stockRows.reduce((acc, row) => acc + Math.round((row.totalQty || 0) * (row.rate || 0)), 0);
+    const closingStockFromValue = stockRows.reduce((acc, row) => acc + (row.closingValue || 0), 0);
+    const closingStockFromQtyRate = stockRows.reduce((acc, row) => acc + Math.round((row.totalQty || 0) * (row.rate || 0)), 0);
+    const closingStock = closingStockFromValue > 0 ? closingStockFromValue : closingStockFromQtyRate;
 
     let sundryDebtors = 0;
     let sundryCreditors = 0;
@@ -5668,8 +5665,8 @@ export function createApp(dbPath?: string): express.Express {
       } catch {}
 
       const stmt = db.prepare(`
-        INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, reorderLevel, alias)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO stock_items (id, companyId, name, partNo, unit, itemGroup, rate, closingValue, reorderLevel, alias)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           companyId = excluded.companyId,
           name = excluded.name,
@@ -5677,6 +5674,7 @@ export function createApp(dbPath?: string): express.Express {
           unit = CASE WHEN excluded.unit IS NOT NULL AND excluded.unit NOT LIKE '%[object Object]%' THEN excluded.unit WHEN stock_items.unit LIKE '%[object Object]%' THEN 'pcs' ELSE stock_items.unit END,
           itemGroup = CASE WHEN excluded.itemGroup IS NOT NULL AND excluded.itemGroup NOT LIKE '%[object Object]%' THEN excluded.itemGroup WHEN stock_items.itemGroup LIKE '%[object Object]%' THEN 'General' ELSE stock_items.itemGroup END,
           rate = CASE WHEN excluded.rate > 0 THEN excluded.rate ELSE stock_items.rate END,
+          closingValue = CASE WHEN excluded.closingValue > 0 THEN excluded.closingValue ELSE stock_items.closingValue END,
           reorderLevel = CASE WHEN excluded.reorderLevel > 0 THEN excluded.reorderLevel ELSE stock_items.reorderLevel END,
           alias = COALESCE(excluded.alias, stock_items.alias)
       `);
@@ -5696,7 +5694,7 @@ export function createApp(dbPath?: string): express.Express {
         const cleanUnit = cleanSyncStr(s.unit, 'pcs') || 'pcs';
         const cleanGroup = cleanSyncStr(s.group, 'General') || 'General';
         const cleanAlias = cleanSyncStr(s.alias, null);
-        stmt.run(safeItemId, resolvedCompanyId, cleanName, cleanPartNo, cleanUnit, cleanGroup, s.rate || 0, s.reorderLevel || 0, cleanAlias);
+        stmt.run(safeItemId, resolvedCompanyId, cleanName, cleanPartNo, cleanUnit, cleanGroup, s.rate || 0, s.closingValue || 0, s.reorderLevel || 0, cleanAlias);
         if (s.closingQty !== undefined) {
           // Do not overwrite Web App stock balance with stale Tally quantity while an outbox adjustment for this item is still queued
           const hasPendingOutbox = db

@@ -230,6 +230,7 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       itemGroup TEXT,
       rate INTEGER,
       purchaseRate INTEGER DEFAULT 0,
+      closingValue INTEGER DEFAULT 0,
       reorderLevel REAL,
       alias TEXT,
       hsnCode TEXT,
@@ -460,6 +461,10 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
 
   try {
     db.prepare("ALTER TABLE stock_items ADD COLUMN customValues TEXT DEFAULT '{}'").run();
+  } catch {}
+
+  try {
+    db.prepare('ALTER TABLE stock_items ADD COLUMN closingValue INTEGER DEFAULT 0').run();
   } catch {}
 
   try {

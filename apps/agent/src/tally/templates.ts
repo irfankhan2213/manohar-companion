@@ -514,6 +514,11 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
     ? `${params.narration} (Vehicle: ${params.vehicleNo})`
     : params.narration;
 
+  const isInvoice = tallyVchType === 'Sales' || tallyVchType === 'Purchase';
+  const objViewAttr = isInvoice ? ' OBJVIEW="Invoice Voucher View"' : '';
+  const persistedViewTag = isInvoice ? '\n          <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>' : '';
+  const isInvoiceTag = isInvoice ? '\n          <ISINVOICE>Yes</ISINVOICE>' : '\n          <ISINVOICE>No</ISINVOICE>';
+
   return `<ENVELOPE>
   <HEADER>
     <VERSION>1</VERSION>
@@ -527,12 +532,10 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
     </DESC>
     <DATA>
       <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create" OBJVIEW="Invoice Voucher View">
+        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create"${objViewAttr}>
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
-          <VOUCHERTYPENAME>${tallyVchType}</VOUCHERTYPENAME>
-          <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>
-          <ISINVOICE>Yes</ISINVOICE>
+          <VOUCHERTYPENAME>${tallyVchType}</VOUCHERTYPENAME>${persistedViewTag}${isInvoiceTag}
           <PARTYLEDGERNAME>${escapeXml(params.partyName)}</PARTYLEDGERNAME>
           <BASICBUYERNAME>${escapeXml(params.partyName)}</BASICBUYERNAME>
           <NARRATION>${escapeXml(vehicleNarration)}</NARRATION>
