@@ -222,11 +222,11 @@ export class TallyClient {
     }
 
     const probeXml = buildOpenCompaniesQuery();
-    for (const port of portsToProbe) {
+    const probe = async (port: number): Promise<string | null> => {
       const candidateUrl = `http://127.0.0.1:${port}`;
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1200);
+        const timer = setTimeout(() => controller.abort(), 800);
         const resp = await fetch(candidateUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'text/xml;charset=utf-8' },
@@ -237,11 +237,18 @@ export class TallyClient {
         if (resp.ok) {
           const text = await resp.text();
           if (text.includes('<ENVELOPE') || text.includes('<COMPANY') || text.includes('<STATICVARIABLES>')) {
-            this.url = candidateUrl;
             return candidateUrl;
           }
         }
       } catch {}
+      return null;
+    };
+
+    const results = await Promise.all(portsToProbe.map(probe));
+    const found = results.find(Boolean);
+    if (found) {
+      this.url = found;
+      return found;
     }
     return null;
   }
@@ -321,8 +328,7 @@ export class TallyClient {
       if (openCompanies.length > 0 && openCompanies[0]?.name) {
         return { ok: true, company: openCompanies[0].name, port: this.getActivePort() };
       }
-      const xml = await this.postXml(buildCompanyInfoQuery());
-      const info = parseCompanyInfoResponse(xml);
+      const info = await this.getCompanyInfo();
       return { ok: true, company: info.name, port: this.getActivePort() };
     } catch (err: any) {
       return { ok: false, port: this.getActivePort(), error: err.message };
@@ -330,20 +336,6 @@ export class TallyClient {
   }
 
   public async getCompanyInfo(companyName?: string): Promise<TallyCompanyInfo> {
-    try {
-      const openCompanies = await this.getOpenCompanies();
-      if (openCompanies.length > 0 && openCompanies[0]) {
-        if (companyName) {
-          const match = openCompanies.find((c) => {
-            const cNorm = normalizeTallyCompanyName(c.name);
-            const reqNorm = normalizeTallyCompanyName(companyName);
-            return cNorm && reqNorm && (cNorm === reqNorm || cNorm.includes(reqNorm) || reqNorm.includes(cNorm));
-          });
-          if (match) return match;
-        }
-        return openCompanies[0];
-      }
-    } catch {}
     const xml = await this.postXml(buildCompanyInfoQuery(companyName));
     return parseCompanyInfoResponse(xml);
   }
@@ -357,7 +349,8 @@ export class TallyClient {
       }
     } catch {}
     try {
-      const active = await this.getCompanyInfo();
+      const xml = await this.postXml(buildCompanyInfoQuery(), false);
+      const active = parseCompanyInfoResponse(xml);
       return active?.name ? [active] : [];
     } catch {
       return [];

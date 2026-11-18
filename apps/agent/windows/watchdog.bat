@@ -9,6 +9,15 @@ if exist "%~dp0node.exe" (
     set "NODE_BIN=node"
 )
 
+echo =====================================================================
+echo  MANOHAR TALLY SYNC AGENT - 24/7 WATCHDOG SUPERVISOR
+echo =====================================================================
+echo  Supervising Tally Sync Agent daemon (Auto-Restart Enabled).
+echo  Detailed output is logged to: agent.log
+echo  Press Ctrl+C in this window to stop.
+echo =====================================================================
+echo.
+
 echo ===================================================================== >> "%~dp0agent.log"
 echo [%date% %time%] Watchdog Supervisor Started (Auto-Restart Enabled) >> "%~dp0agent.log"
 echo ===================================================================== >> "%~dp0agent.log"
@@ -17,6 +26,7 @@ set CRASH_COUNT=0
 
 :LOOP
 set "START_TIME=%time: =0%"
+echo [%date% %time%] Launching Tally Sync Agent daemon...
 echo [%date% %time%] Launching Tally Sync Agent daemon... >> "%~dp0agent.log"
 
 :: Run the agent and redirect all output and errors to agent.log

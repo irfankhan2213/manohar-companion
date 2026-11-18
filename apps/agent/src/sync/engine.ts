@@ -189,13 +189,22 @@ export class SyncEngine {
     try {
       // 1. Fetch active Company Info & Discover ALL Open Companies in TallyPrime directly
       // Never filter or require matching the Web App's companyName — always take whatever company is open in TallyPrime
-      let company: TallyCompanyInfo = await this.client.getCompanyInfo();
-
       let openCompanies: TallyCompanyInfo[] = [];
       try {
         openCompanies = await this.client.getOpenCompanies();
       } catch {
-        openCompanies = company?.name ? [company] : [];
+        openCompanies = [];
+      }
+
+      let company: TallyCompanyInfo;
+      try {
+        company = await this.client.getCompanyInfo();
+      } catch (compErr: any) {
+        if (openCompanies.length > 0 && openCompanies[0]?.name) {
+          company = openCompanies[0];
+        } else {
+          throw compErr;
+        }
       }
 
       // If getCompanyInfo returned empty name, take the first real open company from Tally
@@ -1086,7 +1095,7 @@ export class SyncEngine {
       try {
         await this.runSyncOnce();
       } catch (err: any) {
-        console.error(`[SyncEngine] Poll failed: ${err.message}`);
+        console.log(`[${new Date().toLocaleTimeString()}] [SyncEngine] Retrying in ${Math.round(this.pollIntervalMs / 1000)}s...`);
       }
 
       if (this.isRunning) {

@@ -222,6 +222,7 @@ async function main() {
       console.log(`Tally URL:  ${tallyUrl}`);
       console.log(`Cloud URL:  ${cloudUrl}`);
       console.log(`Company ID: ${companyId}${savedState.companyName ? ` (${savedState.companyName})` : ''}`);
+      console.log(`[${new Date().toLocaleTimeString()}] Polling Tally every ${Math.round(pollIntervalMs / 1000)}s...`);
       engine.startPolling();
 
       // Handle graceful shutdown
