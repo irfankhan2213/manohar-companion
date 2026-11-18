@@ -774,7 +774,7 @@ export class SyncEngine {
       group: s.parent || 'General',
       rate: s.closingRate || 0,
       closingQty: s.closingQty || 0,
-      closingValue: s.closingValue || 0,
+      closingValue: Math.abs(s.closingValue || 0),
       reorderLevel: 5,
       alias: null,
     }));

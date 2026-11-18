@@ -582,7 +582,7 @@ export function parseStockItemsResponse(xmlString: string): TallyStockItem[] {
     const partNo = rawPartNo && rawPartNo !== '[object Object]' ? rawPartNo : undefined;
 
     const closingRate = parseTallyAmount(rawItem.CLOSINGRATE);
-    const closingValue = parseTallyAmount(rawItem.CLOSINGVALUE);
+    const closingValue = Math.abs(parseTallyAmount(rawItem.CLOSINGVALUE));
     const alterId = parseInt(extractXmlText(rawItem.ALTERID) || '0', 10) || 0;
 
     stockItems.push({
