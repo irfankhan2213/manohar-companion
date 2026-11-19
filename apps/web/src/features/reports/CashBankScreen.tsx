@@ -78,7 +78,7 @@ export const CashBankScreen: React.FC = () => {
       </div>
 
       {/* Key Balances Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+      <div className={`grid grid-cols-1 ${bankAccounts.length > 0 ? 'sm:grid-cols-2' : ''} gap-4 mb-6`}>
         <div className="bg-surface rounded-ios-card p-4 border border-separator/40 shadow-sm flex items-center justify-between">
           <div>
             <span className="text-caption uppercase tracking-wider text-label-3 font-semibold">
@@ -93,37 +93,35 @@ export const CashBankScreen: React.FC = () => {
           </div>
         </div>
 
-        <div className="bg-surface rounded-ios-card p-4 border border-separator/40 shadow-sm flex items-center justify-between">
-          <div>
-            <span className="text-caption uppercase tracking-wider text-label-3 font-semibold">
-              Bank Accounts Total
-            </span>
-            <div className="text-title-2 font-bold font-mono tabular-nums text-label mt-0.5">
-              {formatINR(cb?.totalBank || 0)}
+        {bankAccounts.length > 0 && (
+          <div className="bg-surface rounded-ios-card p-4 border border-separator/40 shadow-sm flex items-center justify-between">
+            <div>
+              <span className="text-caption uppercase tracking-wider text-label-3 font-semibold">
+                Bank Accounts Total
+              </span>
+              <div className="text-title-2 font-bold font-mono tabular-nums text-label mt-0.5">
+                {formatINR(cb?.totalBank || 0)}
+              </div>
+            </div>
+            <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center">
+              <Landmark className="w-5 h-5" />
             </div>
           </div>
-          <div className="w-10 h-10 rounded-full bg-accent/10 text-accent flex items-center justify-center">
-            <Landmark className="w-5 h-5" />
-          </div>
-        </div>
+        )}
       </div>
 
       {isLoading ? (
         <div className="p-12 text-center text-label-2 text-subhead animate-pulse">
-          Loading Cash &amp; Bank accounts...
+          Loading Cash accounts...
         </div>
       ) : (
         <div className="flex flex-col gap-6">
-          {/* Bank Accounts Section */}
-          <div className="flex flex-col gap-3">
-            <h2 className="text-subhead font-bold uppercase tracking-wider text-label-2 px-1">
-              Bank Accounts ({bankAccounts.length})
-            </h2>
-            {bankAccounts.length === 0 ? (
-              <div className="p-6 text-center bg-surface rounded-ios-card border border-separator/40 text-label-3 text-footnote">
-                No bank ledgers synchronized.
-              </div>
-            ) : (
+          {/* Bank Accounts Section (only when bank accounts exist) */}
+          {bankAccounts.length > 0 && (
+            <div className="flex flex-col gap-3">
+              <h2 className="text-subhead font-bold uppercase tracking-wider text-label-2 px-1">
+                Bank Accounts ({bankAccounts.length})
+              </h2>
               <InsetGroup>
                 {bankAccounts.map((a: any) => (
                   <Row
@@ -138,8 +136,8 @@ export const CashBankScreen: React.FC = () => {
                   />
                 ))}
               </InsetGroup>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Cash Accounts Section */}
           <div className="flex flex-col gap-3">

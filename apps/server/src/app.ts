@@ -1307,7 +1307,7 @@ export function createApp(dbPath?: string): express.Express {
         if (opposing && opposing.ledger) {
           particularName = opposing.ledger;
         } else if (isSales) particularName = 'Sales Account';
-        else if (isReceipt) particularName = 'Bank / Cash Receipt';
+        else if (isReceipt) particularName = 'Receipt';
         else if (isCreditNote) particularName = 'Credit Note / Sales Return';
         else if (isPayment) particularName = 'Payment Account';
 
@@ -1378,7 +1378,7 @@ export function createApp(dbPath?: string): express.Express {
             if (b.amount > b.pending) {
               rows.push({
                 date: b.date,
-                particulars: 'Bank / Receipt Settlement',
+                particulars: 'Receipt Settlement',
                 voucherType: 'Receipt',
                 voucherNo: `RCPT-${b.billNo}`,
                 debit: 0,
@@ -3143,7 +3143,7 @@ export function createApp(dbPath?: string): express.Express {
             if (b.amount > b.pending) {
               ledgerLines.push({
                 date: b.date,
-                particulars: 'Bank / Receipt Settlement',
+                particulars: 'Receipt Settlement',
                 voucherType: 'Receipt',
                 voucherNo: `RCPT-${b.billNo}`,
                 debit: 0,

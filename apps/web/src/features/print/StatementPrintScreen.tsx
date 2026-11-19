@@ -539,24 +539,12 @@ export const StatementPrintScreen: React.FC = () => {
             </div>
           </div>
 
-          {/* Bank Details & Signature */}
+          {/* Notes & Signature */}
           <div className="border-t border-black grid grid-cols-2 divide-x divide-black p-3 text-xs">
-            <div className="flex flex-col gap-1 pr-2">
-              <span className="font-bold uppercase text-[11px] text-gray-600 mb-0.5">
-                Bank Details for NEFT / RTGS:
+            <div className="flex flex-col gap-1 pr-2 justify-end">
+              <span className="text-[11px] text-gray-500 italic">
+                * This is a computer-generated statement of accounts.
               </span>
-              <div className="grid grid-cols-3 gap-1 text-[11px]">
-                <span className="text-gray-600">Bank:</span>
-                <span className="col-span-2 font-semibold">HDFC Bank Ltd</span>
-                <span className="text-gray-600">A/C Name:</span>
-                <span className="col-span-2 font-semibold">{company?.name || 'Manohar Traders'}</span>
-                <span className="text-gray-600">A/C No:</span>
-                <span className="col-span-2 font-mono font-bold">50200012345678</span>
-                <span className="text-gray-600">IFSC Code:</span>
-                <span className="col-span-2 font-mono font-semibold">HDFC0001234</span>
-                <span className="text-gray-600">Branch:</span>
-                <span className="col-span-2">{company?.address || 'Industrial Area, Ludhiana'}</span>
-              </div>
             </div>
 
             <div className="flex flex-col justify-between pl-3 min-h-[90px]">
