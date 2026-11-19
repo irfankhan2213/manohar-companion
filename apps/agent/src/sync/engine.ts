@@ -442,8 +442,11 @@ export class SyncEngine {
           if (this.cloudUrl && extra.companyId) {
             await this.pullOutboxFromCloud(extra.companyId, extraTarget);
           }
-          const extraInfo = await this.client.getCompanyInfo(extraTarget);
-          if (extraInfo?.name && normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget)) {
+          const matchedOpenComp = openCompanies.find(
+            (oc) => oc?.name && normalizeTallyCompanyName(oc.name) === normalizeTallyCompanyName(extraTarget)
+          );
+          const extraInfo = matchedOpenComp || (await this.client.getCompanyInfo(extraTarget));
+          if (extraInfo?.name && (normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget) || matchedOpenComp)) {
             let extraDeletedIds: string[] = [];
             let extraActiveIds: string[] = [];
             try {
@@ -941,8 +944,8 @@ export class SyncEngine {
             voucherType: item.type || 'delivery',
             salesLedgerName: ledgerToUse,
             items: (item.lines || []).map((l: any) => ({
-              itemName: l.description || l.itemId,
-              godownName: item.godownName,
+              itemName: l.itemName || l.description || l.itemId,
+              godownName: item.godownName || l.godownName || 'Main Location',
               qty: l.qty || 1,
               unit: l.unit || 'pcs',
               rateRupees: (l.rate || 0) / 100,

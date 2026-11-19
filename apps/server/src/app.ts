@@ -5929,6 +5929,65 @@ export function createApp(dbPath?: string): express.Express {
             );
           }
         }
+
+        // Mirror Delivery Note and Receipt Note vouchers into challans table
+        if (v.voucherType === 'Delivery Note' || v.voucherType === 'Receipt Note') {
+          const isDelivery = v.voucherType === 'Delivery Note';
+          const chType = isDelivery ? 'delivery' : 'purchase';
+          const matchChallanId = (v.narration || '').match(/\((ch-[^)]+)\)/)?.[1];
+          const numSlug = String(v.voucherNumber || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'vch';
+          const safeChId = matchChallanId || `ch-tally-${resolvedCompanyId}-${numSlug}-${v.date || ''}`;
+
+          let rawInv: any[] = [];
+          try {
+            rawInv = Array.isArray(v.inventoryEntries)
+              ? v.inventoryEntries
+              : (typeof v.inventoryEntries === 'string' ? JSON.parse(v.inventoryEntries) : []);
+          } catch {
+            rawInv = [];
+          }
+
+          const parsedLines = Array.isArray(rawInv) ? rawInv.map((inv: any) => {
+            const iName = inv.item || inv.itemName || 'Item';
+            const iSlug = iName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'item';
+            return {
+              itemId: `s-${resolvedCompanyId}-${iSlug}`,
+              description: iName,
+              itemDescription: '',
+              qty: Math.abs(Number(inv.qty || 1)),
+              unit: String(inv.unit || 'pcs'),
+              rate: Math.round(Number(inv.rate || 0)),
+              amount: Math.round(Number(inv.amount || 0)),
+            };
+          }) : [];
+
+          try {
+            db.prepare(`
+              INSERT INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, narration, status, createdBy)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'delivered', 'tally_sync')
+              ON CONFLICT(id) DO UPDATE SET
+                companyId = excluded.companyId,
+                number = excluded.number,
+                date = excluded.date,
+                partyId = COALESCE(excluded.partyId, challans.partyId),
+                status = 'delivered',
+                lines = CASE WHEN challans.createdBy = 'tally_sync' OR challans.lines = '[]' THEN excluded.lines ELSE challans.lines END
+            `).run(
+              safeChId,
+              resolvedCompanyId,
+              chType,
+              v.voucherNumber,
+              v.date || now.split('T')[0],
+              partyId,
+              `g-${resolvedCompanyId}-main`,
+              JSON.stringify(parsedLines),
+              v.narration || null
+            );
+            if (matchChallanId) {
+              db.prepare("UPDATE outbox_items SET status = 'synced' WHERE refId = ?").run(matchChallanId);
+            }
+          } catch {}
+        }
       }
     }
 
@@ -6088,15 +6147,34 @@ export function createApp(dbPath?: string): express.Express {
     const challanItems = challanRows.map(r => {
       const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
       const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
+      const rawLines = JSON.parse(r.lines || '[]');
+      const resolvedLines = Array.isArray(rawLines) ? rawLines.map((l: any) => {
+        let realName = l.itemName || l.description;
+        if (l.itemId) {
+          const sItem = db.prepare('SELECT name, unit FROM stock_items WHERE id = ?').get(l.itemId) as any;
+          if (sItem?.name) realName = sItem.name;
+          if (!l.unit && sItem?.unit) l.unit = sItem.unit;
+        }
+        return {
+          ...l,
+          itemName: realName || l.description || l.itemId,
+          description: realName || l.description || l.itemId,
+        };
+      }) : [];
+      let partyName = partyNameMap.get(r.partyId) || r.partyId;
+      if (r.partyId) {
+        const pRow = db.prepare('SELECT name FROM parties WHERE id = ?').get(r.partyId) as any;
+        if (pRow?.name) partyName = pRow.name;
+      }
       return {
         ...r,
         kind: 'challan',
         companyName: companyNameMap.get(r.companyId),
-        partyName: partyNameMap.get(r.partyId) || r.partyId,
-        godownName: r.godownId ? godownNameMap.get(r.godownId) : undefined,
+        partyName,
+        godownName: r.godownId ? (godownNameMap.get(r.godownId) || 'Main Location') : 'Main Location',
         salesLedgerName: salesLedgerRow?.name || 'Sales',
         purchaseLedgerName: purchaseLedgerRow?.name || 'PURCHASE',
-        lines: JSON.parse(r.lines || '[]'),
+        lines: resolvedLines,
       };
     });
 

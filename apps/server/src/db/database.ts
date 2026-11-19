@@ -542,6 +542,63 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
     db.prepare('ALTER TABLE challans ADD COLUMN roundOff INTEGER DEFAULT 0').run();
   } catch {}
 
+  try {
+    // Backfill any Delivery Notes / Receipt Notes from tally_vouchers into challans
+    const tallyChallanVouchers = db.prepare(`
+      SELECT id, companyId, voucherType, voucherNumber, date, partyName, partyId, narration, inventoryEntries
+      FROM tally_vouchers
+      WHERE voucherType IN ('Delivery Note', 'Receipt Note')
+    `).all() as any[];
+
+    if (tallyChallanVouchers.length > 0) {
+      const insertChallanStmt = db.prepare(`
+        INSERT OR IGNORE INTO challans (id, companyId, type, number, date, partyId, godownId, lines, roundOff, narration, status, createdBy)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'delivered', 'tally_sync')
+      `);
+
+      for (const v of tallyChallanVouchers) {
+        const isDelivery = v.voucherType === 'Delivery Note';
+        const chType = isDelivery ? 'delivery' : 'purchase';
+        const matchChallanId = (v.narration || '').match(/\((ch-[^)]+)\)/)?.[1];
+        const numSlug = String(v.voucherNumber || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'vch';
+        const safeChId = matchChallanId || `ch-tally-${v.companyId}-${numSlug}-${v.date || ''}`;
+
+        let rawInv: any[] = [];
+        try {
+          rawInv = typeof v.inventoryEntries === 'string' ? JSON.parse(v.inventoryEntries) : (v.inventoryEntries || []);
+        } catch {
+          rawInv = [];
+        }
+
+        const parsedLines = Array.isArray(rawInv) ? rawInv.map((inv: any) => {
+          const iName = inv.item || inv.itemName || 'Item';
+          const iSlug = iName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'item';
+          return {
+            itemId: `s-${v.companyId}-${iSlug}`,
+            description: iName,
+            itemDescription: '',
+            qty: Math.abs(Number(inv.qty || 1)),
+            unit: String(inv.unit || 'pcs'),
+            rate: Math.round(Number(inv.rate || 0)),
+            amount: Math.round(Number(inv.amount || 0)),
+          };
+        }) : [];
+
+        insertChallanStmt.run(
+          safeChId,
+          v.companyId,
+          chType,
+          v.voucherNumber,
+          v.date,
+          v.partyId,
+          `g-${v.companyId}-main`,
+          JSON.stringify(parsedLines),
+          v.narration || null
+        );
+      }
+    }
+  } catch {}
+
   // 2. Create Indexes safely after column migrations
   try {
     db.exec(`

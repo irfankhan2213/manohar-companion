@@ -437,4 +437,103 @@ describe('Balance Sheet & Financials Empirical Verification Suite', () => {
       expect(running).toBe(2390000); // ₹23,900 Dr matching party.closingBalance 100%
     });
   });
+
+  describe('Tally Delivery Note Mirroring & Challan 2-Way Sync Parity', () => {
+    it('mirrors Tally Delivery Note vouchers into challans and updates queued challans to delivered', async () => {
+      const partyId = 'p-challan-sync-party';
+      const stockId = 's-challan-item-1';
+
+      // 1. Seed party and stock item
+      await request(app)
+        .post('/api/sync/push')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          companyId,
+          parties: [{ id: partyId, name: 'Khanna Sewing Machine', closingBalance: 0, partyType: 'debtor' }],
+          stockItems: [{ id: stockId, name: 'SHUTTLE 7.24 A (PILY)', unit: 'pcs', rate: 2250000 }],
+        });
+
+      // 2. User creates a challan in the app (queued)
+      const queuedChallanId = `ch-test-${Date.now()}`;
+      const createChallanRes = await request(app)
+        .post('/api/challans')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          id: queuedChallanId,
+          companyId,
+          type: 'delivery',
+          partyId,
+          date: '2026-11-18',
+          lines: [{ itemId: stockId, description: 'Old Description', qty: 2, unit: 'pcs', rate: 2250000, amount: 4500000 }],
+          status: 'queued',
+        });
+      expect(createChallanRes.status).toBe(201);
+      expect(createChallanRes.body.status).toBe('queued');
+
+      // 3. Verify GET /api/sync/pull resolves exact Tally stock item name from stock_items
+      const pullRes = await request(app)
+        .get(`/api/sync/pull?companyId=${companyId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(pullRes.status).toBe(200);
+      const pulledChallan = pullRes.body.find((item: any) => item.id === queuedChallanId);
+      expect(pulledChallan).toBeTruthy();
+      expect(pulledChallan.partyName).toBe('Khanna Sewing Machine');
+      expect(pulledChallan.lines[0].itemName).toBe('SHUTTLE 7.24 A (PILY)');
+      expect(pulledChallan.godownName).toBe('Main Location');
+
+      // 4. Tally pushes back the Delivery Note voucher with assigned Tally voucher number "18"
+      await request(app)
+        .post('/api/sync/push')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          companyId,
+          vouchers: [
+            {
+              id: 'vch-dn-18',
+              companyId,
+              voucherType: 'Delivery Note',
+              voucherNumber: '18',
+              date: '2026-11-18',
+              partyName: 'Khanna Sewing Machine',
+              amount: 4500000,
+              narration: `Mobile Challan (${queuedChallanId})`,
+              inventoryEntries: [
+                { item: 'SHUTTLE 7.24 A (PILY)', qty: 2, rate: 22500, amount: 45000, unit: 'pcs' },
+              ],
+            },
+            {
+              id: 'vch-dn-external-19',
+              companyId,
+              voucherType: 'Delivery Note',
+              voucherNumber: '19',
+              date: '2026-11-18',
+              partyName: 'Khanna Sewing Machine',
+              amount: 1000000,
+              narration: 'Entered directly in Tally desktop',
+              inventoryEntries: [
+                { item: 'SHUTTLE 7.24 A (PILY)', qty: 1, rate: 10000, amount: 10000, unit: 'pcs' },
+              ],
+            },
+          ],
+        });
+
+      // 5. Verify the queued challan is now marked "delivered" and updated with Tally voucherNumber "18"
+      const getQueuedRes = await request(app)
+        .get(`/api/challans/${queuedChallanId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(getQueuedRes.status).toBe(200);
+      expect(getQueuedRes.body.status).toBe('delivered');
+      expect(getQueuedRes.body.number).toBe('18');
+
+      // 6. Verify the external Delivery Note entered directly in Tally is also visible in /api/challans
+      const challansListRes = await request(app)
+        .get(`/api/challans?companyId=${companyId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+      expect(challansListRes.status).toBe(200);
+      const externalChallan = challansListRes.body.find((c: any) => c.number === '19');
+      expect(externalChallan).toBeTruthy();
+      expect(externalChallan.status).toBe('delivered');
+      expect(externalChallan.lines[0].description).toBe('SHUTTLE 7.24 A (PILY)');
+    });
+  });
 });

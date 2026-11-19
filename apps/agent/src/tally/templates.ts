@@ -61,7 +61,7 @@ export function buildCompanyInfoQuery(companyName?: string): string {
             <FIELDS>CompNameField, CompYearField, CompBooksField</FIELDS>
           </LINE>
           <FIELD NAME="CompNameField">
-            <SET>$$CurrentCompany</SET>
+            <SET>$$IfEmpty:##SVCURRENTCOMPANY:$$CurrentCompany</SET>
           </FIELD>
           <FIELD NAME="CompYearField">
             <SET>$$String:##SVFROMDATE</SET>
@@ -116,7 +116,9 @@ export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string)
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -147,7 +149,9 @@ export function buildBillsQuery(companyName?: string): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -178,7 +182,9 @@ export function buildVouchersQuery(companyName?: string): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -209,7 +215,9 @@ export function buildVoucherManifestQuery(companyName?: string): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -323,7 +331,9 @@ export function buildGroupsQuery(companyName?: string): string {
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -353,7 +363,9 @@ export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: stri
   <BODY>
     <DESC>
       <STATICVARIABLES>
-        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
+        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
