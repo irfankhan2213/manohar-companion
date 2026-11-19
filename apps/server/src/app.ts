@@ -5560,7 +5560,22 @@ export function createApp(dbPath?: string): express.Express {
       `);
       const activeSyncedBillIds: string[] = [];
       for (const b of bills) {
-        const mappedPartyId = partyIdRemap.get(b.partyId) || b.partyId;
+        let mappedPartyId = partyIdRemap.get(b.partyId) || b.partyId;
+        // Guarantee company scoping: party must belong to resolvedCompanyId
+        const partyInSameComp = db.prepare('SELECT id FROM parties WHERE companyId = ? AND id = ? LIMIT 1').get(resolvedCompanyId, mappedPartyId) as any;
+        if (!partyInSameComp) {
+          const matchedParty = db.prepare(`
+            SELECT id FROM parties 
+            WHERE companyId = ? AND (
+              LOWER(TRIM(name)) = (SELECT LOWER(TRIM(name)) FROM parties WHERE id = ? LIMIT 1)
+              OR id = ?
+              OR LOWER(TRIM(name)) = LOWER(TRIM(?))
+            ) LIMIT 1
+          `).get(resolvedCompanyId, mappedPartyId, b.partyId, (b as any).partyName || '') as any;
+          if (matchedParty) {
+            mappedPartyId = matchedParty.id;
+          }
+        }
         const existingByBillNo = b.billNo
           ? (db.prepare('SELECT id, companyId, partyId FROM bills WHERE companyId = ? AND billNo = ? AND partyId = ? LIMIT 1').get(resolvedCompanyId, String(b.billNo).trim(), mappedPartyId) as any)
           : null;

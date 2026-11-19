@@ -39,6 +39,11 @@ interface PartyWithAging {
   bucket: AgingBucket;
 }
 
+const ALPHABET_LETTERS = [
+  'A-Z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+  'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#'
+];
+
 export const CollectionsScreen: React.FC = () => {
   const navigate = useNavigate();
   const { currentCompanyId, currentRole, currentUser } = useAppStore();
@@ -52,6 +57,7 @@ export const CollectionsScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [tabFilter, setTabFilter] = useState<'all' | 'late'>('all');
   const [ageBucketFilter, setAgeBucketFilter] = useState<AgingBucket | 'any'>('any');
+  const [alphabetFilter, setAlphabetFilter] = useState<string>('all');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [isMultiSelect, setIsMultiSelect] = useState(false);
   const [selectedPartyIds, setSelectedPartyIds] = useState<Set<string>>(new Set());
@@ -100,6 +106,12 @@ export const CollectionsScreen: React.FC = () => {
       }),
     enabled: viewMode === 'bills',
   });
+
+  const { data: companies = [] } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.companies.list(),
+  });
+  const companyMap = React.useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies]);
 
   const partyMap = React.useMemo(() => new Map(parties.map((p) => [p.id, p])), [parties]);
 
@@ -153,6 +165,21 @@ export const CollectionsScreen: React.FC = () => {
     });
   }, [parties, bills]);
 
+  const availableLetters = React.useMemo(() => {
+    const letters = new Set<string>();
+    for (const item of partyWithAgingList) {
+      const firstChar = item.party.name.trim()[0]?.toUpperCase();
+      if (firstChar) {
+        if (/[A-Z]/.test(firstChar)) {
+          letters.add(firstChar);
+        } else {
+          letters.add('#');
+        }
+      }
+    }
+    return letters;
+  }, [partyWithAgingList]);
+
   // Apply filters for parties view
   const filteredList = React.useMemo(() => {
     let list = partyWithAgingList;
@@ -180,9 +207,20 @@ export const CollectionsScreen: React.FC = () => {
       list = list.filter((item) => item.bucket === ageBucketFilter);
     }
 
+    if (alphabetFilter !== 'all') {
+      if (alphabetFilter === '#') {
+        list = list.filter((item) => !/^[a-zA-Z]/.test(item.party.name.trim()));
+      } else {
+        list = list.filter((item) =>
+          item.party.name.trim().toUpperCase().startsWith(alphabetFilter.toUpperCase())
+        );
+      }
+      return list.sort((a, b) => a.party.name.localeCompare(b.party.name));
+    }
+
     // Sort by max days late descending
     return list.sort((a, b) => b.maxDaysLate - a.maxDaysLate);
-  }, [partyWithAgingList, partyTypeTab, searchQuery, tabFilter, ageBucketFilter]);
+  }, [partyWithAgingList, partyTypeTab, searchQuery, tabFilter, ageBucketFilter, alphabetFilter]);
 
   const toggleSelectParty = (id: string) => {
     setSelectedPartyIds((prev) => {
@@ -420,6 +458,36 @@ export const CollectionsScreen: React.FC = () => {
             </button>
           </div>
 
+          {/* Alphabetical A-Z Filter Strip */}
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1 scroll-smooth">
+            {ALPHABET_LETTERS.map((letter) => {
+              const isSelected =
+                letter === 'A-Z'
+                  ? alphabetFilter === 'all'
+                  : alphabetFilter.toUpperCase() === letter.toUpperCase();
+              const hasItems = letter === 'A-Z' || availableLetters.has(letter);
+              return (
+                <button
+                  key={letter}
+                  type="button"
+                  aria-label={`Filter by letter ${letter}`}
+                  onClick={() => setAlphabetFilter(letter === 'A-Z' ? 'all' : letter)}
+                  className={clsx(
+                    'min-w-7 h-7 px-1.5 rounded-lg text-caption font-semibold flex items-center justify-center shrink-0 transition-all active:scale-95',
+                    isSelected
+                      ? 'bg-accent text-white shadow-xs font-bold'
+                      : hasItems
+                        ? 'bg-surface text-label border border-separator/40 hover:bg-fill/50'
+                        : 'text-label-3/40 hover:text-label-3 cursor-pointer'
+                  )}
+                  title={letter === 'A-Z' ? 'All parties' : `Parties starting with ${letter}`}
+                >
+                  {letter}
+                </button>
+              );
+            })}
+          </div>
+
           {/* Parties List */}
           <InsetGroup>
             {partiesLoading || billsLoading ? (
@@ -482,6 +550,15 @@ export const CollectionsScreen: React.FC = () => {
                     title={
                       <div className="flex items-center gap-2 min-w-0">
                         <span className="font-semibold text-label truncate">{item.party.name}</span>
+                        {currentCompanyId === 'all' && item.party.companyId && (
+                          <Badge
+                            variant="outline"
+                            size="sm"
+                            className="text-[10px] px-1.5 py-0 font-medium shrink-0 bg-fill/40 text-label-2 border-separator/60"
+                          >
+                            {companyMap.get(item.party.companyId) || 'Company'}
+                          </Badge>
+                        )}
                         <Badge
                           variant={item.isCreditor ? 'warning' : 'secondary'}
                           size="sm"
