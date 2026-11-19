@@ -91,7 +91,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 title="Capital Account"
                 trailing={
                   <span className="font-mono tabular-nums font-semibold">
-                    {formatINR(sheet.liabilities.capitalAccount || 0)}
+                    {formatINR(sheet.liabilities.capitalAccount || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -99,7 +99,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 title="Loans (Liability)"
                 trailing={
                   <span className="font-mono tabular-nums font-semibold">
-                    {formatINR(sheet.liabilities.loansLiability || 0)}
+                    {formatINR(sheet.liabilities.loansLiability || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -110,12 +110,12 @@ export const BalanceSheetScreen: React.FC = () => {
                     <div className="text-[11px] text-label-3 mt-0.5 space-y-0.5 font-normal">
                       <div className="flex justify-between gap-4">
                         <span>Duties & Taxes:</span>
-                        <span className="font-mono">{formatINR(sheet.liabilities.currentLiabilities.dutiesAndTaxes || 0)}</span>
+                        <span className="font-mono">{formatINR(sheet.liabilities.currentLiabilities.dutiesAndTaxes || 0, { showDecimals: true })}</span>
                       </div>
                       <div className="flex justify-between gap-4">
                         <span>Sundry Creditors:</span>
                         <span className="font-mono font-medium text-emerald-600 dark:text-emerald-400">
-                          {formatINR(sheet.liabilities.currentLiabilities.sundryCreditors || 0)} Cr
+                          {formatINR(sheet.liabilities.currentLiabilities.sundryCreditors || 0, { showDecimals: true })} Cr
                         </span>
                       </div>
                     </div>
@@ -123,7 +123,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 }
                 trailing={
                   <span className="font-mono tabular-nums font-semibold text-label">
-                    {formatINR(sheet.liabilities.currentLiabilities.total || 0)}
+                    {formatINR(sheet.liabilities.currentLiabilities.total || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -131,7 +131,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 title="Profit & Loss A/c"
                 trailing={
                   <span className="font-mono tabular-nums font-semibold">
-                    {formatINR(sheet.liabilities.profitAndLoss.total || 0)}
+                    {formatINR(sheet.liabilities.profitAndLoss.total || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -139,7 +139,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 title={<span className="font-bold text-label">Total Liabilities</span>}
                 trailing={
                   <span className="font-mono tabular-nums font-bold text-headline text-label">
-                    {formatINR(sheet.liabilities.total || 0)}
+                    {formatINR(sheet.liabilities.total || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -158,7 +158,7 @@ export const BalanceSheetScreen: React.FC = () => {
                   title="Fixed Assets"
                   trailing={
                     <span className="font-mono tabular-nums font-semibold">
-                      {formatINR(sheet.assets.fixedAssets)}
+                      {formatINR(sheet.assets.fixedAssets, { showDecimals: true })}
                     </span>
                   }
                 />
@@ -170,24 +170,24 @@ export const BalanceSheetScreen: React.FC = () => {
                     <div className="text-[11px] text-label-3 mt-0.5 space-y-0.5 font-normal">
                       <div className="flex justify-between gap-4">
                         <span>Closing Stock:</span>
-                        <span className="font-mono">{formatINR(sheet.assets.currentAssets.closingStock || 0)}</span>
+                        <span className="font-mono">{formatINR(sheet.assets.currentAssets.closingStock || 0, { showDecimals: true })}</span>
                       </div>
                       <div className="flex justify-between gap-4">
                         <span>Sundry Debtors:</span>
                         <span className="font-mono font-semibold text-label">
-                          {formatINR(sheet.assets.currentAssets.sundryDebtors || 0)} Dr
+                          {formatINR(sheet.assets.currentAssets.sundryDebtors || 0, { showDecimals: true })} Dr
                         </span>
                       </div>
                       {sheet.assets.currentAssets.cashInHand !== 0 && (
                         <div className="flex justify-between gap-4">
                           <span>Cash-in-Hand:</span>
-                          <span className="font-mono">{formatINR(sheet.assets.currentAssets.cashInHand)}</span>
+                          <span className="font-mono">{formatINR(sheet.assets.currentAssets.cashInHand, { showDecimals: true })}</span>
                         </div>
                       )}
                       {sheet.assets.currentAssets.bankAccounts !== 0 && (
                         <div className="flex justify-between gap-4">
                           <span>Bank Accounts:</span>
-                          <span className="font-mono">{formatINR(sheet.assets.currentAssets.bankAccounts)}</span>
+                          <span className="font-mono">{formatINR(sheet.assets.currentAssets.bankAccounts, { showDecimals: true })}</span>
                         </div>
                       )}
                     </div>
@@ -195,7 +195,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 }
                 trailing={
                   <span className="font-mono tabular-nums font-semibold text-label">
-                    {formatINR(sheet.assets.currentAssets.total || 0)}
+                    {formatINR(sheet.assets.currentAssets.total || 0, { showDecimals: true })}
                   </span>
                 }
               />
@@ -203,7 +203,7 @@ export const BalanceSheetScreen: React.FC = () => {
                 title={<span className="font-bold text-label">Total Assets</span>}
                 trailing={
                   <span className="font-mono tabular-nums font-bold text-headline text-label">
-                    {formatINR(sheet.assets.total || 0)}
+                    {formatINR(sheet.assets.total || 0, { showDecimals: true })}
                   </span>
                 }
               />

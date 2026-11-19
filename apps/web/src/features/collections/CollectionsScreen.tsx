@@ -40,9 +40,11 @@ interface PartyWithAging {
 }
 
 const ALPHABET_LETTERS = [
-  'A-Z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
+  'All A-Z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M',
   'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#'
 ];
+
+const PREFIX_REGEX = /^(?:M\/S\.?|SHREE|SHRI|SMT\.?|MR\.?)\s+/i;
 
 export const CollectionsScreen: React.FC = () => {
   const navigate = useNavigate();
@@ -58,6 +60,7 @@ export const CollectionsScreen: React.FC = () => {
   const [tabFilter, setTabFilter] = useState<'all' | 'late'>('all');
   const [ageBucketFilter, setAgeBucketFilter] = useState<AgingBucket | 'any'>('any');
   const [alphabetFilter, setAlphabetFilter] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<'alpha' | 'late' | 'amount'>('alpha');
   const [filterSheetOpen, setFilterSheetOpen] = useState(false);
   const [isMultiSelect, setIsMultiSelect] = useState(false);
   const [selectedPartyIds, setSelectedPartyIds] = useState<Set<string>>(new Set());
@@ -168,12 +171,16 @@ export const CollectionsScreen: React.FC = () => {
   const availableLetters = React.useMemo(() => {
     const letters = new Set<string>();
     for (const item of partyWithAgingList) {
-      const firstChar = item.party.name.trim()[0]?.toUpperCase();
-      if (firstChar) {
-        if (/[A-Z]/.test(firstChar)) {
-          letters.add(firstChar);
-        } else {
-          letters.add('#');
+      const raw = item.party.name.trim();
+      const cleaned = raw.replace(PREFIX_REGEX, '').trim();
+      for (const name of [raw, cleaned]) {
+        const firstChar = name[0]?.toUpperCase();
+        if (firstChar) {
+          if (/[A-Z]/.test(firstChar)) {
+            letters.add(firstChar);
+          } else {
+            letters.add('#');
+          }
         }
       }
     }
@@ -182,7 +189,7 @@ export const CollectionsScreen: React.FC = () => {
 
   // Apply filters for parties view
   const filteredList = React.useMemo(() => {
-    let list = partyWithAgingList;
+    let list = [...partyWithAgingList];
 
     if (partyTypeTab === 'debtor') {
       list = list.filter((item) => !item.isCreditor);
@@ -209,18 +216,32 @@ export const CollectionsScreen: React.FC = () => {
 
     if (alphabetFilter !== 'all') {
       if (alphabetFilter === '#') {
-        list = list.filter((item) => !/^[a-zA-Z]/.test(item.party.name.trim()));
+        list = list.filter((item) => {
+          const raw = item.party.name.trim();
+          const cleaned = raw.replace(PREFIX_REGEX, '').trim();
+          return !/^[a-zA-Z]/.test(raw) || !/^[a-zA-Z]/.test(cleaned);
+        });
       } else {
-        list = list.filter((item) =>
-          item.party.name.trim().toUpperCase().startsWith(alphabetFilter.toUpperCase())
-        );
+        const letter = alphabetFilter.toUpperCase();
+        list = list.filter((item) => {
+          const raw = item.party.name.trim().toUpperCase();
+          const cleaned = raw.replace(PREFIX_REGEX, '').trim().toUpperCase();
+          return raw.startsWith(letter) || cleaned.startsWith(letter);
+        });
       }
-      return list.sort((a, b) => a.party.name.localeCompare(b.party.name));
     }
 
-    // Sort by max days late descending
-    return list.sort((a, b) => b.maxDaysLate - a.maxDaysLate);
-  }, [partyWithAgingList, partyTypeTab, searchQuery, tabFilter, ageBucketFilter, alphabetFilter]);
+    if (sortBy === 'amount') {
+      return list.sort((a, b) => b.totalPending - a.totalPending);
+    }
+    if (sortBy === 'late' || (tabFilter === 'late' && sortBy !== 'alpha')) {
+      return list.sort((a, b) => b.maxDaysLate - a.maxDaysLate);
+    }
+    // Default: A to Z alphabetical sorting
+    return list.sort((a, b) =>
+      a.party.name.localeCompare(b.party.name, undefined, { sensitivity: 'base' })
+    );
+  }, [partyWithAgingList, partyTypeTab, searchQuery, tabFilter, ageBucketFilter, alphabetFilter, sortBy]);
 
   const toggleSelectParty = (id: string) => {
     setSelectedPartyIds((prev) => {
@@ -456,22 +477,43 @@ export const CollectionsScreen: React.FC = () => {
             >
               Overdue Only
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSortBy((prev) => (prev === 'alpha' ? 'late' : prev === 'late' ? 'amount' : 'alpha'));
+              }}
+              className="px-3 py-1.5 rounded-full text-caption font-semibold whitespace-nowrap shrink-0 transition-all border border-separator/40 bg-surface text-label hover:bg-fill/40 flex items-center gap-1 active:scale-95"
+              title="Toggle Sorting"
+            >
+              <span>⇅ Sort:</span>
+              <span className="font-bold text-accent">
+                {sortBy === 'alpha' ? 'A-Z' : sortBy === 'late' ? 'Overdue' : 'Amount'}
+              </span>
+            </button>
           </div>
 
           {/* Alphabetical A-Z Filter Strip */}
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-1 scroll-smooth">
             {ALPHABET_LETTERS.map((letter) => {
-              const isSelected =
-                letter === 'A-Z'
-                  ? alphabetFilter === 'all'
-                  : alphabetFilter.toUpperCase() === letter.toUpperCase();
-              const hasItems = letter === 'A-Z' || availableLetters.has(letter);
+              const isAll = letter === 'All A-Z' || letter === 'A-Z';
+              const isSelected = isAll
+                ? alphabetFilter === 'all'
+                : alphabetFilter.toUpperCase() === letter.toUpperCase();
+              const hasItems = isAll || availableLetters.has(letter);
               return (
                 <button
                   key={letter}
                   type="button"
-                  aria-label={`Filter by letter ${letter}`}
-                  onClick={() => setAlphabetFilter(letter === 'A-Z' ? 'all' : letter)}
+                  aria-label={isAll ? 'Show all parties' : `Filter by letter ${letter}`}
+                  onClick={() => {
+                    if (isAll) {
+                      setAlphabetFilter('all');
+                      setSortBy('alpha');
+                    } else {
+                      setAlphabetFilter(letter);
+                      setSortBy('alpha');
+                    }
+                  }}
                   className={clsx(
                     'min-w-7 h-7 px-1.5 rounded-lg text-caption font-semibold flex items-center justify-center shrink-0 transition-all active:scale-95',
                     isSelected
@@ -480,7 +522,7 @@ export const CollectionsScreen: React.FC = () => {
                         ? 'bg-surface text-label border border-separator/40 hover:bg-fill/50'
                         : 'text-label-3/40 hover:text-label-3 cursor-pointer'
                   )}
-                  title={letter === 'A-Z' ? 'All parties' : `Parties starting with ${letter}`}
+                  title={isAll ? 'All parties' : `Parties starting with ${letter}`}
                 >
                   {letter}
                 </button>
@@ -501,8 +543,19 @@ export const CollectionsScreen: React.FC = () => {
                   No {partyTypeTab === 'creditor' ? 'suppliers' : partyTypeTab === 'debtor' ? 'customers' : 'parties'} found
                 </span>
                 <span className="text-footnote text-label-2">
-                  Try adjusting search term or overdue filter.
+                  {alphabetFilter !== 'all'
+                    ? `No parties starting with '${alphabetFilter}'.`
+                    : 'Try adjusting search term or overdue filter.'}
                 </span>
+                {alphabetFilter !== 'all' && (
+                  <button
+                    type="button"
+                    onClick={() => setAlphabetFilter('all')}
+                    className="mt-2 px-3 py-1 text-caption font-semibold text-accent hover:underline rounded-full bg-accent/10"
+                  >
+                    Reset Letter Filter ({alphabetFilter})
+                  </button>
+                )}
               </div>
             ) : (
               filteredList.map((item) => {
