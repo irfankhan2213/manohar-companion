@@ -312,4 +312,129 @@ describe('Balance Sheet & Financials Empirical Verification Suite', () => {
       expect(creditorsWords).toBe('Rupees Sixty Three Lakh Fifty Nine Thousand One Hundred Seventeen Only');
     });
   });
+
+  describe('4. Party Ledger Statement Opening Balance & Contra Account Parity', () => {
+    it('prepends exact mathematical opening balance and contra particulars for party vouchers', async () => {
+      // Seed a party with closingBalance = ₹23,900 Dr (2390000 paise)
+      const partyId = 'p-opening-bal-test';
+      await request(app)
+        .post('/api/sync/push')
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({
+          companyId,
+          parties: [
+            {
+              id: partyId,
+              name: 'Reet Test Customer',
+              closingBalance: 2390000, // ₹23,900 Dr
+              partyType: 'debtor',
+            },
+          ],
+          vouchers: [
+            {
+              id: 'v-test-rcpt-1',
+              companyId,
+              voucherType: 'Receipt',
+              voucherNumber: '55',
+              date: '2026-04-21',
+              partyName: 'Reet Test Customer',
+              amount: 6899000, // ₹68,990 Credit
+              ledgerEntries: [
+                { ledger: 'Reet Test Customer', amount: 6899000, isDebit: false },
+                { ledger: 'Cash', amount: 6899000, isDebit: true },
+              ],
+            },
+            {
+              id: 'v-test-sales-1',
+              companyId,
+              voucherType: 'Sales',
+              voucherNumber: '54',
+              date: '2026-04-22',
+              partyName: 'Reet Test Customer',
+              amount: 7780000, // ₹77,800 Debit
+              ledgerEntries: [
+                { ledger: 'Reet Test Customer', amount: 7780000, isDebit: true },
+              ],
+            },
+            {
+              id: 'v-test-rcpt-2',
+              companyId,
+              voucherType: 'Receipt',
+              voucherNumber: '254',
+              date: '2026-06-15',
+              partyName: 'Reet Test Customer',
+              amount: 390000, // ₹3,900 Credit
+              ledgerEntries: [
+                { ledger: 'Reet Test Customer', amount: 390000, isDebit: false },
+                { ledger: 'Cash', amount: 390000, isDebit: true },
+              ],
+            },
+            {
+              id: 'v-test-rcpt-3',
+              companyId,
+              voucherType: 'Receipt',
+              voucherNumber: '283',
+              date: '2026-06-15',
+              partyName: 'Reet Test Customer',
+              amount: 2500000, // ₹25,000 Credit
+              ledgerEntries: [
+                { ledger: 'Reet Test Customer', amount: 2500000, isDebit: false },
+                { ledger: 'Cash', amount: 2500000, isDebit: true },
+              ],
+            },
+            {
+              id: 'v-test-rcpt-4',
+              companyId,
+              voucherType: 'Receipt',
+              voucherNumber: '288',
+              date: '2026-07-02',
+              partyName: 'Reet Test Customer',
+              amount: 2500000, // ₹25,000 Credit
+              ledgerEntries: [
+                { ledger: 'Reet Test Customer', amount: 2500000, isDebit: false },
+                { ledger: 'Cash', amount: 2500000, isDebit: true },
+              ],
+            },
+          ],
+        });
+
+      const res = await request(app)
+        .get(`/api/ledger/${partyId}`)
+        .set('Authorization', `Bearer ${authToken}`);
+
+      expect(res.status).toBe(200);
+      const rows = res.body;
+
+      // 1. First row is Opening Balance with exact calculated opening: 2390000 - 7780000 + 6899000 = 6899000 (₹68,990 Dr)
+      expect(rows[0].particulars).toBe('Opening Balance');
+      expect(rows[0].voucherType).toBe('Opening Balance');
+      expect(rows[0].debit).toBe(6899000);
+      expect(rows[0].credit).toBe(0);
+      expect(rows[0].date).toBe('2026-04-01');
+
+      // 2. Receipt particulars extracted from opposing ledger ("Cash")
+      expect(rows[1].particulars).toBe('Cash');
+      expect(rows[1].voucherType).toBe('Receipt');
+      expect(rows[1].voucherNo).toBe('55');
+      expect(rows[1].credit).toBe(6899000);
+
+      // 3. Sales row
+      expect(rows[2].voucherType).toBe('Sales');
+      expect(rows[2].voucherNo).toBe('54');
+      expect(rows[2].debit).toBe(7780000);
+
+      // 4. Running balance verification across all rows ends at exact closingBalance:
+      // Row 0 (Opening): +₹68,990 Dr
+      // Row 1 (Receipt 55): 68990 - 68990 = 0
+      // Row 2 (Sales 54): 0 + 77800 = +₹77,800 Dr
+      // Row 3 (Receipt 254): 77800 - 3900 = +₹73,900 Dr
+      // Row 4 (Receipt 283): 73900 - 25000 = +₹48,900 Dr
+      // Row 5 (Receipt 288): 48900 - 25000 = +₹23,900 Dr
+      let running = 0;
+      for (const r of rows) {
+        running += r.debit - r.credit;
+      }
+      expect(running).toBe(2390000); // ₹23,900 Dr matching party.closingBalance 100%
+    });
+  });
 });

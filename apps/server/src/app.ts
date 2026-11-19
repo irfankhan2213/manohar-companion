@@ -1281,6 +1281,13 @@ export function createApp(dbPath?: string): express.Express {
         } catch {
           items = [];
         }
+        let ledgerEntries: any[] = [];
+        try {
+          ledgerEntries = typeof v.ledgerEntries === 'string' ? JSON.parse(v.ledgerEntries || '[]') : (v.ledgerEntries || []);
+        } catch {
+          ledgerEntries = [];
+        }
+
         const vType = v.voucherType || 'Sales';
         const isSales = vType === 'Sales';
         const isCreditNote = vType === 'Credit Note';
@@ -1289,7 +1296,17 @@ export function createApp(dbPath?: string): express.Express {
         const isDebit = isSales || isPayment;
 
         let particularName = vType;
-        if (isSales) particularName = 'Sales Account';
+        const opposing = Array.isArray(ledgerEntries)
+          ? ledgerEntries.find((le: any) =>
+              le && le.ledger &&
+              le.ledger.toLowerCase().trim() !== (party.name || '').toLowerCase().trim() &&
+              le.ledger.toLowerCase().trim() !== (v.partyName || '').toLowerCase().trim()
+            )
+          : null;
+
+        if (opposing && opposing.ledger) {
+          particularName = opposing.ledger;
+        } else if (isSales) particularName = 'Sales Account';
         else if (isReceipt) particularName = 'Bank / Cash Receipt';
         else if (isCreditNote) particularName = 'Credit Note / Sales Return';
         else if (isPayment) particularName = 'Payment Account';
@@ -1382,6 +1399,47 @@ export function createApp(dbPath?: string): express.Express {
         });
       }
     }
+
+    // Ensure Opening Balance is included as the first entry whenever opening balance is non-zero
+    if (rows.length > 0 && rows[0].voucherNo !== 'LEDGER-BAL') {
+      let totalDebits = 0;
+      let totalCredits = 0;
+      for (const r of rows) {
+        totalDebits += (r.debit || 0);
+        totalCredits += (r.credit || 0);
+      }
+      const closing = party.closingBalance ?? 0;
+      const hasExplicitClosing = party.closingBalance !== null && party.closingBalance !== undefined && party.closingBalance !== 0;
+      const hasExplicitOpening = party.openingBalance !== null && party.openingBalance !== undefined && party.openingBalance !== 0;
+
+      // Double-entry identity: closingBalance = openingBalance + totalDebits - totalCredits
+      // => openingBalance = closingBalance - totalDebits + totalCredits
+      let openingBalance = 0;
+      if (hasExplicitOpening) {
+        openingBalance = party.openingBalance;
+      } else if (hasExplicitClosing) {
+        openingBalance = closing - totalDebits + totalCredits;
+      }
+
+      if (openingBalance !== 0) {
+        const firstDate = rows[0]?.date || getTodayIST();
+        const d = new Date(firstDate);
+        const year = d.getFullYear() || 2026;
+        const month = d.getMonth() + 1;
+        const fyStartYear = month >= 4 ? year : year - 1;
+        const fyStartDate = `${fyStartYear}-04-01`;
+
+        rows.unshift({
+          date: fyStartDate,
+          particulars: 'Opening Balance',
+          voucherType: 'Opening Balance',
+          voucherNo: '—',
+          debit: openingBalance > 0 ? openingBalance : 0,
+          credit: openingBalance < 0 ? Math.abs(openingBalance) : 0,
+        });
+      }
+    }
+
     res.json(rows);
   });
 
@@ -5477,11 +5535,11 @@ export function createApp(dbPath?: string): express.Express {
     try {
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
-        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance, openingBalance)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const p of parties) {
-        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
+        const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, openingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
         const existingByName = p.name
           ? (db.prepare('SELECT * FROM parties WHERE companyId = ? AND LOWER(name) = LOWER(?) LIMIT 1').get(resolvedCompanyId, String(p.name).trim()) as any)
           : null;
@@ -5531,6 +5589,7 @@ export function createApp(dbPath?: string): express.Express {
 
         const parentGroup = p.parentGroup || existing?.parentGroup || (isCreditor ? 'Sundry Creditors' : (isDebtor ? 'Sundry Debtors' : 'Other'));
         const closing = p.closingBalance ?? existing?.closingBalance ?? 0;
+        const opening = p.openingBalance ?? existing?.openingBalance ?? 0;
         stmt.run(
           safePartyId,
           defaultTenantId,
@@ -5547,7 +5606,8 @@ export function createApp(dbPath?: string): express.Express {
           existing?.remindersPaused ?? 0,
           p.notes || existing?.notes || '',
           existing?.promiseToPay ?? null,
-          closing
+          closing,
+          opening
         );
         partiesUpdated++;
       }

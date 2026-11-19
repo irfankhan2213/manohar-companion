@@ -187,7 +187,8 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       remindersPaused INTEGER,
       notes TEXT,
       promiseToPay TEXT,
-      closingBalance INTEGER DEFAULT 0
+      closingBalance INTEGER DEFAULT 0,
+      openingBalance INTEGER DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS bills (
@@ -493,6 +494,9 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
   } catch {}
   try {
     db.prepare("ALTER TABLE parties ADD COLUMN partyType TEXT DEFAULT 'debtor'").run();
+  } catch {}
+  try {
+    db.prepare('ALTER TABLE parties ADD COLUMN openingBalance INTEGER DEFAULT 0').run();
   } catch {}
   try {
     // Correctly migrate parties where Tally imported note or parentGroup indicates Sundry Creditors
