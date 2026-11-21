@@ -9,7 +9,7 @@ export function paiseToRupees(paise: Paise): number {
 }
 
 export interface FormatINROptions {
-  showDecimals?: boolean;
+  showDecimals?: boolean | 'auto';
   drCr?: boolean;
   symbol?: boolean;
 }
@@ -25,9 +25,16 @@ export function formatINR(paise: Paise, options: FormatINROptions = {}): string 
   const absPaise = Math.abs(paise);
   const rupees = absPaise / 100;
 
+  let shouldShowDecimals = false;
+  if (showDecimals === true) {
+    shouldShowDecimals = true;
+  } else if (showDecimals === 'auto') {
+    shouldShowDecimals = absPaise % 100 !== 0;
+  }
+
   const formatter = new Intl.NumberFormat('en-IN', {
-    minimumFractionDigits: showDecimals ? 2 : 0,
-    maximumFractionDigits: showDecimals ? 2 : 0,
+    minimumFractionDigits: shouldShowDecimals ? 2 : 0,
+    maximumFractionDigits: shouldShowDecimals ? 2 : 0,
   });
 
   const formattedNum = formatter.format(rupees);
@@ -40,6 +47,16 @@ export function formatINR(paise: Paise, options: FormatINROptions = {}): string 
 
   const sign = isCredit ? '-' : '';
   return `${sign}${prefix}${formattedNum}`;
+}
+
+/**
+ * Format a per-unit rate (e.g. ₹4.70 / pcs or ₹5 / pcs)
+ * If rate has paise, shows exact 2 decimals. If whole rupees, shows clean integer.
+ */
+export function formatRate(ratePaise: Paise, options: { symbol?: boolean } = {}): string {
+  const { symbol = true } = options;
+  const hasPaise = Math.abs(ratePaise) % 100 !== 0;
+  return formatINR(ratePaise, { showDecimals: hasPaise, symbol });
 }
 
 /**

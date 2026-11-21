@@ -19,7 +19,7 @@ import {
   CheckSquare,
   Square,
 } from 'lucide-react';
-import { can, formatINR, getDaysOverdue, Party } from '@saas/shared';
+import { can, formatINR, formatRate, getDaysOverdue, Party } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -827,7 +827,7 @@ export const PartyDetailScreen: React.FC = () => {
                               <div key={i} className="flex items-center justify-between gap-2">
                                 <span className="text-label truncate font-medium">↳ {it.item}</span>
                                 <span className="text-label-2 tabular-nums shrink-0">
-                                  {it.qty} {it.unit || 'pcs'} × {formatINR(it.rate)} = <strong className="text-label font-semibold">{formatINR(it.amount)}</strong>
+                                  {it.qty} {it.unit || 'pcs'} × {formatRate(it.rate)} = <strong className="text-label font-semibold">{formatINR(it.amount)}</strong>
                                 </span>
                               </div>
                             ))}
@@ -1286,7 +1286,7 @@ export const PartyDetailScreen: React.FC = () => {
                         <span className="font-semibold text-body text-label tabular-nums">{formatINR(it.amount)}</span>
                       </div>
                       <div className="flex items-center justify-between text-caption text-label-2">
-                        <span>Qty: <strong className="text-label">{it.qty} {it.unit || 'pcs'}</strong> × {formatINR(it.rate)}</span>
+                        <span>Qty: <strong className="text-label">{it.qty} {it.unit || 'pcs'}</strong> × {formatRate(it.rate)}</span>
                         {it.godown && <span>Loc: {it.godown}</span>}
                       </div>
                     </div>
@@ -1356,7 +1356,7 @@ export const PartyDetailScreen: React.FC = () => {
                   const billNo = selectedVoucherDetail.billNo || selectedVoucherDetail.voucherNo || selectedVoucherDetail.number || '';
                   const total = formatINR(selectedVoucherDetail.amount || selectedVoucherDetail.debit || 0);
                   const itemsList = (selectedVoucherDetail.items || [])
-                    .map((it: any) => `• ${it.item}: ${it.qty} ${it.unit || 'pcs'} × ${formatINR(it.rate)} = ${formatINR(it.amount)}`)
+                    .map((it: any) => `• ${it.item}: ${it.qty} ${it.unit || 'pcs'} × ${formatRate(it.rate)} = ${formatINR(it.amount)}`)
                     .join('\n');
                   const text = `*Invoice: ${party.name}*\nBill No: ${billNo}\nDate: ${selectedVoucherDetail.date}\nTotal: ${total}\n\n*Items Sent:*\n${itemsList || total}\n\nBalance Due: ${formatINR(selectedVoucherDetail.pending ?? selectedVoucherDetail.amount ?? 0)}`;
                   const url = `https://wa.me/${cleanPhoneForWhatsApp(targetPhone)}?text=${encodeURIComponent(text)}`;

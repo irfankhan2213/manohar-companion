@@ -2,7 +2,7 @@ import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer, Download, Share2, Loader2 } from 'lucide-react';
-import { formatINR, numberToIndianWords } from '@saas/shared';
+import { formatINR, formatRate, numberToIndianWords } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
 import { triggerNativePrint, downloadElementAsPdf, shareElementAsPdf } from '../../utils/printUtils.js';
@@ -296,7 +296,7 @@ export const ChallanPrintScreen: React.FC = () => {
                       {line.unit || 'pcs'}
                     </td>
                     <td className="py-2.5 px-3 border-r border-black text-right font-mono">
-                      {formatINR(line.rate || 0, { symbol: false })}
+                      {formatRate(line.rate || 0, { symbol: false })}
                     </td>
                     <td className="py-2.5 px-3 text-right font-semibold font-mono">
                       {formatINR(lineAmt, { symbol: false })}

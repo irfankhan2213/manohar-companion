@@ -18,7 +18,7 @@ import {
   Truck,
   Edit,
 } from 'lucide-react';
-import { formatINR, Task, User } from '@saas/shared';
+import { formatINR, formatRate, Task, User } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -566,7 +566,7 @@ export const ChallanDetailScreen: React.FC = () => {
                 </span>
               )}
               <span className="text-caption text-label-2 tabular-nums">
-                {line.qty} {line.unit} × {formatINR(line.rate)} · HSN {getLineHsn(line)} · GST {getLineGstRate(line)}%
+                {line.qty} {line.unit} × {formatRate(line.rate)} · HSN {getLineHsn(line)} · GST {getLineGstRate(line)}%
               </span>
             </div>
             <span className="text-subhead font-bold text-label tabular-nums">

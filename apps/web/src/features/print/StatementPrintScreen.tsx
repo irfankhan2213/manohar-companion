@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Printer, Check, FileText, Download, Loader2 } from 'lucide-react';
-import { formatINR, numberToIndianWords, getTodayIST } from '@saas/shared';
+import { formatINR, formatRate, numberToIndianWords, getTodayIST } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { Button } from '../../components/ui/Button.js';
 import { triggerNativePrint, downloadElementAsPdf } from '../../utils/printUtils.js';
@@ -388,7 +388,7 @@ export const StatementPrintScreen: React.FC = () => {
                                 {it.qty} {it.unit || 'pcs'}
                               </td>
                               <td className="py-1 px-2 border-r border-gray-300 text-right">
-                                {formatINR(it.rate, { symbol: false })}
+                                {formatRate(it.rate, { symbol: false })}
                               </td>
                               <td className="py-1 px-2 text-right font-bold text-black">
                                 {formatINR(it.amount, { symbol: false })}
@@ -459,7 +459,7 @@ export const StatementPrintScreen: React.FC = () => {
                           <div key={i} className="flex items-center justify-between">
                             <span>↳ {it.item}</span>
                             <span className="font-mono text-gray-600">
-                              {it.qty} {it.unit || 'pcs'} × {formatINR(it.rate)} = <strong>{formatINR(it.amount)}</strong>
+                              {it.qty} {it.unit || 'pcs'} × {formatRate(it.rate)} = <strong>{formatINR(it.amount)}</strong>
                             </span>
                           </div>
                         ))}

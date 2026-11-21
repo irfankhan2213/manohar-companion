@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowLeft, RefreshCw, Search, X } from 'lucide-react';
-import { formatINR } from '@saas/shared';
+import { formatINR, formatRate } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 
@@ -229,7 +229,7 @@ export const DaybookScreen: React.FC = () => {
                           <div key={i} className="py-2 flex justify-between items-center text-caption">
                             <div>
                               <span className="font-medium text-label block">{item.item}</span>
-                              <span className="text-label-3 font-mono">{item.qty} {item.unit || 'pcs'} @ {formatINR(item.rate || 0)}</span>
+                              <span className="text-label-3 font-mono">{item.qty} {item.unit || 'pcs'} @ {formatRate(item.rate || 0)}</span>
                             </div>
                             <span className="font-mono font-semibold text-label">{formatINR(item.amount || 0)}</span>
                           </div>

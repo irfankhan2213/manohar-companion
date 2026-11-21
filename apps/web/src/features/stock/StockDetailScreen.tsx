@@ -10,7 +10,7 @@ import {
   Tag,
   Sparkles,
 } from 'lucide-react';
-import { can, formatINR } from '@saas/shared';
+import { can, formatINR, formatRate } from '@saas/shared';
 import { api } from '../../api/index.js';
 import { useAppStore } from '../../app/store.js';
 import { LargeTitleScreen } from '../../components/ui/LargeTitleScreen.js';
@@ -165,7 +165,7 @@ export const StockDetailScreen: React.FC = () => {
           title="Selling Rate"
           trailing={
             <span className="font-semibold text-label">
-              {item.rate ? `${formatINR(item.rate)} / ${item.unit}` : 'Not set'}
+              {item.rate ? `${formatRate(item.rate)} / ${item.unit}` : 'Not set'}
             </span>
           }
         />
@@ -175,7 +175,7 @@ export const StockDetailScreen: React.FC = () => {
             title="Purchase Rate"
             trailing={
               <span className="font-medium text-label-2">
-                {formatINR(item.purchaseRate)} / {item.unit}
+                {formatRate(item.purchaseRate)} / {item.unit}
               </span>
             }
           />

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   calculateRoundOff,
   formatINR,
+  formatRate,
   numberToIndianWords,
   paiseToRupees,
   rupeesToPaise,
@@ -25,6 +26,16 @@ describe('money utilities', () => {
   it('formats decimals when showDecimals is true', () => {
     expect(formatINR(184230050, { showDecimals: true })).toBe('₹18,42,300.50');
     expect(formatINR(10000, { showDecimals: true })).toBe('₹100.00');
+  });
+
+  it('formats decimals when showDecimals is auto or formatRate is used for per-piece rates', () => {
+    expect(formatRate(470)).toBe('₹4.70');
+    expect(formatRate(500)).toBe('₹5');
+    expect(formatRate(425)).toBe('₹4.25');
+    expect(formatRate(50)).toBe('₹0.50');
+    expect(formatRate(470, { symbol: false })).toBe('4.70');
+    expect(formatINR(470, { showDecimals: 'auto' })).toBe('₹4.70');
+    expect(formatINR(50000, { showDecimals: 'auto' })).toBe('₹500');
   });
 
   it('formats Dr/Cr suffixes correctly', () => {

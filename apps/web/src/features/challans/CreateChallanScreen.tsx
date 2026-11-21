@@ -14,6 +14,7 @@ import {
 import {
   ChallanLine,
   formatINR,
+  formatRate,
   paiseToRupees,
   rupeesToPaise,
   calculateRoundOff,
@@ -528,7 +529,7 @@ export const CreateChallanScreen: React.FC = () => {
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <span className="text-footnote font-mono font-semibold text-accent">
-                              ₹{paiseToRupees(displayRate)} / {item.unit}
+                              {formatRate(displayRate)} / {item.unit}
                             </span>
                             <span className="text-caption bg-accent-soft text-accent px-2 py-0.5 rounded-md font-semibold">
                               + Add
