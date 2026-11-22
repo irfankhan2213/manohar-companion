@@ -198,20 +198,19 @@ export class SyncEngine {
   }> {
     let maxAlterId = lastAlterId;
 
-    // Batch 1: Parallel independent master & manifest reads (cuts Tally round-trip latency in half)
-    const [manifestResult, ledgers, bills, groups, stockItems] = await Promise.all([
-      this.client.getVoucherManifest(queryTarget).catch((err: any) => {
-        console.warn(`[SyncEngine] Voucher manifest query notice: ${err?.message || err}`);
-        return null;
-      }),
-      this.client.getLedgers(0, queryTarget),
-      this.client.getBills(undefined, queryTarget),
-      this.client.getGroups(queryTarget).catch((err: any) => {
-        console.warn(`[SyncEngine] Groups fetch notice: ${err?.message || err}`);
-        return [] as TallyGroup[];
-      }),
-      this.client.getStockItems(0, queryTarget),
-    ]);
+    // Run TallyPrime XML exports strictly sequentially — TallyPrime's built-in XML server is
+    // single-threaded/non-reentrant and throws "Memory Access Violation" on concurrent exports.
+    const manifestResult = await this.client.getVoucherManifest(queryTarget).catch((err: any) => {
+      console.warn(`[SyncEngine] Voucher manifest query notice: ${err?.message || err}`);
+      return null;
+    });
+    const ledgers = await this.client.getLedgers(0, queryTarget);
+    const bills = await this.client.getBills(undefined, queryTarget);
+    const groups = await this.client.getGroups(queryTarget).catch((err: any) => {
+      console.warn(`[SyncEngine] Groups fetch notice: ${err?.message || err}`);
+      return [] as TallyGroup[];
+    });
+    const stockItems = await this.client.getStockItems(0, queryTarget);
 
     if (queryTarget) {
       this.companyLedgersCache.set(normalizeTallyCompanyName(queryTarget), ledgers);
@@ -234,34 +233,29 @@ export class SyncEngine {
       }
     }
 
-    // Batch 2: Parallel voucher & challan reads
-    const [challansRes, allVchRes] = await Promise.all([
-      (async () => {
-        try {
-          if (lastAlterId > 0) {
-            return await this.client.getVouchersIncremental(lastAlterId, queryTarget);
-          }
-          const vchResult = await this.client.getVouchers(undefined, queryTarget);
-          return { challans: vchResult.challans || [], maxAlterId: 0 };
-        } catch (vchErr: any) {
-          console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
-          return { challans: [] as TallyChallanSync[], maxAlterId: 0 };
-        }
-      })(),
-      (async () => {
-        try {
-          return await this.client.getAllVouchers(lastAlterId, queryTarget);
-        } catch (allVchErr: any) {
-          console.warn(`[SyncEngine] Direct vouchers fetch notice: ${allVchErr?.message || allVchErr}. Falling back to chunked sync...`);
-          try {
-            return await this.client.getAllVouchersChunked(lastAlterId, queryTarget);
-          } catch (chunkErr: any) {
-            console.warn(`[SyncEngine] Chunked vouchers fetch notice: ${chunkErr?.message || chunkErr}`);
-            return { vouchers: [] as TallySyncVoucher[], maxAlterId: 0 };
-          }
-        }
-      })(),
-    ]);
+    let challansRes: { challans: TallyChallanSync[]; maxAlterId: number } = { challans: [], maxAlterId: 0 };
+    try {
+      if (lastAlterId > 0) {
+        challansRes = await this.client.getVouchersIncremental(lastAlterId, queryTarget);
+      } else {
+        const vchResult = await this.client.getVouchers(undefined, queryTarget);
+        challansRes = { challans: vchResult.challans || [], maxAlterId: 0 };
+      }
+    } catch (vchErr: any) {
+      console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
+    }
+
+    let allVchRes: { vouchers: TallySyncVoucher[]; maxAlterId: number } = { vouchers: [], maxAlterId: 0 };
+    try {
+      allVchRes = await this.client.getAllVouchers(lastAlterId, queryTarget);
+    } catch (allVchErr: any) {
+      console.warn(`[SyncEngine] Direct vouchers fetch notice: ${allVchErr?.message || allVchErr}. Falling back to chunked sync...`);
+      try {
+        allVchRes = await this.client.getAllVouchersChunked(lastAlterId, queryTarget);
+      } catch (chunkErr: any) {
+        console.warn(`[SyncEngine] Chunked vouchers fetch notice: ${chunkErr?.message || chunkErr}`);
+      }
+    }
 
     const challans = challansRes.challans || [];
     const vouchers = allVchRes.vouchers || [];
@@ -304,20 +298,17 @@ export class SyncEngine {
     }
 
     try {
-      // 1. Fetch active Company Info & Discover ALL Open Companies in TallyPrime in parallel
-      const [openCompaniesResult, companyInfoResult] = await Promise.all([
-        this.client.getOpenCompanies().catch(() => [] as TallyCompanyInfo[]),
-        this.client.getCompanyInfo().catch((err: any) => ({ __error: err } as any)),
-      ]);
-
-      const openCompanies: TallyCompanyInfo[] = openCompaniesResult;
+      // 1. Fetch active Company Info & Discover Open Companies sequentially (safe for TallyPrime)
+      const openCompanies: TallyCompanyInfo[] = await this.client.getOpenCompanies().catch(() => [] as TallyCompanyInfo[]);
       let company: TallyCompanyInfo;
-      if (companyInfoResult && !companyInfoResult.__error) {
-        company = companyInfoResult;
-      } else if (openCompanies.length > 0 && openCompanies[0]?.name) {
-        company = openCompanies[0];
-      } else {
-        throw companyInfoResult?.__error || new Error('Unable to read active company from Tally');
+      try {
+        company = await this.client.getCompanyInfo();
+      } catch (err: any) {
+        if (openCompanies.length > 0 && openCompanies[0]?.name) {
+          company = openCompanies[0];
+        } else {
+          throw err;
+        }
       }
 
       // If getCompanyInfo returned empty name, take the first real open company from Tally

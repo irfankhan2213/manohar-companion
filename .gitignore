@@ -16,3 +16,4 @@ scratch/
 .agents/
 /apps/web/public/tally-agent-windows/
 artifacts/
+*.bak

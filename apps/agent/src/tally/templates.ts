@@ -473,7 +473,7 @@ export function buildStockItemMasterXml(params: StockItemMasterParams): string {
     : '';
   const gstApplicableTag =
     typeof params.gstRate === 'number' && params.gstRate > 0
-      ? `\n          <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>`
+      ? `\n          <GSTAPPLICABLE>Applicable</GSTAPPLICABLE>`
       : '';
 
   return `<ENVELOPE>

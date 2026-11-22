@@ -298,7 +298,7 @@ describe('Tally XML Templates', () => {
       expect(xml).toContain('<NAME>Servo Motor 750W</NAME>');
       expect(xml).toContain('<BASEUNITS>pcs</BASEUNITS>');
       expect(xml).toContain('<HSNCODE>8501</HSNCODE>');
-      expect(xml).toContain('<GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>');
+      expect(xml).toContain('<GSTAPPLICABLE>Applicable</GSTAPPLICABLE>');
     });
 
     it('generates Party Ledger Master Create/Alter XML under All Masters', () => {

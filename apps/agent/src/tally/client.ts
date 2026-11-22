@@ -160,6 +160,9 @@ export class TallyClient {
   private url: string;
   private mock: boolean;
   private timeoutMs: number;
+  // TallyPrime's built-in XML HTTP server is non-reentrant; concurrent XML exports crash Tally with
+  // "Memory Access Violation". Serialize every live postXml() call strictly one-at-a-time.
+  private xmlQueue: Promise<void> = Promise.resolve();
 
   constructor(options: TallyClientOptions = {}) {
     this.url = options.url || 'http://127.0.0.1:25853';
@@ -284,38 +287,69 @@ export class TallyClient {
       return getMockCompanyInfoXml();
     }
 
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // Strictly serialize all live HTTP XML calls to TallyPrime (FIFO mutex)
+    const runRequest = async (): Promise<string> => {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-      const resp = await fetch(this.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'text/xml;charset=utf-8',
-        },
-        body: xmlPayload,
-        signal: controller.signal,
-      });
+        const resp = await fetch(this.url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/xml;charset=utf-8',
+          },
+          body: xmlPayload,
+          signal: controller.signal,
+        });
 
-      clearTimeout(timer);
+        clearTimeout(timer);
 
-      if (!resp.ok) {
-        throw new Error(`Tally server responded with status ${resp.status}`);
-      }
+        if (!resp.ok) {
+          throw new Error(`Tally server responded with status ${resp.status}`);
+        }
 
-      return await resp.text();
-    } catch (err: any) {
-      if (this.mock) {
-        return this.postXml(xmlPayload, false);
-      }
-      // If connection failed on default port, auto-scan candidate ports once
-      if (allowPortScan) {
-        const discovered = await this.discoverActivePort();
-        if (discovered) {
+        return await resp.text();
+      } catch (err: any) {
+        if (this.mock) {
           return this.postXml(xmlPayload, false);
         }
+        // If connection failed on default port, auto-scan candidate ports once
+        if (allowPortScan) {
+          const discovered = await this.discoverActivePort();
+          if (discovered) {
+            const retryController = new AbortController();
+            const retryTimer = setTimeout(() => retryController.abort(), this.timeoutMs);
+            try {
+              const retryResp = await fetch(this.url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/xml;charset=utf-8' },
+                body: xmlPayload,
+                signal: retryController.signal,
+              });
+              clearTimeout(retryTimer);
+              if (!retryResp.ok) {
+                throw new Error(`Tally server responded with status ${retryResp.status}`);
+              }
+              return await retryResp.text();
+            } catch {
+              clearTimeout(retryTimer);
+            }
+          }
+        }
+        throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 25853 (or 9000 / custom configured port).`);
       }
-      throw new Error(`Cannot reach Tally at ${this.url}: ${err.message}. Ensure TallyPrime is open with connectivity enabled on port 25853 (or 9000 / custom configured port).`);
+    };
+
+    const prev = this.xmlQueue;
+    let release!: () => void;
+    this.xmlQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await prev;
+    try {
+      return await runRequest();
+    } finally {
+      release();
     }
   }
 
