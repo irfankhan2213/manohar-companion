@@ -109,15 +109,18 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
   const db = new DatabaseSync(dbPath);
   dbInstance = db;
 
-  // SQLite Performance & Concurrency Optimization Pragmas (WAL + Normal sync + 5s busy_timeout)
+  // SQLite Performance & Concurrency Optimization Pragmas (WAL + Normal sync + 5s busy_timeout + 32MB cache + memory temp_store)
   if (dbPath !== ':memory:') {
     try {
       db.exec('PRAGMA journal_mode = WAL;');
+      db.exec('PRAGMA mmap_size = 268435456;');
     } catch {}
   }
   db.exec('PRAGMA synchronous = NORMAL;');
   try {
     db.exec('PRAGMA busy_timeout = 5000;');
+    db.exec('PRAGMA cache_size = -32000;');
+    db.exec('PRAGMA temp_store = MEMORY;');
   } catch {}
 
   // 1. Create Tables
@@ -626,6 +629,15 @@ export function initDatabase(dbPath: string = 'manohar.sqlite'): any {
       CREATE INDEX IF NOT EXISTS idx_sync_batches_company ON sync_batches (companyId, syncedAt);
       CREATE INDEX IF NOT EXISTS idx_auth_tokens_expires ON auth_tokens (expiresAt);
       CREATE INDEX IF NOT EXISTS idx_tally_groups_company ON tally_groups (companyId);
+      CREATE INDEX IF NOT EXISTS idx_outbox_comp_status_kind ON outbox_items (companyId, status, kind);
+      CREATE INDEX IF NOT EXISTS idx_outbox_refid ON outbox_items (refId);
+      CREATE INDEX IF NOT EXISTS idx_stock_balances_godown ON stock_balances (godownId);
+      CREATE INDEX IF NOT EXISTS idx_godowns_company ON godowns (companyId);
+      CREATE INDEX IF NOT EXISTS idx_companies_tenant ON companies (tenantId);
+      CREATE INDEX IF NOT EXISTS idx_activities_tenant_at ON activities (tenantId, at);
+      CREATE INDEX IF NOT EXISTS idx_reminder_messages_comp ON reminder_messages (companyId, sentAt);
+      CREATE INDEX IF NOT EXISTS idx_parties_comp_name ON parties (companyId, name);
+      CREATE INDEX IF NOT EXISTS idx_stock_comp_name ON stock_items (companyId, name);
     `);
   } catch {}
 

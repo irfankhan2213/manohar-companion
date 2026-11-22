@@ -44,6 +44,7 @@ export default defineConfig({
             '@radix-ui/react-tabs',
             'vaul',
           ],
+          'vendor-pdf': ['jspdf', 'html2canvas'],
         },
       },
     },

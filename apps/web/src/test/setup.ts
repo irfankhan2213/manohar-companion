@@ -1,3 +1,4 @@
+import './polyfill-storage.js';
 import '@testing-library/jest-dom';
 import { beforeEach } from 'vitest';
 import { useAppStore } from '../app/store.js';

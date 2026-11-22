@@ -23,9 +23,15 @@ export const StockScreen: React.FC = () => {
   const actor = currentUser || currentRole;
 
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearch = React.useDeferredValue(searchQuery);
   const [tabFilter, setTabFilter] = useState<'all' | 'low'>('all');
   const [isCombined, setIsCombined] = useState(false);
   const [createSheetOpen, setCreateSheetOpen] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(60);
+
+  React.useEffect(() => {
+    setVisibleCount(60);
+  }, [deferredSearch, tabFilter, isCombined, currentCompanyId]);
 
   const canEditStock = can(actor, 'stock.adjust') || can(actor, 'tally.write.stock');
 
@@ -78,8 +84,8 @@ export const StockScreen: React.FC = () => {
   const filteredItems = React.useMemo(() => {
     let list = stockWithTotals;
 
-    if (searchQuery.trim() !== '') {
-      const q = searchQuery.toLowerCase();
+    if (deferredSearch.trim() !== '') {
+      const q = deferredSearch.toLowerCase();
       list = list.filter(
         (i) =>
           i.item.name.toLowerCase().includes(q) ||
@@ -93,7 +99,7 @@ export const StockScreen: React.FC = () => {
     }
 
     return list;
-  }, [stockWithTotals, searchQuery, tabFilter]);
+  }, [stockWithTotals, deferredSearch, tabFilter]);
 
   return (
     <LargeTitleScreen
@@ -197,29 +203,42 @@ export const StockScreen: React.FC = () => {
             )}
           </div>
         ) : (
-          filteredItems.map(({ item, totalQty, isLow }) => (
-            <Row
-              key={item.id}
-              onClick={() => navigate(`/stock/${item.id}`)}
-              title={item.name}
-              subtitle={`${item.partNo ?? 'Part'} · ${item.group}`}
-              trailing={
-                <span className="tabular-nums font-semibold text-label">
-                  {totalQty} {item.unit}
-                </span>
-              }
-              trailingSubtitle={
-                isLow ? (
-                  <Badge variant="warning" size="sm">
-                    Low Stock
-                  </Badge>
-                ) : (
-                  <span className="text-footnote text-label-2 font-medium">In stock</span>
-                )
-              }
-              chevron
-            />
-          ))
+          <>
+            {filteredItems.slice(0, visibleCount).map(({ item, totalQty, isLow }) => (
+              <Row
+                key={item.id}
+                onClick={() => navigate(`/stock/${item.id}`)}
+                title={item.name}
+                subtitle={`${item.partNo ?? 'Part'} · ${item.group}`}
+                trailing={
+                  <span className="tabular-nums font-semibold text-label">
+                    {totalQty} {item.unit}
+                  </span>
+                }
+                trailingSubtitle={
+                  isLow ? (
+                    <Badge variant="warning" size="sm">
+                      Low Stock
+                    </Badge>
+                  ) : (
+                    <span className="text-footnote text-label-2 font-medium">In stock</span>
+                  )
+                }
+                chevron
+              />
+            ))}
+            {filteredItems.length > visibleCount && (
+              <div className="p-3 flex justify-center border-t border-separator/30">
+                <button
+                  type="button"
+                  onClick={() => setVisibleCount((c) => c + 60)}
+                  className="text-subhead font-semibold text-accent hover:opacity-80 active:opacity-60 transition-opacity py-1 px-4"
+                >
+                  Show more ({filteredItems.length - visibleCount} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </InsetGroup>
 

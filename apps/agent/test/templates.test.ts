@@ -10,6 +10,8 @@ import {
   buildVoucherManifestQuery,
   buildVouchersIncrementalQuery,
   buildUniversalVoucherXml,
+  buildStockItemMasterXml,
+  buildLedgerMasterXml,
 } from '../src/tally/templates.js';
 
 describe('Tally XML Templates', () => {
@@ -271,6 +273,92 @@ describe('Tally XML Templates', () => {
       expect(xml).toContain('<RATE>4200.00 / pcs</RATE>');
       expect(xml).toContain('<ACTUALQTY>2 pcs</ACTUALQTY>');
       expect(xml).toContain('<GODOWNNAME>Main Location</GODOWNNAME>');
+    });
+  });
+
+  describe('Bidirectional App -> Tally Master & Idempotency XML', () => {
+    it('generates Stock Item Master Create/Alter XML under All Masters', () => {
+      const xml = buildStockItemMasterXml({
+        companyName: 'Manohar Traders',
+        action: 'Alter',
+        name: 'Servo Motor 750W',
+        oldName: 'Servo Motor 550W',
+        unit: 'pcs',
+        group: 'Motors',
+        partNo: 'SM-750',
+        hsnCode: '8501',
+        gstRate: 18,
+      });
+
+      expect(xml).toContain('<ID>All Masters</ID>');
+      expect(xml).toContain('<SVCURRENTCOMPANY>Manohar Traders</SVCURRENTCOMPANY>');
+      expect(xml).toContain('<UNIT NAME="pcs" ACTION="Alter">');
+      expect(xml).toContain('<STOCKGROUP NAME="Motors" ACTION="Alter">');
+      expect(xml).toContain('<STOCKITEM NAME="Servo Motor 550W" ACTION="Alter">');
+      expect(xml).toContain('<NAME>Servo Motor 750W</NAME>');
+      expect(xml).toContain('<BASEUNITS>pcs</BASEUNITS>');
+      expect(xml).toContain('<HSNCODE>8501</HSNCODE>');
+      expect(xml).toContain('<GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>');
+    });
+
+    it('generates Party Ledger Master Create/Alter XML under All Masters', () => {
+      const xml = buildLedgerMasterXml({
+        companyName: 'Manohar Traders',
+        action: 'Create',
+        name: 'Asha Garments',
+        parentGroup: 'Sundry Debtors',
+        phone: '9876543210',
+        city: 'Ludhiana',
+        gstin: '03AABCA1234A1Z5',
+        creditDays: 45,
+        openingBalanceRupees: 12500,
+      });
+
+      expect(xml).toContain('<ID>All Masters</ID>');
+      expect(xml).toContain('<LEDGER NAME="Asha Garments" ACTION="Create">');
+      expect(xml).toContain('<PARENT>Sundry Debtors</PARENT>');
+      expect(xml).toContain('<LEDGERPHONE>9876543210</LEDGERPHONE>');
+      expect(xml).toContain('<PARTYGSTIN>03AABCA1234A1Z5</PARTYGSTIN>');
+      expect(xml).toContain('<BILLCREDITPERIOD>45 Days</BILLCREDITPERIOD>');
+      expect(xml).toContain('<OPENINGBALANCE>-12500.00</OPENINGBALANCE>');
+    });
+
+    it('includes GUID, REMOTEID, and balanced Round Off entry on Delivery Challan XML', () => {
+      const xml = buildDeliveryChallanVoucherXml({
+        companyName: 'Manohar Traders',
+        date: '20261122',
+        voucherNumber: 'SC/050/26-27',
+        partyName: 'Asha Garments',
+        narration: 'Sales challan with round off',
+        voucherType: 'sales',
+        guid: 'saas-challan-ch-50',
+        roundOffRupees: 0.4,
+        items: [{ itemName: 'Servo Motor 750W', qty: 1, unit: 'pcs', rateRupees: 99.6 }],
+      });
+
+      expect(xml).toContain('REMOTEID="saas-challan-ch-50"');
+      expect(xml).toContain('<GUID>saas-challan-ch-50</GUID>');
+      expect(xml).toContain('<LEDGERNAME>Round Off</LEDGERNAME>');
+      expect(xml).toContain('<AMOUNT>-100.00</AMOUNT>');
+    });
+
+    it('does not embed Master tags inside Stock Journal Vouchers XML', () => {
+      const xml = buildStockJournalVoucherXml({
+        date: '20261122',
+        voucherNumber: 'ADJ/002',
+        narration: 'Audit count',
+        itemName: 'Servo Motor 750W',
+        godownName: 'Main Location',
+        qty: 5,
+        unit: 'pcs',
+        rateRupees: 4000,
+        guid: 'saas-sj-out-2',
+      });
+
+      expect(xml).toContain('<ID>Vouchers</ID>');
+      expect(xml).toContain('REMOTEID="saas-sj-out-2"');
+      expect(xml).not.toContain('<UNIT ACTION="Create"');
+      expect(xml).not.toContain('<STOCKITEM ACTION="Alter"');
     });
   });
 });

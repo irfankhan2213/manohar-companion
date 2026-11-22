@@ -319,7 +319,7 @@ export type ActivityEvent = z.infer<typeof ActivityEventSchema>;
 export const OutboxItemSchema = z.object({
   id: z.string(),
   companyId: z.string(),
-  kind: z.enum(['stock_journal', 'challan', 'receipt']),
+  kind: z.enum(['stock_journal', 'stock_item', 'party', 'ledger', 'challan', 'receipt', 'voucher']),
   refId: z.string(),
   status: QueueStatusSchema,
   attempts: z.number().int(),

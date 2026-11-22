@@ -34,6 +34,29 @@ export function createApp(dbPath?: string): express.Express {
   app.use(cors());
   app.use(express.json({ limit: '100mb' }));
 
+  // Lightweight zero-dependency gzip compression for large JSON API responses (>1KB)
+  app.use((req, res, next) => {
+    const acceptEncoding = String(req.headers['accept-encoding'] || '');
+    if (!acceptEncoding.includes('gzip') || req.path.startsWith('/api/agent/download-zip')) {
+      return next();
+    }
+    const origJson = res.json.bind(res);
+    (res as any).json = (body: any) => {
+      try {
+        const str = JSON.stringify(body);
+        if (str && str.length > 1024 && !res.headersSent) {
+          const gz = zlib.gzipSync(Buffer.from(str, 'utf8'));
+          res.setHeader('Content-Type', 'application/json; charset=utf-8');
+          res.setHeader('Content-Encoding', 'gzip');
+          res.setHeader('Vary', 'Accept-Encoding');
+          return res.send(gz);
+        }
+      } catch {}
+      return origJson(body);
+    };
+    next();
+  });
+
   // Security HTTP Headers (HSTS, Anti-Clickjacking, MIME Sniffing protection)
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -45,6 +68,31 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   const db = getDB();
+
+  // Append/deduplicate remote agent commands without overwriting pending commands (e.g. RESET_ALTER_ID)
+  function queueAgentCommand(targetTenantOrCompanyId: string | undefined | null, cmd: Record<string, any>) {
+    if (!targetTenantOrCompanyId) return;
+    const key = `agent_commands_${targetTenantOrCompanyId}`;
+    try {
+      const row = db.prepare('SELECT value FROM agent_state WHERE key = ?').get(key) as any;
+      let list: any[] = [];
+      if (row?.value) {
+        try {
+          const parsed = JSON.parse(row.value);
+          if (Array.isArray(parsed)) list = parsed;
+        } catch {}
+      }
+      if (cmd.type === 'SYNC_NOW' && list.some((c) => c.type === 'SYNC_NOW' && c.companyId === cmd.companyId)) {
+        return;
+      }
+      list.push({ ...cmd, at: cmd.at || new Date().toISOString() });
+      db.prepare('INSERT INTO agent_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = ?').run(
+        key,
+        JSON.stringify(list),
+        JSON.stringify(list)
+      );
+    } catch {}
+  }
 
   function safeParseCompanyIds(val: any): string[] | 'all' {
     if (!val || val === 'all') return 'all';
@@ -985,8 +1033,9 @@ export function createApp(dbPath?: string): express.Express {
     }
     const tenantId = user && user.role !== 'dev' && user.tenantId ? user.tenantId : (body.tenantId || user?.tenantId || 'platform');
     const defaultComp = db.prepare('SELECT id FROM companies WHERE tenantId = ? LIMIT 1').get(tenantId) as any;
-    const companyId = body.companyId || defaultComp?.id || 'comp-default';
-    if (body.companyId && !canAccessCompany(user, body.companyId)) {
+    const requestedCompanyId = body.companyId && body.companyId !== 'all' ? body.companyId : null;
+    const companyId = requestedCompanyId || (Array.isArray(user?.companyIds) && user.companyIds.length > 0 ? user.companyIds[0] : null) || defaultComp?.id || 'comp-default';
+    if (requestedCompanyId && !canAccessCompany(user, requestedCompanyId)) {
       return res.status(403).json({ error: 'Forbidden: Cannot create party in another organization or unassigned company' });
     }
     const id = body.id || `p-${companyId}-${Date.now()}`;
@@ -1018,6 +1067,32 @@ export function createApp(dbPath?: string): express.Express {
       body.promiseToPay ?? null,
       typeof body.closingBalance === 'number' ? body.closingBalance : 0
     );
+
+    // Bidirectional App -> Tally Master Sync: Queue newly created Party/Ledger for Tally
+    try {
+      const outboxId = `out-party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const partyPayload = JSON.stringify({
+        id: outboxId,
+        outboxId,
+        kind: 'party',
+        action: 'Create',
+        refId: id,
+        name: body.name.trim(),
+        parentGroup,
+        partyType,
+        phone: Array.isArray(body.phones) ? body.phones[0] : undefined,
+        city: body.city || '',
+        gstin: body.gstin ?? undefined,
+        creditDays: body.creditDays || 30,
+        openingBalance: typeof body.openingBalance === 'number' ? body.openingBalance : 0,
+      });
+      db.prepare(`
+        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+        VALUES (?, ?, 'party', ?, 'queued', 1, NULL, ?)
+      `).run(outboxId, companyId, id, partyPayload);
+      queueAgentCommand(tenantId, { type: 'SYNC_NOW', companyId });
+    } catch {}
+
     const created = db.prepare('SELECT * FROM parties WHERE id = ?').get(id) as any;
     res.status(201).json({
       ...created,
@@ -1077,6 +1152,44 @@ export function createApp(dbPath?: string): express.Express {
       req.params.id
     );
     const updated = db.prepare('SELECT * FROM parties WHERE id = ?').get(req.params.id) as any;
+
+    // Bidirectional App -> Tally Master Sync: Queue Ledger Alter when Tally-synced fields change
+    // (Local-only fields like customPhones, remindersPaused, promiseToPay, collectorId stay local)
+    const hasTallyMasterChange =
+      body.name !== undefined ||
+      body.city !== undefined ||
+      body.gstin !== undefined ||
+      typeof body.creditDays === 'number' ||
+      body.phones !== undefined ||
+      body.parentGroup !== undefined ||
+      body.partyType !== undefined;
+    if (hasTallyMasterChange && updated?.companyId) {
+      try {
+        const updatedPhones = JSON.parse(updated.phones || '[]');
+        const outboxId = `out-party-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const partyPayload = JSON.stringify({
+          id: outboxId,
+          outboxId,
+          kind: 'party',
+          action: 'Alter',
+          refId: updated.id,
+          name: updated.name,
+          oldName: existing.name,
+          parentGroup: updated.parentGroup || 'Sundry Debtors',
+          partyType: updated.partyType || 'debtor',
+          phone: Array.isArray(updatedPhones) ? updatedPhones[0] : undefined,
+          city: updated.city || '',
+          gstin: updated.gstin || undefined,
+          creditDays: updated.creditDays || 30,
+        });
+        db.prepare(`
+          INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+          VALUES (?, ?, 'party', ?, 'queued', 1, NULL, ?)
+        `).run(outboxId, updated.companyId, updated.id, partyPayload);
+        queueAgentCommand(updated.tenantId || user?.tenantId, { type: 'SYNC_NOW', companyId: updated.companyId });
+      } catch {}
+    }
+
     res.json({
       ...updated,
       phones: JSON.parse(updated.phones || '[]'),
@@ -3210,13 +3323,22 @@ export function createApp(dbPath?: string): express.Express {
       const q = (req.query.q as string).toLowerCase();
       items = items.filter(it => it.name.toLowerCase().includes(q) || (it.partNo && it.partNo.toLowerCase().includes(q)));
     }
-    const balances = db.prepare(`
+    let balancesQuery = `
       SELECT b.*
       FROM stock_balances b
       JOIN godowns g ON b.godownId = g.id
       JOIN stock_items s ON b.itemId = s.id
       WHERE g.companyId = s.companyId
-    `).all() as any[];
+    `;
+    const balancesParams: any[] = [];
+    if (companyId && companyId !== 'all') {
+      balancesQuery += ' AND s.companyId = ?';
+      balancesParams.push(companyId);
+    } else if (isTenantScoped(user)) {
+      balancesQuery += ' AND s.companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
+      balancesParams.push(user.tenantId);
+    }
+    const balances = db.prepare(balancesQuery).all(...balancesParams) as any[];
 
     const balancesByItem = new Map<string, any[]>();
     for (const b of balances) {
@@ -3520,6 +3642,32 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    // Bidirectional App -> Tally Master Sync: Queue Stock Item Master creation for Tally
+    try {
+      const masterOutboxId = `out-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const masterPayload = JSON.stringify({
+        id: masterOutboxId,
+        outboxId: masterOutboxId,
+        kind: 'stock_item',
+        action: 'Create',
+        refId: itemId,
+        name: name.trim(),
+        unit: unit ? String(unit).trim() : 'pcs',
+        group: group ? String(group).trim() : 'General',
+        partNo: partNo ? String(partNo).trim() : undefined,
+        alias: alias ? String(alias).trim() : undefined,
+        hsnCode: hsnCode ? String(hsnCode).trim() : undefined,
+        gstRate: typeof gstRate === 'number' ? gstRate : undefined,
+        description: description ? String(description).trim() : undefined,
+        rate: typeof rate === 'number' ? Math.round(rate) : 0,
+      });
+      db.prepare(`
+        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+        VALUES (?, ?, 'stock_item', ?, 'queued', 1, NULL, ?)
+      `).run(masterOutboxId, resolvedCompanyId, itemId, masterPayload);
+      queueAgentCommand(user?.tenantId, { type: 'SYNC_NOW', companyId: resolvedCompanyId });
+    } catch {}
+
     const parseCustomValues = (val: any): Record<string, string> => {
       if (!val) return {};
       if (typeof val === 'object' && !Array.isArray(val)) return val;
@@ -3677,6 +3825,34 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
 
+    // Bidirectional App -> Tally Master Sync: Queue Stock Item Master alteration for Tally
+    try {
+      const masterOutboxId = `out-item-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+      const compId = it.companyId || 'c1';
+      const masterPayload = JSON.stringify({
+        id: masterOutboxId,
+        outboxId: masterOutboxId,
+        kind: 'stock_item',
+        action: 'Alter',
+        refId: it.id,
+        name: updatedName,
+        oldName: it.name,
+        unit: updatedUnit || 'pcs',
+        group: updatedGroup || 'General',
+        partNo: updatedPartNo || undefined,
+        alias: updatedAlias || undefined,
+        hsnCode: updatedHsnCode || undefined,
+        gstRate: typeof updatedGstRate === 'number' ? updatedGstRate : undefined,
+        description: updatedDescription || undefined,
+        rate: updatedRate || 0,
+      });
+      db.prepare(`
+        INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
+        VALUES (?, ?, 'stock_item', ?, 'queued', 1, NULL, ?)
+      `).run(masterOutboxId, compId, it.id, masterPayload);
+      queueAgentCommand(user?.tenantId, { type: 'SYNC_NOW', companyId: compId });
+    } catch {}
+
     const parseCustomValues = (val: any): Record<string, string> => {
       if (!val) return {};
       if (typeof val === 'object' && !Array.isArray(val)) return val;
@@ -3786,12 +3962,13 @@ export function createApp(dbPath?: string): express.Express {
       unit: it.unit || 'pcs',
       rate: it.rate || 0,
       reason: reason || 'Mobile stock adjustment',
-      date: new Date().toISOString().slice(0, 10),
+      date: getTodayIST(),
     });
     db.prepare(`
       INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError, payload)
       VALUES (?, ?, 'stock_journal', ?, 'queued', 1, NULL, ?)
     `).run(outboxId, compId, itemId, adjPayload);
+    queueAgentCommand(user?.tenantId, { type: 'SYNC_NOW', companyId: compId });
 
     // Audit log
     const tenantId = user?.tenantId || 'platform';
@@ -4076,13 +4253,8 @@ export function createApp(dbPath?: string): express.Express {
         VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
       `).run(`out-${Date.now()}`, companyId, id);
 
-      // Queue immediate sync command for desktop agent
-      const syncCmd = [{ type: 'SYNC_NOW', companyId, at: new Date().toISOString() }];
-      db.prepare(`
-        INSERT INTO agent_state (key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = ?
-      `).run(`agent_commands_${tenantId}`, JSON.stringify(syncCmd), JSON.stringify(syncCmd));
+      // Queue immediate sync command for desktop agent (preserving any pending commands)
+      queueAgentCommand(tenantId, { type: 'SYNC_NOW', companyId });
     }
 
     // Audit log
@@ -4382,17 +4554,10 @@ export function createApp(dbPath?: string): express.Express {
       `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
     }
 
-    // Queue immediate sync command for desktop agent
+    // Queue immediate sync command for desktop agent (preserving any pending commands)
     const compRow = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(existing.companyId) as any;
     const targetTenant = compRow?.tenantId || user?.tenantId;
-    if (targetTenant) {
-      const syncCmd = [{ type: 'SYNC_NOW', companyId: existing.companyId, at: new Date().toISOString() }];
-      db.prepare(`
-        INSERT INTO agent_state (key, value)
-        VALUES (?, ?)
-        ON CONFLICT(key) DO UPDATE SET value = ?
-      `).run(`agent_commands_${targetTenant}`, JSON.stringify(syncCmd), JSON.stringify(syncCmd));
-    }
+    queueAgentCommand(targetTenant, { type: 'SYNC_NOW', companyId: existing.companyId });
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });
   });
@@ -5553,11 +5718,24 @@ export function createApp(dbPath?: string): express.Express {
 
     db.exec('BEGIN');
     try {
+    // Pre-load queued outbox refIds once for O(1) conflict protection (avoids N+1 LIKE scans)
+    const queuedOutboxRows = db
+      .prepare("SELECT kind, refId FROM outbox_items WHERE companyId = ? AND status = 'queued'")
+      .all(resolvedCompanyId) as Array<{ kind: string; refId: string }>;
+    const pendingStockRefIds = new Set<string>();
+    const pendingPartyRefIds = new Set<string>();
+    for (const qr of queuedOutboxRows) {
+      if (!qr.refId) continue;
+      if (qr.kind === 'stock_journal' || qr.kind === 'stock_item') pendingStockRefIds.add(qr.refId);
+      if (qr.kind === 'party' || qr.kind === 'ledger') pendingPartyRefIds.add(qr.refId);
+    }
+
     if (Array.isArray(parties)) {
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO parties (id, tenantId, companyId, name, city, phones, customPhones, parentGroup, partyType, gstin, creditDays, collectorId, remindersPaused, notes, promiseToPay, closingBalance, openingBalance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      const balanceOnlyStmt = db.prepare('UPDATE parties SET closingBalance = ?, openingBalance = ? WHERE id = ?');
       for (const p of parties) {
         const existingById = db.prepare('SELECT tenantId, companyId, collectorId, remindersPaused, promiseToPay, city, notes, closingBalance, openingBalance, customPhones, phones, parentGroup, partyType FROM parties WHERE id = ?').get(p.id) as any;
         const existingByName = p.name
@@ -5577,6 +5755,12 @@ export function createApp(dbPath?: string): express.Express {
               ? `${resolvedCompanyId}_${p.id}`
               : p.id;
         partyIdRemap.set(p.id, safePartyId);
+        // Protect pending Web App -> Tally party edits from being overwritten by stale Tally pull
+        if (existing && pendingPartyRefIds.has(safePartyId)) {
+          balanceOnlyStmt.run(p.closingBalance ?? existing.closingBalance ?? 0, p.openingBalance ?? existing.openingBalance ?? 0, safePartyId);
+          partiesUpdated++;
+          continue;
+        }
         const notesStr = String(p.notes || existing?.notes || '');
         const parentLower = (p.parentGroup || existing?.parentGroup || '').toLowerCase();
         const isCreditor = p.partyType === 'creditor'
@@ -5789,35 +5973,32 @@ export function createApp(dbPath?: string): express.Express {
         const cleanUnit = cleanSyncStr(s.unit, 'pcs') || 'pcs';
         const cleanGroup = cleanSyncStr(s.group, 'General') || 'General';
         const cleanAlias = cleanSyncStr(s.alias, null);
-        stmt.run(safeItemId, resolvedCompanyId, cleanName, cleanPartNo, cleanUnit, cleanGroup, s.rate || 0, Math.abs(s.closingValue || 0), s.reorderLevel || 0, cleanAlias);
-        if (s.closingQty !== undefined) {
-          // Do not overwrite Web App stock balance with stale Tally quantity while an outbox adjustment for this item is still queued
-          const hasPendingOutbox = db
-            .prepare("SELECT 1 FROM outbox_items WHERE companyId = ? AND status = 'queued' AND (refId = ? OR payload LIKE ?) LIMIT 1")
-            .get(resolvedCompanyId, safeItemId, `%${safeItemId}%`);
-          if (!hasPendingOutbox) {
-            let defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
-            if (!defaultGodown) {
-              const newGodownId = `g-${resolvedCompanyId}-main`;
-              db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
-                newGodownId,
-                resolvedCompanyId,
-                'Main Location'
-              );
-              defaultGodown = { id: newGodownId };
-            }
-            const godownId = defaultGodown.id;
-            db.prepare(`
-              DELETE FROM stock_balances
-              WHERE itemId = ? AND godownId NOT IN (SELECT id FROM godowns WHERE companyId = ?)
-            `).run(safeItemId, resolvedCompanyId);
-
-            db.prepare(`
-              INSERT INTO stock_balances (itemId, godownId, qty)
-              VALUES (?, ?, ?)
-              ON CONFLICT(itemId, godownId) DO UPDATE SET qty = ?
-            `).run(safeItemId, godownId, s.closingQty, s.closingQty);
+        const hasPendingOutbox = pendingStockRefIds.has(safeItemId);
+        if (!hasPendingOutbox) {
+          stmt.run(safeItemId, resolvedCompanyId, cleanName, cleanPartNo, cleanUnit, cleanGroup, s.rate || 0, Math.abs(s.closingValue || 0), s.reorderLevel || 0, cleanAlias);
+        }
+        if (s.closingQty !== undefined && !hasPendingOutbox) {
+          let defaultGodown = db.prepare('SELECT id FROM godowns WHERE companyId = ? LIMIT 1').get(resolvedCompanyId) as any;
+          if (!defaultGodown) {
+            const newGodownId = `g-${resolvedCompanyId}-main`;
+            db.prepare('INSERT OR IGNORE INTO godowns (id, companyId, name) VALUES (?, ?, ?)').run(
+              newGodownId,
+              resolvedCompanyId,
+              'Main Location'
+            );
+            defaultGodown = { id: newGodownId };
           }
+          const godownId = defaultGodown.id;
+          db.prepare(`
+            DELETE FROM stock_balances
+            WHERE itemId = ? AND godownId NOT IN (SELECT id FROM godowns WHERE companyId = ?)
+          `).run(safeItemId, resolvedCompanyId);
+
+          db.prepare(`
+            INSERT INTO stock_balances (itemId, godownId, qty)
+            VALUES (?, ?, ?)
+            ON CONFLICT(itemId, godownId) DO UPDATE SET qty = ?
+          `).run(safeItemId, godownId, s.closingQty, s.closingQty);
         }
         stockUpdated++;
       }
@@ -6139,13 +6320,13 @@ export function createApp(dbPath?: string): express.Express {
   });
 
   app.get('/api/sync/pull', (req, res) => {
-    // Return pending queued challans and stock_journal adjustments waiting to be written to Tally XML
+    // Return pending queued masters, challans, stock_journal adjustments, and vouchers waiting to be written to Tally XML
     const user = getRequestUser(req);
     const agentAuth = resolveAgentAuth(req, user);
     const companyId = req.query.companyId as string | undefined;
     const scopedTenantId = (user && user.role !== 'dev' ? user.tenantId : undefined) || (!agentAuth.isGlobal ? agentAuth.tenantId : undefined);
     let challanQuery = "SELECT * FROM challans WHERE status = 'queued'";
-    let outboxQuery = "SELECT * FROM outbox_items WHERE status = 'queued' AND kind = 'stock_journal'";
+    let outboxQuery = "SELECT * FROM outbox_items WHERE status = 'queued' AND kind IN ('stock_item', 'party', 'ledger', 'stock_journal', 'voucher')";
     const params: any[] = [];
     if (companyId && companyId !== 'all') {
       challanQuery += ' AND companyId = ?';
@@ -6157,21 +6338,111 @@ export function createApp(dbPath?: string): express.Express {
       params.push(scopedTenantId);
     }
     const challanRows = db.prepare(challanQuery).all(...params) as any[];
+    const allOutboxRows = db.prepare(outboxQuery).all(...params) as any[];
     const companyRows = db.prepare('SELECT id, name, tallyName FROM companies').all() as Array<{ id: string; name: string; tallyName?: string }>;
     const partyRows = db.prepare('SELECT id, name FROM parties').all() as Array<{ id: string; name: string }>;
     const godownRows = db.prepare('SELECT id, name FROM godowns').all() as Array<{ id: string; name: string }>;
+    const stockItemRows = db.prepare('SELECT id, name, unit, rate FROM stock_items').all() as Array<{ id: string; name: string; unit?: string; rate?: number }>;
     const companyNameMap = new Map(companyRows.map(c => [c.id, c.tallyName || c.name]));
     const partyNameMap = new Map(partyRows.map(p => [p.id, p.name]));
     const godownNameMap = new Map(godownRows.map(g => [g.id, g.name]));
+    const stockItemMap = new Map(stockItemRows.map(s => [s.id, s]));
+
+    // Cache sales/purchase ledger names per company to eliminate N+1 queries
+    const salesLedgerCache = new Map<string, string>();
+    const purchaseLedgerCache = new Map<string, string>();
+    const getSalesLedger = (cId: string): string => {
+      if (salesLedgerCache.has(cId)) return salesLedgerCache.get(cId)!;
+      const row = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(cId) as any;
+      const name = row?.name || 'Sales';
+      salesLedgerCache.set(cId, name);
+      return name;
+    };
+    const getPurchaseLedger = (cId: string): string => {
+      if (purchaseLedgerCache.has(cId)) return purchaseLedgerCache.get(cId)!;
+      const row = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(cId) as any;
+      const name = row?.name || 'PURCHASE';
+      purchaseLedgerCache.set(cId, name);
+      return name;
+    };
+
+    // 1. Master items (stock_item, party, ledger) are returned FIRST so Tally creates masters before referencing vouchers
+    const masterItems: any[] = [];
+    const stockJournalItems: any[] = [];
+    const voucherItems: any[] = [];
+
+    for (const o of allOutboxRows) {
+      const companyName = companyNameMap.get(o.companyId);
+      if (o.kind === 'stock_item' || o.kind === 'party' || o.kind === 'ledger') {
+        let parsed: any = {};
+        if (o.payload) {
+          try { parsed = JSON.parse(o.payload); } catch {}
+        }
+        masterItems.push({
+          ...parsed,
+          id: o.id,
+          outboxId: o.id,
+          refId: o.refId,
+          kind: o.kind,
+          companyId: o.companyId,
+          companyName: companyName || parsed.companyName,
+        });
+      } else if (o.kind === 'stock_journal') {
+        if (o.payload) {
+          try {
+            stockJournalItems.push({ ...JSON.parse(o.payload), outboxId: o.id, companyName });
+            continue;
+          } catch {}
+        }
+        const item = stockItemMap.get(o.refId);
+        stockJournalItems.push({
+          id: o.id,
+          outboxId: o.id,
+          kind: 'stock_journal',
+          companyName,
+          refId: o.refId,
+          itemName: item?.name || o.refId,
+          godownName: 'Main Location',
+          deltaQty: 0,
+          unit: item?.unit || 'pcs',
+          rate: item?.rate || 0,
+          date: getTodayIST(),
+        });
+      } else if (o.kind === 'voucher') {
+        const defaultSalesLedger = getSalesLedger(o.companyId);
+        const defaultPurchaseLedger = getPurchaseLedger(o.companyId);
+        if (o.payload) {
+          try {
+            const parsed = JSON.parse(o.payload);
+            voucherItems.push({
+              salesLedger: parsed.salesLedger || defaultSalesLedger,
+              purchaseLedger: parsed.purchaseLedger || defaultPurchaseLedger,
+              ...parsed,
+              id: o.refId || o.id,
+              outboxId: o.id,
+              kind: 'voucher',
+              companyName: companyName || parsed.companyName,
+            });
+            continue;
+          } catch {}
+        }
+        voucherItems.push({
+          id: o.refId || o.id,
+          outboxId: o.id,
+          kind: 'voucher',
+          companyName,
+          salesLedger: defaultSalesLedger,
+          purchaseLedger: defaultPurchaseLedger,
+        });
+      }
+    }
 
     const challanItems = challanRows.map(r => {
-      const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
-      const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(r.companyId) as any;
       const rawLines = JSON.parse(r.lines || '[]');
       const resolvedLines = Array.isArray(rawLines) ? rawLines.map((l: any) => {
         let realName = l.itemName || l.description;
         if (l.itemId) {
-          const sItem = db.prepare('SELECT name, unit FROM stock_items WHERE id = ?').get(l.itemId) as any;
+          const sItem = stockItemMap.get(l.itemId);
           if (sItem?.name) realName = sItem.name;
           if (!l.unit && sItem?.unit) l.unit = sItem.unit;
         }
@@ -6181,94 +6452,18 @@ export function createApp(dbPath?: string): express.Express {
           description: realName || l.description || l.itemId,
         };
       }) : [];
-      let partyName = partyNameMap.get(r.partyId) || r.partyId;
-      if (r.partyId) {
-        const pRow = db.prepare('SELECT name FROM parties WHERE id = ?').get(r.partyId) as any;
-        if (pRow?.name) partyName = pRow.name;
-      }
+      const partyName = partyNameMap.get(r.partyId) || r.partyId;
       return {
         ...r,
         kind: 'challan',
         companyName: companyNameMap.get(r.companyId),
         partyName,
         godownName: r.godownId ? (godownNameMap.get(r.godownId) || 'Main Location') : 'Main Location',
-        salesLedgerName: salesLedgerRow?.name || 'Sales',
-        purchaseLedgerName: purchaseLedgerRow?.name || 'PURCHASE',
+        salesLedgerName: getSalesLedger(r.companyId),
+        purchaseLedgerName: getPurchaseLedger(r.companyId),
         lines: resolvedLines,
       };
     });
-
-    let stockJournalItems: any[] = [];
-    try {
-      const outboxRows = db.prepare(outboxQuery).all(...params) as any[];
-      stockJournalItems = outboxRows
-        .map(o => {
-          const companyName = companyNameMap.get(o.companyId);
-          if (o.payload) {
-            try {
-              return { ...JSON.parse(o.payload), companyName };
-            } catch {}
-          }
-          const item = db.prepare('SELECT * FROM stock_items WHERE id = ?').get(o.refId) as any;
-          return {
-            id: o.id,
-            outboxId: o.id,
-            kind: 'stock_journal',
-            companyName,
-            refId: o.refId,
-            itemName: item?.name || o.refId,
-            godownName: 'Main Location',
-            deltaQty: 0,
-            unit: item?.unit || 'pcs',
-            rate: item?.rate || 0,
-            date: new Date().toISOString().slice(0, 10),
-          };
-        });
-    } catch {}
-
-    // Universal Vouchers (Receipts, Payments, Invoices) queued for Tally XML import
-    let voucherItems: any[] = [];
-    try {
-      let vchOutboxQuery = "SELECT * FROM outbox_items WHERE status = 'queued' AND kind = 'voucher'";
-      const vchParams: any[] = [];
-      if (companyId && companyId !== 'all') {
-        vchOutboxQuery += ' AND companyId = ?';
-        vchParams.push(companyId);
-      } else if (scopedTenantId) {
-        vchOutboxQuery += ' AND companyId IN (SELECT id FROM companies WHERE tenantId = ?)';
-        vchParams.push(scopedTenantId);
-      }
-      const vchRows = db.prepare(vchOutboxQuery).all(...vchParams) as any[];
-      voucherItems = vchRows.map((o) => {
-        const companyName = companyNameMap.get(o.companyId);
-        const salesLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'Sales' OR parentGroup LIKE 'Sales Account%' OR name = 'Sales Account') ORDER BY CASE WHEN name = 'Sales' THEN 0 WHEN parentGroup LIKE 'Sales Account%' THEN 1 ELSE 2 END LIMIT 1").get(o.companyId) as any;
-        const purchaseLedgerRow = db.prepare("SELECT name FROM parties WHERE companyId = ? AND (name = 'PURCHASE' OR name = 'Purchase' OR parentGroup LIKE 'Purchase Account%' OR name = 'Purchase Account') ORDER BY CASE WHEN name = 'PURCHASE' OR name = 'Purchase' THEN 0 WHEN parentGroup LIKE 'Purchase Account%' THEN 1 ELSE 2 END LIMIT 1").get(o.companyId) as any;
-        const defaultSalesLedger = salesLedgerRow?.name || 'Sales';
-        const defaultPurchaseLedger = purchaseLedgerRow?.name || 'PURCHASE';
-        if (o.payload) {
-          try {
-            const parsed = JSON.parse(o.payload);
-            return {
-              salesLedger: parsed.salesLedger || defaultSalesLedger,
-              purchaseLedger: parsed.purchaseLedger || defaultPurchaseLedger,
-              ...parsed,
-              id: o.refId || o.id,
-              outboxId: o.id,
-              kind: 'voucher',
-              companyName: companyName || parsed.companyName,
-            };
-          } catch {}
-        }
-        return {
-          id: o.refId || o.id,
-          outboxId: o.id,
-          kind: 'voucher',
-          companyName,
-          salesLedger: defaultSalesLedger,
-          purchaseLedger: defaultPurchaseLedger,
-        };
-      });
-    } catch {}
 
     // Check for pending remote commands for this company or tenant
     const targetComp = companyId && companyId !== 'all' ? resolveCompanyForAgent(companyId, undefined, scopedTenantId) : null;
@@ -6296,7 +6491,7 @@ export function createApp(dbPath?: string): express.Express {
       res.setHeader('X-Agent-Commands', JSON.stringify(commandsToSend));
     }
 
-    res.json([...challanItems, ...stockJournalItems, ...voucherItems]);
+    res.json([...masterItems, ...challanItems, ...stockJournalItems, ...voucherItems]);
   });
 
   app.post('/api/sync/ack', (req, res) => {
@@ -6321,19 +6516,27 @@ export function createApp(dbPath?: string): express.Express {
       }
     }
     const nextStatus = status || 'synced';
-    if (kind !== 'stock_journal' && challanId) {
+    if ((!kind || kind === 'challan') && challanId) {
       db.prepare('UPDATE challans SET status = ?, failureReason = ? WHERE id = ?').run(
         nextStatus,
         failureReason || null,
         challanId
       );
     }
-    db.prepare('UPDATE outbox_items SET status = ?, lastError = ? WHERE id = ? OR refId = ?').run(
-      nextStatus,
-      failureReason || null,
-      outboxId || targetId,
-      targetId
-    );
+    if (outboxId) {
+      db.prepare('UPDATE outbox_items SET status = ?, lastError = ? WHERE id = ?').run(
+        nextStatus,
+        failureReason || null,
+        outboxId
+      );
+    } else if (targetId) {
+      db.prepare('UPDATE outbox_items SET status = ?, lastError = ? WHERE id = ? OR refId = ?').run(
+        nextStatus,
+        failureReason || null,
+        targetId,
+        targetId
+      );
+    }
     res.json({ success: true, challanId: targetId, outboxId: outboxId || targetId, status: nextStatus });
   });
 

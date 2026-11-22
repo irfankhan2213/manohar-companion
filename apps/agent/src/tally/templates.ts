@@ -1,3 +1,13 @@
+export function getCurrentIndianFYDates(refDate: Date = new Date()): { fromDate: string; toDate: string } {
+  const year = refDate.getFullYear();
+  const month = refDate.getMonth() + 1; // 1-12
+  const fyStartYear = month >= 4 ? year : year - 1;
+  return {
+    fromDate: `${fyStartYear}0401`,
+    toDate: `${fyStartYear + 1}0331`,
+  };
+}
+
 export interface StockAdjustmentVoucherParams {
   date: string; // YYYYMMDD e.g. 20261017
   voucherNumber: string;
@@ -8,6 +18,7 @@ export interface StockAdjustmentVoucherParams {
   unit: string;
   rateRupees: number;
   companyName?: string;
+  guid?: string;
 }
 
 export interface DeliveryChallanVoucherParams {
@@ -19,6 +30,8 @@ export interface DeliveryChallanVoucherParams {
   voucherType?: 'sales' | 'purchase' | 'delivery' | 'receipt_note';
   companyName?: string;
   salesLedgerName?: string;
+  roundOffRupees?: number;
+  guid?: string;
   items: Array<{
     itemName: string;
     godownName?: string;
@@ -28,7 +41,36 @@ export interface DeliveryChallanVoucherParams {
   }>;
 }
 
+export interface StockItemMasterParams {
+  action?: 'Create' | 'Alter';
+  name: string;
+  oldName?: string;
+  unit?: string;
+  group?: string;
+  partNo?: string;
+  alias?: string;
+  hsnCode?: string;
+  gstRate?: number;
+  description?: string;
+  rateRupees?: number;
+  companyName?: string;
+}
+
+export interface LedgerMasterParams {
+  action?: 'Create' | 'Alter';
+  name: string;
+  oldName?: string;
+  parentGroup?: string;
+  phone?: string;
+  city?: string;
+  gstin?: string;
+  creditDays?: number;
+  openingBalanceRupees?: number;
+  companyName?: string;
+}
+
 export function buildCompanyInfoQuery(companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -43,8 +85,8 @@ export function buildCompanyInfoQuery(companyName?: string): string {
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -103,6 +145,7 @@ export function buildOpenCompaniesQuery(): string {
 }
 
 export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -117,8 +160,8 @@ export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string)
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -136,6 +179,7 @@ export function buildLedgersQuery(lastAlterId: number = 0, companyName?: string)
 }
 
 export function buildBillsQuery(companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -150,8 +194,8 @@ export function buildBillsQuery(companyName?: string): string {
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -169,6 +213,7 @@ export function buildBillsQuery(companyName?: string): string {
 }
 
 export function buildVouchersQuery(companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -183,8 +228,8 @@ export function buildVouchersQuery(companyName?: string): string {
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -202,6 +247,7 @@ export function buildVouchersQuery(companyName?: string): string {
 }
 
 export function buildVoucherManifestQuery(companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -216,8 +262,8 @@ export function buildVoucherManifestQuery(companyName?: string): string {
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -318,6 +364,7 @@ export function buildAllVouchersQuery(
 }
 
 export function buildGroupsQuery(companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -332,8 +379,8 @@ export function buildGroupsQuery(companyName?: string): string {
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -348,8 +395,8 @@ export function buildGroupsQuery(companyName?: string): string {
 </ENVELOPE>`;
 }
 
-
 export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: string): string {
+  const { fromDate, toDate } = getCurrentIndianFYDates();
   const companyTag = companyName
     ? `\n        <SVCURRENTCOMPANY>${escapeXml(companyName)}</SVCURRENTCOMPANY>`
     : '';
@@ -364,8 +411,8 @@ export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: stri
     <DESC>
       <STATICVARIABLES>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
-        <SVFROMDATE TYPE="Date">20260401</SVFROMDATE>
-        <SVTODATE TYPE="Date">20270331</SVTODATE>${companyTag}
+        <SVFROMDATE TYPE="Date">${fromDate}</SVFROMDATE>
+        <SVTODATE TYPE="Date">${toDate}</SVTODATE>${companyTag}
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
@@ -382,6 +429,144 @@ export function buildStockItemsQuery(lastAlterId: number = 0, companyName?: stri
 </ENVELOPE>`;
 }
 
+/**
+ * Bidirectional App -> Tally Master Sync: Create or Alter a Stock Item in TallyPrime.
+ * Uses <ID>All Masters</ID> with ACTION="Alter" (which creates if missing or updates if existing).
+ */
+export function buildStockItemMasterXml(params: StockItemMasterParams): string {
+  const companyTag = params.companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const unit = (params.unit || 'pcs').trim();
+  const group = (params.group || '').trim();
+  const targetAttrName = (params.oldName && params.oldName.trim()) ? params.oldName.trim() : params.name.trim();
+  const action = params.action || 'Alter';
+
+  const groupMessage =
+    group && group.toLowerCase() !== 'primary' && group.toLowerCase() !== 'general'
+      ? `\n      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <STOCKGROUP NAME="${escapeXml(group)}" ACTION="Alter">
+          <NAME.LIST>
+            <NAME>${escapeXml(group)}</NAME>
+          </NAME.LIST>
+          <PARENT/>
+        </STOCKGROUP>
+      </TALLYMESSAGE>`
+      : '';
+
+  const parentTag =
+    group && group.toLowerCase() !== 'primary' && group.toLowerCase() !== 'general'
+      ? `\n          <PARENT>${escapeXml(group)}</PARENT>`
+      : '\n          <PARENT/>';
+
+  const partNoTag = params.partNo
+    ? `\n          <MAILINGNAME.LIST TYPE="String">\n            <MAILINGNAME>${escapeXml(params.partNo)}</MAILINGNAME>\n          </MAILINGNAME.LIST>`
+    : '';
+  const aliasLine = params.alias && params.alias.trim() && params.alias.trim() !== params.name.trim()
+    ? `\n            <NAME>${escapeXml(params.alias.trim())}</NAME>`
+    : '';
+  const descTag = params.description
+    ? `\n          <DESCRIPTION>${escapeXml(params.description)}</DESCRIPTION>`
+    : '';
+  const hsnTag = params.hsnCode
+    ? `\n          <HSNCODE>${escapeXml(params.hsnCode)}</HSNCODE>`
+    : '';
+  const gstApplicableTag =
+    typeof params.gstRate === 'number' && params.gstRate > 0
+      ? `\n          <GSTAPPLICABLE>&#4; Applicable</GSTAPPLICABLE>`
+      : '';
+
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>All Masters</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <UNIT NAME="${escapeXml(unit)}" ACTION="Alter">
+          <NAME>${escapeXml(unit)}</NAME>
+          <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
+        </UNIT>
+      </TALLYMESSAGE>${groupMessage}
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <STOCKITEM NAME="${escapeXml(targetAttrName)}" ACTION="${action}">
+          <NAME.LIST TYPE="String">
+            <NAME>${escapeXml(params.name.trim())}</NAME>${aliasLine}
+          </NAME.LIST>${parentTag}
+          <BASEUNITS>${escapeXml(unit)}</BASEUNITS>${partNoTag}${descTag}${hsnTag}${gstApplicableTag}
+        </STOCKITEM>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
+/**
+ * Bidirectional App -> Tally Master Sync: Create or Alter a Party / Ledger in TallyPrime.
+ * Uses <ID>All Masters</ID> with ACTION="Alter" (upserts cleanly without duplicate errors).
+ */
+export function buildLedgerMasterXml(params: LedgerMasterParams): string {
+  const companyTag = params.companyName
+    ? `\n        <SVCURRENTCOMPANY>${escapeXml(params.companyName)}</SVCURRENTCOMPANY>`
+    : '';
+  const targetAttrName = (params.oldName && params.oldName.trim()) ? params.oldName.trim() : params.name.trim();
+  const action = params.action || 'Alter';
+  const parentGroup = (params.parentGroup || 'Sundry Debtors').trim();
+
+  const phoneTag = params.phone
+    ? `\n          <LEDGERPHONE>${escapeXml(params.phone.trim())}</LEDGERPHONE>`
+    : '';
+  const cityTag = params.city
+    ? `\n          <ADDRESS.LIST TYPE="String">\n            <ADDRESS>${escapeXml(params.city.trim())}</ADDRESS>\n          </ADDRESS.LIST>`
+    : '';
+  const gstinTag = params.gstin
+    ? `\n          <PARTYGSTIN>${escapeXml(params.gstin.trim())}</PARTYGSTIN>`
+    : '';
+  const creditTag =
+    typeof params.creditDays === 'number' && params.creditDays > 0
+      ? `\n          <BILLCREDITPERIOD>${params.creditDays} Days</BILLCREDITPERIOD>`
+      : '';
+  const openingBalTag =
+    typeof params.openingBalanceRupees === 'number' && params.openingBalanceRupees !== 0
+      ? `\n          <OPENINGBALANCE>${(-params.openingBalanceRupees).toFixed(2)}</OPENINGBALANCE>`
+      : '';
+
+  return `<ENVELOPE>
+  <HEADER>
+    <VERSION>1</VERSION>
+    <TALLYREQUEST>Import</TALLYREQUEST>
+    <TYPE>Data</TYPE>
+    <ID>All Masters</ID>
+  </HEADER>
+  <BODY>
+    <DESC>
+      <STATICVARIABLES>
+        <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
+      </STATICVARIABLES>
+    </DESC>
+    <DATA>
+      <TALLYMESSAGE xmlns:UDF="TallyUDF">
+        <LEDGER NAME="${escapeXml(targetAttrName)}" ACTION="${action}">
+          <NAME.LIST TYPE="String">
+            <NAME>${escapeXml(params.name.trim())}</NAME>
+          </NAME.LIST>
+          <PARENT>${escapeXml(parentGroup)}</PARENT>
+          <ISBILLWISEON>Yes</ISBILLWISEON>${phoneTag}${cityTag}${gstinTag}${creditTag}${openingBalTag}
+        </LEDGER>
+      </TALLYMESSAGE>
+    </DATA>
+  </BODY>
+</ENVELOPE>`;
+}
+
 export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams): string {
   const isAddition = params.qty > 0;
   const absQty = Math.abs(params.qty);
@@ -394,6 +579,8 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
       </STATICVARIABLES>`;
 
   const godown = escapeXml(params.godownName || 'Main Location');
+  const remoteIdAttr = params.guid ? ` REMOTEID="${escapeXml(params.guid)}"` : '';
+  const guidTag = params.guid ? `\n          <GUID>${escapeXml(params.guid)}</GUID>` : '';
 
   // In Tally Stock Journal:
   // INVENTORYENTRIESIN.LIST is Production/Addition
@@ -443,21 +630,7 @@ export function buildStockJournalVoucherXml(params: StockAdjustmentVoucherParams
     </DESC>
     <DATA>
       <TALLYMESSAGE>
-        <UNIT NAME="${escapeXml(params.unit)}" ACTION="Create">
-          <NAME>${escapeXml(params.unit)}</NAME>
-          <ISSIMPLEUNIT>Yes</ISSIMPLEUNIT>
-        </UNIT>
-      </TALLYMESSAGE>
-      <TALLYMESSAGE>
-        <STOCKITEM NAME="${escapeXml(params.itemName)}" ACTION="Alter">
-          <NAME.LIST>
-            <NAME>${escapeXml(params.itemName)}</NAME>
-          </NAME.LIST>
-          <BASEUNITS>${escapeXml(params.unit)}</BASEUNITS>
-        </STOCKITEM>
-      </TALLYMESSAGE>
-      <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="Stock Journal" ACTION="Create">
+        <VOUCHER VCHTYPE="Stock Journal" ACTION="Create"${remoteIdAttr}>${guidTag}
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
           <VOUCHERTYPENAME>Stock Journal</VOUCHERTYPENAME>
@@ -491,8 +664,18 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>${companyTag}
       </STATICVARIABLES>`;
 
-  const totalAmountNum = params.items.reduce((sum, item) => sum + item.qty * item.rateRupees, 0);
+  const itemsTotalNum = params.items.reduce((sum, item) => sum + item.qty * item.rateRupees, 0);
+  const roundOffNum = typeof params.roundOffRupees === 'number' && !isNaN(params.roundOffRupees) ? params.roundOffRupees : 0;
+  const totalAmountNum = itemsTotalNum + roundOffNum;
   const totalAmount = totalAmountNum.toFixed(2);
+
+  const roundOffEntry = roundOffNum !== 0
+    ? `\n          <LEDGERENTRIES.LIST>
+            <LEDGERNAME>Round Off</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>${(isPurchase ? roundOffNum > 0 : roundOffNum < 0) ? 'Yes' : 'No'}</ISDEEMEDPOSITIVE>
+            <AMOUNT>${((isPurchase ? -1 : 1) * roundOffNum).toFixed(2)}</AMOUNT>
+          </LEDGERENTRIES.LIST>`
+    : '';
 
   const itemEntries = params.items
     .map((item) => {
@@ -530,6 +713,8 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
   const objViewAttr = isInvoice ? ' OBJVIEW="Invoice Voucher View"' : '';
   const persistedViewTag = isInvoice ? '\n          <PERSISTEDVIEW>Invoice Voucher View</PERSISTEDVIEW>' : '';
   const isInvoiceTag = isInvoice ? '\n          <ISINVOICE>Yes</ISINVOICE>' : '\n          <ISINVOICE>No</ISINVOICE>';
+  const remoteIdAttr = params.guid ? ` REMOTEID="${escapeXml(params.guid)}"` : '';
+  const guidTag = params.guid ? `\n          <GUID>${escapeXml(params.guid)}</GUID>` : '';
 
   return `<ENVELOPE>
   <HEADER>
@@ -544,7 +729,7 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
     </DESC>
     <DATA>
       <TALLYMESSAGE>
-        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create"${objViewAttr}>
+        <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create"${objViewAttr}${remoteIdAttr}>${guidTag}
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
           <REFERENCE>${escapeXml(params.voucherNumber)}</REFERENCE>
@@ -559,7 +744,7 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
             <ISDEEMEDPOSITIVE>${isPurchase ? 'No' : 'Yes'}</ISDEEMEDPOSITIVE>
             <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
             <AMOUNT>${partySignPrefix}${totalAmount}</AMOUNT>
-          </LEDGERENTRIES.LIST>
+          </LEDGERENTRIES.LIST>${roundOffEntry}
           ${itemEntries}
         </VOUCHER>
       </TALLYMESSAGE>
@@ -606,6 +791,7 @@ export interface UniversalVoucherParams {
   partyLedgerName?: string;
   narration?: string;
   companyName?: string;
+  guid?: string;
   ledgerEntries: UniversalVoucherLedgerEntry[];
   inventoryEntries?: UniversalVoucherInventoryEntry[];
 }
@@ -686,6 +872,8 @@ export function buildUniversalVoucherXml(params: UniversalVoucherParams): string
   const partyLedgerTag = params.partyLedgerName
     ? `\n          <PARTYLEDGERNAME>${escapeXml(params.partyLedgerName)}</PARTYLEDGERNAME>`
     : '';
+  const remoteIdAttr = params.guid ? ` REMOTEID="${escapeXml(params.guid)}"` : '';
+  const guidTag = params.guid ? `\n          <GUID>${escapeXml(params.guid)}</GUID>` : '';
 
   return `<ENVELOPE>
   <HEADER>
@@ -700,7 +888,7 @@ export function buildUniversalVoucherXml(params: UniversalVoucherParams): string
     </DESC>
     <DATA>
       <TALLYMESSAGE xmlns:UDF="TallyUDF">
-        <VOUCHER VCHTYPE="${escapeXml(params.voucherType)}" ACTION="Create" OBJVIEW="${objView}">
+        <VOUCHER VCHTYPE="${escapeXml(params.voucherType)}" ACTION="Create" OBJVIEW="${objView}"${remoteIdAttr}>${guidTag}
           <DATE>${params.date}</DATE>
           <VOUCHERTYPENAME>${escapeXml(params.voucherType)}</VOUCHERTYPENAME>${vchNumTag}${partyLedgerTag}
           <PERSISTEDVIEW>${objView}</PERSISTEDVIEW>

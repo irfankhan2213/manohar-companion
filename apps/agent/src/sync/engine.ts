@@ -20,8 +20,12 @@ import {
 import {
   StockAdjustmentVoucherParams,
   DeliveryChallanVoucherParams,
+  StockItemMasterParams,
+  LedgerMasterParams,
   buildStockJournalVoucherXml,
   buildDeliveryChallanVoucherXml,
+  buildStockItemMasterXml,
+  buildLedgerMasterXml,
   buildUniversalVoucherXml,
   UniversalVoucherParams,
   UniversalVoucherLedgerEntry,
@@ -177,6 +181,119 @@ export class SyncEngine {
     });
   }
 
+  private async fetchCompanySnapshot(
+    queryTarget: string | undefined,
+    lastAlterId: number,
+    prevActiveIds: string[]
+  ): Promise<{
+    ledgers: TallyLedger[];
+    bills: TallyBill[];
+    stockItems: TallyStockItem[];
+    challans: TallyChallanSync[];
+    vouchers: TallySyncVoucher[];
+    groups: TallyGroup[];
+    deletedVoucherMasterIds: string[];
+    currentVoucherMasterIds: string[];
+    maxAlterId: number;
+  }> {
+    let maxAlterId = lastAlterId;
+
+    // Batch 1: Parallel independent master & manifest reads (cuts Tally round-trip latency in half)
+    const [manifestResult, ledgers, bills, groups, stockItems] = await Promise.all([
+      this.client.getVoucherManifest(queryTarget).catch((err: any) => {
+        console.warn(`[SyncEngine] Voucher manifest query notice: ${err?.message || err}`);
+        return null;
+      }),
+      this.client.getLedgers(0, queryTarget),
+      this.client.getBills(undefined, queryTarget),
+      this.client.getGroups(queryTarget).catch((err: any) => {
+        console.warn(`[SyncEngine] Groups fetch notice: ${err?.message || err}`);
+        return [] as TallyGroup[];
+      }),
+      this.client.getStockItems(0, queryTarget),
+    ]);
+
+    if (queryTarget) {
+      this.companyLedgersCache.set(normalizeTallyCompanyName(queryTarget), ledgers);
+    }
+
+    let deletedVoucherMasterIds: string[] = [];
+    let currentVoucherMasterIds: string[] = [];
+    if (manifestResult) {
+      currentVoucherMasterIds = Array.from(
+        new Set(
+          manifestResult
+            .flatMap((m) => [m.voucherNumber, m.masterId].filter(Boolean) as string[])
+            .map((s) => s.trim())
+            .filter(Boolean)
+        )
+      );
+      if (prevActiveIds.length > 0) {
+        const manifestSet = new Set(currentVoucherMasterIds);
+        deletedVoucherMasterIds = prevActiveIds.filter((id: string) => !manifestSet.has(id));
+      }
+    }
+
+    // Batch 2: Parallel voucher & challan reads
+    const [challansRes, allVchRes] = await Promise.all([
+      (async () => {
+        try {
+          if (lastAlterId > 0) {
+            return await this.client.getVouchersIncremental(lastAlterId, queryTarget);
+          }
+          const vchResult = await this.client.getVouchers(undefined, queryTarget);
+          return { challans: vchResult.challans || [], maxAlterId: 0 };
+        } catch (vchErr: any) {
+          console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
+          return { challans: [] as TallyChallanSync[], maxAlterId: 0 };
+        }
+      })(),
+      (async () => {
+        try {
+          return await this.client.getAllVouchers(lastAlterId, queryTarget);
+        } catch (allVchErr: any) {
+          console.warn(`[SyncEngine] Direct vouchers fetch notice: ${allVchErr?.message || allVchErr}. Falling back to chunked sync...`);
+          try {
+            return await this.client.getAllVouchersChunked(lastAlterId, queryTarget);
+          } catch (chunkErr: any) {
+            console.warn(`[SyncEngine] Chunked vouchers fetch notice: ${chunkErr?.message || chunkErr}`);
+            return { vouchers: [] as TallySyncVoucher[], maxAlterId: 0 };
+          }
+        }
+      })(),
+    ]);
+
+    const challans = challansRes.challans || [];
+    const vouchers = allVchRes.vouchers || [];
+    if (challansRes.maxAlterId && challansRes.maxAlterId > maxAlterId) maxAlterId = challansRes.maxAlterId;
+    if (allVchRes.maxAlterId && allVchRes.maxAlterId > maxAlterId) maxAlterId = allVchRes.maxAlterId;
+
+    for (const l of ledgers) {
+      if (l.alterId > maxAlterId) maxAlterId = l.alterId;
+    }
+    for (const s of stockItems) {
+      if (s.alterId > maxAlterId) maxAlterId = s.alterId;
+    }
+    for (const c of challans) {
+      if (c.alterId && c.alterId > maxAlterId) maxAlterId = c.alterId;
+    }
+    for (const v of vouchers) {
+      if (v.alterId && v.alterId > maxAlterId) maxAlterId = v.alterId;
+    }
+
+    return {
+      ledgers,
+      bills,
+      stockItems,
+      challans,
+      vouchers,
+      groups,
+      deletedVoucherMasterIds,
+      currentVoucherMasterIds,
+      maxAlterId,
+    };
+  }
+
   public async runSyncOnce(): Promise<TallySyncPayload> {
     const startTime = Date.now();
     const currentState = this.store.get();
@@ -187,24 +304,20 @@ export class SyncEngine {
     }
 
     try {
-      // 1. Fetch active Company Info & Discover ALL Open Companies in TallyPrime directly
-      // Never filter or require matching the Web App's companyName — always take whatever company is open in TallyPrime
-      let openCompanies: TallyCompanyInfo[] = [];
-      try {
-        openCompanies = await this.client.getOpenCompanies();
-      } catch {
-        openCompanies = [];
-      }
+      // 1. Fetch active Company Info & Discover ALL Open Companies in TallyPrime in parallel
+      const [openCompaniesResult, companyInfoResult] = await Promise.all([
+        this.client.getOpenCompanies().catch(() => [] as TallyCompanyInfo[]),
+        this.client.getCompanyInfo().catch((err: any) => ({ __error: err } as any)),
+      ]);
 
+      const openCompanies: TallyCompanyInfo[] = openCompaniesResult;
       let company: TallyCompanyInfo;
-      try {
-        company = await this.client.getCompanyInfo();
-      } catch (compErr: any) {
-        if (openCompanies.length > 0 && openCompanies[0]?.name) {
-          company = openCompanies[0];
-        } else {
-          throw compErr;
-        }
+      if (companyInfoResult && !companyInfoResult.__error) {
+        company = companyInfoResult;
+      } else if (openCompanies.length > 0 && openCompanies[0]?.name) {
+        company = openCompanies[0];
+      } else {
+        throw companyInfoResult?.__error || new Error('Unable to read active company from Tally');
       }
 
       // If getCompanyInfo returned empty name, take the first real open company from Tally
@@ -265,119 +378,32 @@ export class SyncEngine {
         });
       }
 
-      // Unconditionally scope every outgoing Tally query with targetCompany
-      // so multi-company synchronization works reliably without cross-company bleed
       const queryTarget = targetCompany;
 
-      // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (stock adjustments & challans) FIRST
+      // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (masters, stock adjustments, challans & vouchers) FIRST
       // and write them to Tally BEFORE reading Tally's closing stock & ledger balances!
       if (this.cloudUrl) {
         await this.pullOutboxFromCloud(primaryCompanyId, targetCompany, openCompanyNames);
       }
 
-      // 2b. Query lightweight voucher manifest to detect deletions
-      let deletedVoucherMasterIds: string[] = [];
-      let currentVoucherMasterIds: string[] = [];
-      try {
-        const manifest = await this.client.getVoucherManifest(queryTarget);
-        currentVoucherMasterIds = Array.from(
-          new Set(
-            manifest
-              .flatMap((m) => [m.voucherNumber, m.masterId].filter(Boolean) as string[])
-              .map((s) => s.trim())
-              .filter(Boolean)
-          )
-        );
-        const prevActiveIds: string[] =
-          matchedConfig?.activeVoucherMasterIds ||
-          (isSameAsPreviousSync ? currentState.activeVoucherMasterIds : undefined) ||
-          [];
-        if (prevActiveIds.length > 0) {
-          const manifestSet = new Set(currentVoucherMasterIds);
-          deletedVoucherMasterIds = prevActiveIds.filter((id: string) => !manifestSet.has(id));
-        }
-      } catch (manifestErr: any) {
-        console.warn(`[SyncEngine] Voucher manifest query notice: ${manifestErr?.message || manifestErr}`);
-      }
-
-      // 3. Always fetch all Ledgers (from AlterID 0) for targetCompany
-      const ledgers: TallyLedger[] = await this.client.getLedgers(0, queryTarget);
-      if (queryTarget) {
-        this.companyLedgersCache.set(normalizeTallyCompanyName(queryTarget), ledgers);
-      }
-
-      // 4. Fetch Bills Outstanding for targetCompany
-      let bills: TallyBill[] = await this.client.getBills(undefined, queryTarget);
-
-      // 4b. Fetch Vouchers (Delivery Challans and Receipt Notes)
-      let maxAlterId = lastAlterId;
-      let challans: TallyChallanSync[] = [];
-      let vouchers: TallySyncVoucher[] = [];
-      try {
-        if (lastAlterId > 0) {
-          const incResult = await this.client.getVouchersIncremental(lastAlterId, queryTarget);
-          challans = incResult.challans || [];
-          if (incResult.maxAlterId > maxAlterId) maxAlterId = incResult.maxAlterId;
-        } else {
-          const vchResult = await this.client.getVouchers(undefined, queryTarget);
-          challans = vchResult.challans || [];
-        }
-      } catch (vchErr: any) {
-        console.warn(`[SyncEngine] Vouchers collection fetch notice: ${vchErr?.message || vchErr}`);
-      }
-
-      // 4c. Fetch All Vouchers for Daybook, Registers, and P&L
-      try {
-        const allVchResult = await this.client.getAllVouchers(lastAlterId, queryTarget);
-        vouchers = allVchResult.vouchers || [];
-        if (allVchResult.maxAlterId > maxAlterId) maxAlterId = allVchResult.maxAlterId;
-      } catch (allVchErr: any) {
-        console.warn(`[SyncEngine] Direct vouchers fetch notice: ${allVchErr?.message || allVchErr}. Falling back to chunked sync...`);
-        try {
-          const chunkResult = await this.client.getAllVouchersChunked(lastAlterId, queryTarget);
-          vouchers = chunkResult.vouchers || [];
-          if (chunkResult.maxAlterId > maxAlterId) maxAlterId = chunkResult.maxAlterId;
-        } catch (chunkErr: any) {
-          console.warn(`[SyncEngine] Chunked vouchers fetch notice: ${chunkErr?.message || chunkErr}`);
-        }
-      }
-
-      // 4d. Fetch Groups hierarchy
-      let groups: TallyGroup[] = [];
-      try {
-        groups = await this.client.getGroups(queryTarget);
-      } catch (grpErr: any) {
-        console.warn(`[SyncEngine] Groups fetch notice: ${grpErr?.message || grpErr}`);
-      }
-
-      // 5. Always fetch all Stock Items (from AlterID 0) for targetCompany
-      const stockItems: TallyStockItem[] = await this.client.getStockItems(0, queryTarget);
-
-      // 6. Compute max AlterID seen across new ledgers, stock items & vouchers
-      for (const l of ledgers) {
-        if (l.alterId > maxAlterId) maxAlterId = l.alterId;
-      }
-      for (const s of stockItems) {
-        if (s.alterId > maxAlterId) maxAlterId = s.alterId;
-      }
-      for (const c of challans) {
-        if (c.alterId && c.alterId > maxAlterId) maxAlterId = c.alterId;
-      }
-      for (const v of vouchers) {
-        if (v.alterId && v.alterId > maxAlterId) maxAlterId = v.alterId;
-      }
+      // 3-6. Parallel Tally snapshot fetch for primary company
+      const prevActiveIds: string[] =
+        matchedConfig?.activeVoucherMasterIds ||
+        (isSameAsPreviousSync ? currentState.activeVoucherMasterIds : undefined) ||
+        [];
+      const snap = await this.fetchCompanySnapshot(queryTarget, lastAlterId, prevActiveIds);
 
       const nowIso = new Date().toISOString();
       const payload: TallySyncPayload = {
         company,
-        ledgers,
-        bills,
-        stockItems,
-        challans,
-        vouchers,
-        groups,
-        deletedVoucherMasterIds,
-        maxAlterId,
+        ledgers: snap.ledgers,
+        bills: snap.bills,
+        stockItems: snap.stockItems,
+        challans: snap.challans,
+        vouchers: snap.vouchers,
+        groups: snap.groups,
+        deletedVoucherMasterIds: snap.deletedVoucherMasterIds,
+        maxAlterId: snap.maxAlterId,
         syncedAt: nowIso,
         durationMs: Date.now() - startTime,
       };
@@ -403,9 +429,9 @@ export class SyncEngine {
           companyId: resolvedPrimaryId,
           companyName: targetCompany,
           tallyName: targetCompany,
-          lastAlterId: this.pendingAlterIdReset ? 0 : maxAlterId,
+          lastAlterId: this.pendingAlterIdReset ? 0 : snap.maxAlterId,
           lastSyncedAt: nowIso,
-          activeVoucherMasterIds: currentVoucherMasterIds.length > 0 ? currentVoucherMasterIds : (matchedConfig?.activeVoucherMasterIds || currentState.activeVoucherMasterIds),
+          activeVoucherMasterIds: snap.currentVoucherMasterIds.length > 0 ? snap.currentVoucherMasterIds : (matchedConfig?.activeVoucherMasterIds || currentState.activeVoucherMasterIds),
         };
         if (existingIdx >= 0) {
           knownList[existingIdx] = updatedEntry;
@@ -415,7 +441,6 @@ export class SyncEngine {
       }
 
       // 8. Multi-company secondary sync loop:
-      // Only sync additional companies that are ACTUALLY open in TallyPrime right now (via openCompanyNames)
       const additionalTargets: Array<{ companyId?: string; tallyName: string; lastAlterId: number }> = [];
 
       for (const openCompName of openCompanyNames) {
@@ -447,80 +472,24 @@ export class SyncEngine {
           );
           const extraInfo = matchedOpenComp || (await this.client.getCompanyInfo(extraTarget));
           if (extraInfo?.name && (normalizeTallyCompanyName(extraInfo.name) === normalizeTallyCompanyName(extraTarget) || matchedOpenComp)) {
-            let extraDeletedIds: string[] = [];
-            let extraActiveIds: string[] = [];
-            try {
-              const extraManifest = await this.client.getVoucherManifest(extraTarget);
-              extraActiveIds = Array.from(
-                new Set(
-                  extraManifest
-                    .flatMap((m) => [m.voucherNumber, m.masterId].filter(Boolean) as string[])
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                )
-              );
-              const prevExtraIds: string[] = matchedCfg?.activeVoucherMasterIds || [];
-              if (prevExtraIds.length > 0) {
-                const extraSet = new Set(extraActiveIds);
-                extraDeletedIds = prevExtraIds.filter((id: string) => !extraSet.has(id));
-              }
-            } catch {}
-
-            const extraLedgers = await this.client.getLedgers(0, extraTarget);
-            if (extraTarget) {
-              this.companyLedgersCache.set(normalizeTallyCompanyName(extraTarget), extraLedgers);
-            }
-            let extraBills = await this.client.getBills(undefined, extraTarget);
-            let extraMaxAlter = extra.lastAlterId || 0;
-            let extraChallans: TallyChallanSync[] = [];
-            try {
-              if (extra.lastAlterId > 0) {
-                const extraInc = await this.client.getVouchersIncremental(extra.lastAlterId, extraTarget);
-                extraChallans = extraInc.challans || [];
-                if (extraInc.maxAlterId > extraMaxAlter) extraMaxAlter = extraInc.maxAlterId;
-              } else {
-                const extraVch = await this.client.getVouchers(undefined, extraTarget);
-                extraChallans = extraVch.challans || [];
-              }
-            } catch {}
-            let extraVouchers: TallySyncVoucher[] = [];
-            try {
-              const allExtraVch = await this.client.getAllVouchers(extra.lastAlterId || 0, extraTarget);
-              extraVouchers = allExtraVch.vouchers || [];
-              if (allExtraVch.maxAlterId > extraMaxAlter) extraMaxAlter = allExtraVch.maxAlterId;
-            } catch {
-              try {
-                const chunkRes = await this.client.getAllVouchersChunked(extra.lastAlterId || 0, extraTarget);
-                extraVouchers = chunkRes.vouchers || [];
-                if (chunkRes.maxAlterId > extraMaxAlter) extraMaxAlter = chunkRes.maxAlterId;
-              } catch {}
-            }
-            let extraGroups: TallyGroup[] = [];
-            try {
-              extraGroups = await this.client.getGroups(extraTarget);
-            } catch {}
-            for (const c of extraChallans) {
-              if (c.alterId && c.alterId > extraMaxAlter) extraMaxAlter = c.alterId;
-            }
-            for (const v of extraVouchers) {
-              if (v.alterId && v.alterId > extraMaxAlter) extraMaxAlter = v.alterId;
-            }
-            const extraStock = await this.client.getStockItems(0, extraTarget);
-            for (const l of extraLedgers) if (l.alterId > extraMaxAlter) extraMaxAlter = l.alterId;
-            for (const s of extraStock) if (s.alterId > extraMaxAlter) extraMaxAlter = s.alterId;
+            const extraSnap = await this.fetchCompanySnapshot(
+              extraTarget,
+              extra.lastAlterId || 0,
+              matchedCfg?.activeVoucherMasterIds || []
+            );
             let resolvedExtraId = extra.companyId;
             if (this.cloudUrl) {
               const cloudId = await this.pushToCloud(
                 {
                   company: extraInfo,
-                  ledgers: extraLedgers,
-                  bills: extraBills,
-                  stockItems: extraStock,
-                  challans: extraChallans,
-                  vouchers: extraVouchers,
-                  groups: extraGroups,
-                  deletedVoucherMasterIds: extraDeletedIds,
-                  maxAlterId: extraMaxAlter,
+                  ledgers: extraSnap.ledgers,
+                  bills: extraSnap.bills,
+                  stockItems: extraSnap.stockItems,
+                  challans: extraSnap.challans,
+                  vouchers: extraSnap.vouchers,
+                  groups: extraSnap.groups,
+                  deletedVoucherMasterIds: extraSnap.deletedVoucherMasterIds,
+                  maxAlterId: extraSnap.maxAlterId,
                   syncedAt: nowIso,
                   durationMs: Date.now() - startTime,
                 },
@@ -540,9 +509,9 @@ export class SyncEngine {
                 companyId: resolvedExtraId,
                 companyName: extraInfo.name,
                 tallyName: extraInfo.name,
-                lastAlterId: extraMaxAlter,
+                lastAlterId: extraSnap.maxAlterId,
                 lastSyncedAt: nowIso,
-                activeVoucherMasterIds: extraActiveIds.length > 0 ? extraActiveIds : matchedCfg?.activeVoucherMasterIds,
+                activeVoucherMasterIds: extraSnap.currentVoucherMasterIds.length > 0 ? extraSnap.currentVoucherMasterIds : matchedCfg?.activeVoucherMasterIds,
               };
               if (idx >= 0) knownList[idx] = entry;
               else knownList.push(entry);
@@ -554,7 +523,7 @@ export class SyncEngine {
       }
 
       // 9. Update local state after successful cloud push
-      const newAlterId = this.pendingAlterIdReset ? 0 : maxAlterId;
+      const newAlterId = this.pendingAlterIdReset ? 0 : snap.maxAlterId;
       this.pendingAlterIdReset = false;
       this.store.update({
         companyName: company.name,
@@ -564,7 +533,7 @@ export class SyncEngine {
         tallyPort: activePort,
         openTallyCompanies: openCompanyNames.length > 0 ? openCompanyNames : [company.name],
         companies: knownList.length > 0 ? knownList : currentState.companies,
-        activeVoucherMasterIds: currentVoucherMasterIds.length > 0 ? currentVoucherMasterIds : currentState.activeVoucherMasterIds,
+        activeVoucherMasterIds: snap.currentVoucherMasterIds.length > 0 ? snap.currentVoucherMasterIds : currentState.activeVoucherMasterIds,
       });
 
       this.onSyncComplete?.(payload);
@@ -874,6 +843,16 @@ export class SyncEngine {
     return pushData?.companyId || companyId;
   }
 
+  private async ensureLedgersCached(companyName?: string): Promise<void> {
+    if (!companyName) return;
+    const norm = normalizeTallyCompanyName(companyName);
+    if (!norm || this.companyLedgersCache.has(norm)) return;
+    try {
+      const ledgers = await this.client.getLedgers(0, companyName);
+      this.companyLedgersCache.set(norm, ledgers);
+    } catch {}
+  }
+
   public async pullOutboxFromCloud(
     targetCompanyId?: string,
     overrideCompanyName?: string,
@@ -927,15 +906,44 @@ export class SyncEngine {
             targetCompanyName = matchedOpen;
           } else if (openList.length > 0 && !overrideCompanyName) {
             console.log(
-              `[SyncEngine] Challan ${item.number || item.id} is for company "${item.companyName}", but open in Tally: [${openList.join(
+              `[SyncEngine] Outbox item ${item.number || item.name || item.id} is for company "${item.companyName}", but open in Tally: [${openList.join(
                 ', '
               )}]. Waiting for "${item.companyName}" to be open in Tally.`
             );
             continue;
           }
         }
+
         let result: VoucherImportResult;
-        if (item.kind === 'stock_journal') {
+        if (item.kind === 'stock_item') {
+          result = await this.pushStockItemMaster({
+            action: item.action === 'Create' ? 'Create' : 'Alter',
+            name: item.name || item.itemName,
+            oldName: item.oldName,
+            unit: item.unit || 'pcs',
+            group: item.group || item.itemGroup,
+            partNo: item.partNo,
+            alias: item.alias,
+            hsnCode: item.hsnCode,
+            gstRate: typeof item.gstRate === 'number' ? item.gstRate : undefined,
+            description: item.description,
+            rateRupees: typeof item.rate === 'number' ? item.rate / 100 : undefined,
+            companyName: targetCompanyName,
+          });
+        } else if (item.kind === 'party' || item.kind === 'ledger') {
+          result = await this.pushLedgerMaster({
+            action: item.action === 'Create' ? 'Create' : 'Alter',
+            name: item.name || item.partyName,
+            oldName: item.oldName,
+            parentGroup: item.parentGroup || (item.partyType === 'creditor' ? 'Sundry Creditors' : 'Sundry Debtors'),
+            phone: item.phone || (Array.isArray(item.phones) ? item.phones[0] : undefined),
+            city: item.city,
+            gstin: item.gstin,
+            creditDays: typeof item.creditDays === 'number' ? item.creditDays : undefined,
+            openingBalanceRupees: typeof item.openingBalance === 'number' ? item.openingBalance / 100 : undefined,
+            companyName: targetCompanyName,
+          });
+        } else if (item.kind === 'stock_journal') {
           result = await this.pushStockAdjustment({
             companyName: targetCompanyName,
             date: formattedDate,
@@ -946,8 +954,10 @@ export class SyncEngine {
             qty: item.deltaQty ?? item.qty ?? 0,
             unit: item.unit || 'pcs',
             rateRupees: (item.rate || 0) / 100,
+            guid: `manohar-sj-${item.outboxId || item.id}`,
           });
         } else if (item.kind === 'challan') {
+          await this.ensureLedgersCached(targetCompanyName);
           const isPurchase = item.type === 'receipt_note' || item.type === 'purchase';
           const rawSalesLedger = item.salesLedgerName || item.salesLedger;
           const salesLedger = (rawSalesLedger && this.hasLedger(targetCompanyName, rawSalesLedger))
@@ -968,6 +978,8 @@ export class SyncEngine {
             vehicleNo: item.vehicleNo,
             voucherType: item.type || 'delivery',
             salesLedgerName: ledgerToUse,
+            roundOffRupees: typeof item.roundOff === 'number' ? item.roundOff / 100 : 0,
+            guid: `manohar-ch-${item.id}`,
             items: (item.lines || []).map((l: any) => ({
               itemName: l.itemName || l.description || l.itemId,
               godownName: item.godownName || l.godownName || 'Main Location',
@@ -978,6 +990,7 @@ export class SyncEngine {
           });
         } else {
           // Universal Voucher write (Receipt, Payment, Sales, Purchase, Journal) - Livekeeping Parity
+          await this.ensureLedgersCached(targetCompanyName);
           const rawVType = (item.voucherType || item.type || item.kind || '').toLowerCase();
           const tallyVchType: UniversalVoucherParams['voucherType'] =
             rawVType === 'receipt'
@@ -1003,6 +1016,7 @@ export class SyncEngine {
             date: formattedDate,
             partyLedgerName: item.partyName || item.partyLedgerName,
             narration: item.narration || `Mobile ${tallyVchType} (${item.id})`,
+            guid: `manohar-vch-${item.outboxId || item.id}`,
             ledgerEntries: item.ledgerEntries && item.ledgerEntries.length > 0 ? item.ledgerEntries : this.buildDefaultLedgerEntries(item),
             inventoryEntries: (item.lines || item.inventoryEntries || []).map((l: any) => ({
               itemName: l.description || l.itemName || l.itemId,
@@ -1023,7 +1037,7 @@ export class SyncEngine {
             'x-agent-key': key,
           },
           body: JSON.stringify({
-            challanId: item.id,
+            challanId: item.kind === 'challan' ? item.id : undefined,
             outboxId: item.outboxId || item.id,
             voucherId: item.id,
             kind: item.kind || 'challan',
@@ -1034,7 +1048,17 @@ export class SyncEngine {
 
         if (status === 'synced') syncedCount++;
       } catch (err: any) {
-        console.error(`[SyncEngine] Failed to import item ${item.id} to Tally:`, err.message);
+        const msg = String(err?.message || 'Tally XML import error');
+        console.error(`[SyncEngine] Failed to import item ${item.id} to Tally:`, msg);
+        // If Tally is temporarily unreachable/busy, leave queued so next poll retries automatically
+        const isTransientNetworkError =
+          msg.includes('Cannot reach Tally') ||
+          msg.includes('ECONNREFUSED') ||
+          msg.includes('ETIMEDOUT') ||
+          msg.includes('aborted');
+        if (isTransientNetworkError) {
+          continue;
+        }
         try {
           await fetch(`${this.cloudUrl}/api/sync/ack`, {
             method: 'POST',
@@ -1043,12 +1067,12 @@ export class SyncEngine {
               'x-agent-key': key,
             },
             body: JSON.stringify({
-              challanId: item.id,
+              challanId: item.kind === 'challan' ? item.id : undefined,
               outboxId: item.outboxId || item.id,
               voucherId: item.id,
               kind: item.kind || 'challan',
               status: 'failed',
-              failureReason: err?.message || 'Tally XML import error',
+              failureReason: msg,
             }),
           });
         } catch {}
@@ -1130,6 +1154,18 @@ export class SyncEngine {
     const purchNamed = cached.find((l) => l.name && (l.name.toLowerCase() === 'purchase' || l.name.toLowerCase() === 'purchase account' || l.name.toLowerCase() === 'purchase a/c'));
     if (purchNamed) return purchNamed.name;
     return 'PURCHASE';
+  }
+
+  // Push a Stock Item Master (Create/Alter) to Tally
+  public async pushStockItemMaster(params: StockItemMasterParams): Promise<VoucherImportResult> {
+    const xml = buildStockItemMasterXml(params);
+    return await this.client.postVoucher(xml);
+  }
+
+  // Push a Party / Ledger Master (Create/Alter) to Tally
+  public async pushLedgerMaster(params: LedgerMasterParams): Promise<VoucherImportResult> {
+    const xml = buildLedgerMasterXml(params);
+    return await this.client.postVoucher(xml);
   }
 
   // Push a universal voucher (Receipt, Payment, Sales, Purchase, Journal) to Tally

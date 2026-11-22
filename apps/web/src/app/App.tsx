@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { can, PermissionKey, setCustomPermissions } from '@saas/shared';
@@ -8,37 +8,47 @@ import { TabBar } from '../components/ui/TabBar.js';
 import { Sidebar } from '../components/ui/Sidebar.js';
 import { ToastProvider } from '../components/ui/Toast.js';
 import { LoginScreen } from '../features/auth/LoginScreen.js';
-import { DevClientsScreen } from '../features/dev/DevClientsScreen.js';
 import { HomeScreen } from '../features/home/HomeScreen.js';
-import { CollectionsScreen } from '../features/collections/CollectionsScreen.js';
-import { PartyDetailScreen } from '../features/collections/PartyDetailScreen.js';
-import { StockScreen } from '../features/stock/StockScreen.js';
-import { StockDetailScreen } from '../features/stock/StockDetailScreen.js';
-import { RemindersScreen } from '../features/reminders/RemindersScreen.js';
-import { RemindersRepliesScreen } from '../features/reminders/RemindersRepliesScreen.js';
-import { RemindersTemplatesScreen } from '../features/reminders/RemindersTemplatesScreen.js';
-import { NotebookScreen } from '../features/notebook/NotebookScreen.js';
-import { ActivityScreen } from '../features/activity/ActivityScreen.js';
-import { SettingsScreen } from '../features/settings/SettingsScreen.js';
-import { MoreScreen } from '../features/more/MoreScreen.js';
-import { ChallansScreen } from '../features/challans/ChallansScreen.js';
-import { CreateChallanScreen } from '../features/challans/CreateChallanScreen.js';
-import { ChallanDetailScreen } from '../features/challans/ChallanDetailScreen.js';
-import { TasksScreen } from '../features/tasks/TasksScreen.js';
-import { ChallanPrintScreen } from '../features/print/ChallanPrintScreen.js';
-import { StatementPrintScreen } from '../features/print/StatementPrintScreen.js';
-import { BalanceSheetScreen } from '../features/reports/BalanceSheetScreen.js';
-import { ProfitAndLossScreen } from '../features/reports/ProfitAndLossScreen.js';
-import { TrialBalanceScreen } from '../features/reports/TrialBalanceScreen.js';
-import { DaybookScreen } from '../features/reports/DaybookScreen.js';
-import { SalesRegisterScreen } from '../features/reports/SalesRegisterScreen.js';
-import { PurchaseRegisterScreen } from '../features/reports/PurchaseRegisterScreen.js';
-import { CashBankScreen } from '../features/reports/CashBankScreen.js';
+
+// Route-level code splitting: heavy screens & print/report bundles load on demand
+const DevClientsScreen = lazy(() => import('../features/dev/DevClientsScreen.js').then((m) => ({ default: m.DevClientsScreen })));
+const CollectionsScreen = lazy(() => import('../features/collections/CollectionsScreen.js').then((m) => ({ default: m.CollectionsScreen })));
+const PartyDetailScreen = lazy(() => import('../features/collections/PartyDetailScreen.js').then((m) => ({ default: m.PartyDetailScreen })));
+const StockScreen = lazy(() => import('../features/stock/StockScreen.js').then((m) => ({ default: m.StockScreen })));
+const StockDetailScreen = lazy(() => import('../features/stock/StockDetailScreen.js').then((m) => ({ default: m.StockDetailScreen })));
+const RemindersScreen = lazy(() => import('../features/reminders/RemindersScreen.js').then((m) => ({ default: m.RemindersScreen })));
+const RemindersRepliesScreen = lazy(() => import('../features/reminders/RemindersRepliesScreen.js').then((m) => ({ default: m.RemindersRepliesScreen })));
+const RemindersTemplatesScreen = lazy(() => import('../features/reminders/RemindersTemplatesScreen.js').then((m) => ({ default: m.RemindersTemplatesScreen })));
+const NotebookScreen = lazy(() => import('../features/notebook/NotebookScreen.js').then((m) => ({ default: m.NotebookScreen })));
+const ActivityScreen = lazy(() => import('../features/activity/ActivityScreen.js').then((m) => ({ default: m.ActivityScreen })));
+const SettingsScreen = lazy(() => import('../features/settings/SettingsScreen.js').then((m) => ({ default: m.SettingsScreen })));
+const MoreScreen = lazy(() => import('../features/more/MoreScreen.js').then((m) => ({ default: m.MoreScreen })));
+const ChallansScreen = lazy(() => import('../features/challans/ChallansScreen.js').then((m) => ({ default: m.ChallansScreen })));
+const CreateChallanScreen = lazy(() => import('../features/challans/CreateChallanScreen.js').then((m) => ({ default: m.CreateChallanScreen })));
+const ChallanDetailScreen = lazy(() => import('../features/challans/ChallanDetailScreen.js').then((m) => ({ default: m.ChallanDetailScreen })));
+const TasksScreen = lazy(() => import('../features/tasks/TasksScreen.js').then((m) => ({ default: m.TasksScreen })));
+const ChallanPrintScreen = lazy(() => import('../features/print/ChallanPrintScreen.js').then((m) => ({ default: m.ChallanPrintScreen })));
+const StatementPrintScreen = lazy(() => import('../features/print/StatementPrintScreen.js').then((m) => ({ default: m.StatementPrintScreen })));
+const BalanceSheetScreen = lazy(() => import('../features/reports/BalanceSheetScreen.js').then((m) => ({ default: m.BalanceSheetScreen })));
+const ProfitAndLossScreen = lazy(() => import('../features/reports/ProfitAndLossScreen.js').then((m) => ({ default: m.ProfitAndLossScreen })));
+const TrialBalanceScreen = lazy(() => import('../features/reports/TrialBalanceScreen.js').then((m) => ({ default: m.TrialBalanceScreen })));
+const DaybookScreen = lazy(() => import('../features/reports/DaybookScreen.js').then((m) => ({ default: m.DaybookScreen })));
+const SalesRegisterScreen = lazy(() => import('../features/reports/SalesRegisterScreen.js').then((m) => ({ default: m.SalesRegisterScreen })));
+const PurchaseRegisterScreen = lazy(() => import('../features/reports/PurchaseRegisterScreen.js').then((m) => ({ default: m.PurchaseRegisterScreen })));
+const CashBankScreen = lazy(() => import('../features/reports/CashBankScreen.js').then((m) => ({ default: m.CashBankScreen })));
+
+const RouteFallback: React.FC = () => (
+  <div className="flex-1 flex items-center justify-center p-10 text-subhead text-label-2 animate-pulse">
+    Loading...
+  </div>
+);
 
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60,
+      gcTime: 1000 * 60 * 10,
+      refetchOnWindowFocus: false,
       retry: 1,
     },
   },
@@ -52,7 +62,9 @@ const AppLayout: React.FC = () => {
 
       {/* Main Screen Outlet */}
       <div className="flex-1 flex flex-col min-w-0">
-        <Outlet />
+        <Suspense fallback={<RouteFallback />}>
+          <Outlet />
+        </Suspense>
       </div>
 
       {/* Mobile Tab Bar */}
@@ -110,7 +122,7 @@ const RequireAuth: React.FC<{ standalone?: boolean; children?: React.ReactElemen
     return <Navigate to="/login" replace />;
   }
   if (standalone && children) {
-    return children;
+    return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
   }
   return <AppLayout />;
 };

@@ -54,11 +54,20 @@ export const StockDetailScreen: React.FC = () => {
     }
   }, [godowns, selectedGodownId]);
 
-  // Fetch outbox updates
+  // Fetch outbox updates (only poll while an item for this stock is actively queued)
   const { data: outboxItems = [] } = useQuery({
     queryKey: ['outbox', currentCompanyId],
     queryFn: () => api.outbox.list(currentCompanyId),
-    refetchInterval: 2000,
+    refetchInterval: (query) => {
+      const items = (query.state.data as any[]) || [];
+      const hasQueued = items.some(
+        (o) =>
+          (o.kind === 'stock_journal' || o.kind === 'stock_item') &&
+          o.refId === itemId &&
+          o.status === 'queued'
+      );
+      return hasQueued ? 3000 : false;
+    },
   });
 
   const { data: historyData } = useQuery({
@@ -67,7 +76,7 @@ export const StockDetailScreen: React.FC = () => {
   });
 
   const recentOutbox = outboxItems.filter(
-    (o) => o.kind === 'stock_journal' && o.refId === itemId
+    (o) => (o.kind === 'stock_journal' || o.kind === 'stock_item') && o.refId === itemId
   );
 
   const canAdjust = can(currentUser || currentRole, 'stock.adjust');
@@ -323,7 +332,7 @@ export const StockDetailScreen: React.FC = () => {
           {recentOutbox.map((outbox) => (
             <Row
               key={outbox.id}
-              title="Stock Journal Adjustment"
+              title={outbox.kind === 'stock_item' ? 'Stock Item Master Sync' : 'Stock Journal Adjustment'}
               subtitle={`Ref: ${outbox.id}`}
               trailing={
                 outbox.status === 'queued' ? (

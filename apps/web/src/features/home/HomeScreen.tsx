@@ -57,14 +57,55 @@ export const HomeScreen: React.FC = () => {
     });
   }, [summary?.mostOverdue]);
 
+  // Compute live sync status from active company metadata
+  const syncStatus = React.useMemo(() => {
+    const relevant =
+      currentCompanyId !== 'all'
+        ? companies.filter((c) => c.id === currentCompanyId)
+        : companies;
+    let latestMs = 0;
+    let anyOnline = false;
+    for (const c of relevant) {
+      if (c.agentStatus === 'online') anyOnline = true;
+      if (c.lastSyncedAt) {
+        const ms = Date.parse(c.lastSyncedAt);
+        if (!Number.isNaN(ms) && ms > latestMs) latestMs = ms;
+      }
+    }
+    if (!latestMs) {
+      return { label: t('home.notSyncedYet', 'Not synced yet'), online: false };
+    }
+    const diffMin = Math.max(0, Math.floor((Date.now() - latestMs) / 60000));
+    let label: string;
+    if (diffMin < 1) {
+      label = t('home.updatedJustNow', 'Updated just now');
+    } else if (diffMin < 60) {
+      label = t('home.updatedMinutesAgo', {
+        count: diffMin,
+        defaultValue: `Updated ${diffMin} min ago`,
+      });
+    } else if (diffMin < 1440) {
+      const hrs = Math.floor(diffMin / 60);
+      label = `Updated ${hrs} hr ago`;
+    } else {
+      const days = Math.floor(diffMin / 1440);
+      label = `Updated ${days}d ago`;
+    }
+    return { label, online: anyOnline && diffMin < 15 };
+  }, [companies, currentCompanyId, t]);
+
   return (
     <LargeTitleScreen
       title={t('home.title', 'Home')}
       subtitle={
         <div className="flex items-center gap-1.5 bg-surface/80 border border-separator/40 px-3 py-1.5 rounded-full shadow-sm">
-          <span className="w-1.5 h-1.5 rounded-full bg-ok animate-pulse" />
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              syncStatus.online ? 'bg-ok animate-pulse' : 'bg-label-3'
+            }`}
+          />
           <span className="text-footnote text-label-2 font-medium">
-            {t('home.updatedMinutesAgo', { count: 2, defaultValue: 'Updated 2 min ago' })}
+            {syncStatus.label}
           </span>
         </div>
       }
