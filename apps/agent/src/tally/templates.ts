@@ -547,7 +547,10 @@ export function buildDeliveryChallanVoucherXml(params: DeliveryChallanVoucherPar
         <VOUCHER VCHTYPE="${tallyVchType}" ACTION="Create"${objViewAttr}>
           <DATE>${params.date}</DATE>
           <VOUCHERNUMBER>${escapeXml(params.voucherNumber)}</VOUCHERNUMBER>
+          <REFERENCE>${escapeXml(params.voucherNumber)}</REFERENCE>
+          <BASICSHIPDELIVERYNOTE>${escapeXml(params.voucherNumber)}</BASICSHIPDELIVERYNOTE>
           <VOUCHERTYPENAME>${tallyVchType}</VOUCHERTYPENAME>${persistedViewTag}${isInvoiceTag}
+          <PARTYNAME>${escapeXml(params.partyName)}</PARTYNAME>
           <PARTYLEDGERNAME>${escapeXml(params.partyName)}</PARTYLEDGERNAME>
           <BASICBUYERNAME>${escapeXml(params.partyName)}</BASICBUYERNAME>
           <NARRATION>${escapeXml(vehicleNarration)}</NARRATION>

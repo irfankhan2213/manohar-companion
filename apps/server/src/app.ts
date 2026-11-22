@@ -4075,6 +4075,14 @@ export function createApp(dbPath?: string): express.Express {
         INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
         VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
       `).run(`out-${Date.now()}`, companyId, id);
+
+      // Queue immediate sync command for desktop agent
+      const syncCmd = [{ type: 'SYNC_NOW', companyId, at: new Date().toISOString() }];
+      db.prepare(`
+        INSERT INTO agent_state (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?
+      `).run(`agent_commands_${tenantId}`, JSON.stringify(syncCmd), JSON.stringify(syncCmd));
     }
 
     // Audit log
@@ -4372,6 +4380,18 @@ export function createApp(dbPath?: string): express.Express {
         INSERT INTO outbox_items (id, companyId, kind, refId, status, attempts, lastError)
         VALUES (?, ?, 'challan', ?, 'queued', 1, NULL)
       `).run(`out-${Date.now()}`, existing.companyId, req.params.id);
+    }
+
+    // Queue immediate sync command for desktop agent
+    const compRow = db.prepare('SELECT tenantId FROM companies WHERE id = ?').get(existing.companyId) as any;
+    const targetTenant = compRow?.tenantId || user?.tenantId;
+    if (targetTenant) {
+      const syncCmd = [{ type: 'SYNC_NOW', companyId: existing.companyId, at: new Date().toISOString() }];
+      db.prepare(`
+        INSERT INTO agent_state (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = ?
+      `).run(`agent_commands_${targetTenant}`, JSON.stringify(syncCmd), JSON.stringify(syncCmd));
     }
     const updated = db.prepare('SELECT * FROM challans WHERE id = ?').get(req.params.id) as any;
     res.json({ ...updated, lines: JSON.parse(updated.lines || '[]') });

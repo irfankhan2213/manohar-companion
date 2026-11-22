@@ -395,9 +395,28 @@ export const ChallanDetailScreen: React.FC = () => {
         )}
 
         {challan.status === 'queued' && (
-          <p className="text-footnote text-label-2 bg-fill/40 p-2.5 rounded-xl">
-            This voucher has been written to the offline queue and will sync to TallyPrime on the office PC.
-          </p>
+          <div className="flex flex-col gap-2.5 bg-fill/40 p-3 rounded-xl border border-separator/40">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-footnote text-label-2">
+                In offline sync queue. It will automatically import once the matching company is open in TallyPrime.
+              </span>
+              <Button
+                variant="tinted"
+                size="small"
+                disabled={retryMutation.isPending}
+                onClick={() => retryMutation.mutate()}
+                className="shrink-0 flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+                <span>{retryMutation.isPending ? 'Sending...' : 'Sync to Tally Now'}</span>
+              </Button>
+            </div>
+            {challan.failureReason && (
+              <span className="text-caption text-danger">
+                Notice: {challan.failureReason}
+              </span>
+            )}
+          </div>
         )}
 
         {challan.status === 'failed' && (

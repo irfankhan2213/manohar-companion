@@ -271,8 +271,8 @@ export class SyncEngine {
 
       // 2. CRITICAL RACE FIX: Pull queued mobile outbox items (stock adjustments & challans) FIRST
       // and write them to Tally BEFORE reading Tally's closing stock & ledger balances!
-      if (this.cloudUrl && primaryCompanyId) {
-        await this.pullOutboxFromCloud(primaryCompanyId, targetCompany);
+      if (this.cloudUrl) {
+        await this.pullOutboxFromCloud(primaryCompanyId, targetCompany, openCompanyNames);
       }
 
       // 2b. Query lightweight voucher manifest to detect deletions
@@ -874,12 +874,16 @@ export class SyncEngine {
     return pushData?.companyId || companyId;
   }
 
-  public async pullOutboxFromCloud(targetCompanyId?: string, overrideCompanyName?: string): Promise<number> {
+  public async pullOutboxFromCloud(
+    targetCompanyId?: string,
+    overrideCompanyName?: string,
+    openCompanyNames?: string[]
+  ): Promise<number> {
     if (!this.cloudUrl) return 0;
     const companyId = targetCompanyId || this.companyId || this.store.get().companyId;
     const key = this.agentSecretKey || this.store.get().agentSecretKey || 'dev-agent-secret-key';
 
-    const pullUrl = companyId
+    const pullUrl = companyId && companyId !== 'all'
       ? `${this.cloudUrl}/api/sync/pull?companyId=${encodeURIComponent(companyId)}`
       : `${this.cloudUrl}/api/sync/pull`;
 
@@ -902,13 +906,34 @@ export class SyncEngine {
     const queuedItems: any[] = await pullRes.json();
     let syncedCount = 0;
 
+    const openList = openCompanyNames || this.store.get().openTallyCompanies || (overrideCompanyName ? [overrideCompanyName] : []);
+
     for (const item of queuedItems) {
       try {
         const formattedDate = item.date
           ? item.date.replace(/-/g, '')
           : new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
-        const targetCompanyName = overrideCompanyName || item.companyName || this.store.get().companyName;
+        let targetCompanyName = overrideCompanyName || item.companyName || this.store.get().companyName;
+
+        // Multi-company verification: check if item's target company is actually loaded in TallyPrime
+        if (openList.length > 0 && item.companyName) {
+          const matchedOpen = openList.find((oc) => {
+            const ocNorm = normalizeTallyCompanyName(oc);
+            const itNorm = normalizeTallyCompanyName(item.companyName);
+            return ocNorm && itNorm && (ocNorm === itNorm || ocNorm.includes(itNorm) || itNorm.includes(ocNorm));
+          });
+          if (matchedOpen) {
+            targetCompanyName = matchedOpen;
+          } else if (openList.length > 0 && !overrideCompanyName) {
+            console.log(
+              `[SyncEngine] Challan ${item.number || item.id} is for company "${item.companyName}", but open in Tally: [${openList.join(
+                ', '
+              )}]. Waiting for "${item.companyName}" to be open in Tally.`
+            );
+            continue;
+          }
+        }
         let result: VoucherImportResult;
         if (item.kind === 'stock_journal') {
           result = await this.pushStockAdjustment({
@@ -1010,6 +1035,23 @@ export class SyncEngine {
         if (status === 'synced') syncedCount++;
       } catch (err: any) {
         console.error(`[SyncEngine] Failed to import item ${item.id} to Tally:`, err.message);
+        try {
+          await fetch(`${this.cloudUrl}/api/sync/ack`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-agent-key': key,
+            },
+            body: JSON.stringify({
+              challanId: item.id,
+              outboxId: item.outboxId || item.id,
+              voucherId: item.id,
+              kind: item.kind || 'challan',
+              status: 'failed',
+              failureReason: err?.message || 'Tally XML import error',
+            }),
+          });
+        } catch {}
       }
     }
 
